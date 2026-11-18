@@ -186,7 +186,7 @@ export function createTabStore(deps: {
     // re-runs the active-buffer memo; if activeTabId still pointed at the
     // closed id, that memo would resolve to null for one flush before we
     // reselect, disposing and recreating the preview iframe element instead
-    // of navigating its src. The destroy-then-recreate of a writ-preview://
+    // of navigating its src. The destroy-then-recreate of a jotra-preview://
     // iframe hard-freezes the macOS webview. Reselecting first keeps the
     // transition active->next (src navigation) or active->null only when no
     // tab survives (a single clean teardown), both safe. A pane the tab

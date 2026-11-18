@@ -14,35 +14,35 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::time::Duration;
 
-use tempfile::TempDir;
-use writ_core::config::WritConfig;
-use writ_core::events::bus::{EventBus, WritEvent};
-use writ_core::preview::{ContentRendererRegistry, RenderRequest};
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::change_event::ExternalChange;
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
-use writ_tauri_lib::bus_subscribers::{attach_bus_subscribers, BusHost};
-use writ_tauri_lib::commands::activity::announce_waiting_inner;
-use writ_tauri_lib::commands::buffer::read_buffer_content_inner;
-use writ_tauri_lib::commands::file::open_file_from_path;
-use writ_tauri_lib::commands::notes::open_or_mint_dated_note;
-use writ_tauri_lib::commands::preview::{
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::{EventBus, JotraEvent};
+use jotra_core::preview::{ContentRendererRegistry, RenderRequest};
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::change_event::ExternalChange;
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::notes_index::NotesIndexStore;
+use jotra_tauri_lib::bus_subscribers::{attach_bus_subscribers, BusHost};
+use jotra_tauri_lib::commands::activity::announce_waiting_inner;
+use jotra_tauri_lib::commands::buffer::read_buffer_content_inner;
+use jotra_tauri_lib::commands::file::open_file_from_path;
+use jotra_tauri_lib::commands::notes::open_or_mint_dated_note;
+use jotra_tauri_lib::commands::preview::{
     preview_set_scripts_inner, render_into_cache, CachedRender,
 };
-use writ_tauri_lib::events::WritFrontendEvent;
-use writ_tauri_lib::preview::handler::RenderCache;
-use writ_tauri_lib::preview::renderers::HtmlRenderer;
-use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
-use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::create_ignore_set;
+use jotra_tauri_lib::events::JotraFrontendEvent;
+use jotra_tauri_lib::preview::handler::RenderCache;
+use jotra_tauri_lib::preview::renderers::HtmlRenderer;
+use jotra_tauri_lib::quit::QuitState;
+use jotra_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
+use jotra_tauri_lib::state::AppState;
+use jotra_tauri_lib::watcher::handler::create_ignore_set;
+use tempfile::TempDir;
 
 /// Long enough for an emit or an open on an idle machine many times over, and
 /// short enough that one waiting on the store fails rather than hangs the
@@ -50,33 +50,33 @@ use writ_tauri_lib::watcher::handler::create_ignore_set;
 const DEADLINE: Duration = Duration::from_secs(5);
 
 fn make_state(dir: &TempDir) -> AppState {
-    let writ_dir = dir.path().to_path_buf();
-    let buffers_dir = writ_dir.join("buffers");
+    let jotra_dir = dir.path().to_path_buf();
+    let buffers_dir = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
 
-    let notes_root = writ_dir.join("Writ");
+    let notes_root = jotra_dir.join("Jotra");
     std::fs::create_dir_all(&notes_root).expect("notes folder");
-    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+    let notes_root = jotra_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
 
     let note_history = Arc::new(
-        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+        jotra_storage::note_history::NoteHistoryStore::open(&jotra_dir).expect("version store"),
     );
 
     AppState {
         store: Mutex::new(BufferStore::new(conn, buffers_dir.clone())),
-        config_store: ConfigStore::new(writ_dir.join("config.toml")),
-        config: Mutex::new(WritConfig::default()),
-        writ_dir,
+        config_store: ConfigStore::new(jotra_dir.join("config.toml")),
+        config: Mutex::new(JotraConfig::default()),
+        jotra_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: std::sync::atomic::AtomicBool::new(false),
         menu_apps: std::sync::Mutex::new(None),
-        retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+        retitle_watch: std::sync::Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -102,7 +102,7 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
-        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+        command_usage: jotra_storage::command_usage::CommandUsageStore::new(
             open_database(&db_path).expect("usage db"),
         ),
         config_diagnostics: std::sync::Mutex::new(Vec::new()),
@@ -112,9 +112,9 @@ fn make_state(dir: &TempDir) -> AppState {
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
-        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(
-            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+            jotra_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
@@ -135,7 +135,7 @@ impl BusHost for Headless {
         &self.state
     }
 
-    fn to_frontend(&self, _event: WritFrontendEvent) {}
+    fn to_frontend(&self, _event: JotraFrontendEvent) {}
 
     fn redraw_menu_bar(&self) {}
 
@@ -236,8 +236,8 @@ fn on_a_worker<T: Send + 'static>(
     finished.recv_timeout(DEADLINE).ok()
 }
 
-fn external(buffer_id: &str, path: &str, change: ExternalChange) -> WritEvent {
-    WritEvent::BufferExternal {
+fn external(buffer_id: &str, path: &str, change: ExternalChange) -> JotraEvent {
+    JotraEvent::BufferExternal {
         buffer_id: buffer_id.to_string(),
         path: path.to_string(),
         change,
@@ -249,48 +249,48 @@ fn external(buffer_id: &str, path: &str, change: ExternalChange) -> WritEvent {
 
 /// One of every event the bus carries, about a tab that is open with its
 /// scripts on.
-fn every_event(state: &AppState, id: &str, path: &str) -> Vec<WritEvent> {
+fn every_event(state: &AppState, id: &str, path: &str) -> Vec<JotraEvent> {
     let root = state.notes_root().to_string_lossy().into_owned();
     let events = vec![
-        WritEvent::BufferOpened {
+        JotraEvent::BufferOpened {
             id: id.to_string(),
             title: "report.html".to_string(),
         },
-        WritEvent::ConfigChanged {
+        JotraEvent::ConfigChanged {
             keys: vec!["editor.font_size".to_string()],
         },
         external(id, path, ExternalChange::Modified),
         external(id, path, ExternalChange::Removed),
         external(id, path, ExternalChange::Moved),
-        WritEvent::WorkspaceChanged {
+        JotraEvent::WorkspaceChanged {
             path: path.to_string(),
             removed: false,
         },
-        WritEvent::NotesChanged {
+        JotraEvent::NotesChanged {
             path: path.to_string(),
             removed: false,
         },
-        WritEvent::NotesChanged {
+        JotraEvent::NotesChanged {
             path: path.to_string(),
             removed: true,
         },
-        WritEvent::WorkspaceSwept { root: root.clone() },
-        WritEvent::NotesSwept { root },
-        WritEvent::NotesIndexed {
+        JotraEvent::WorkspaceSwept { root: root.clone() },
+        JotraEvent::NotesSwept { root },
+        JotraEvent::NotesIndexed {
             paths: vec![path.to_string()],
         },
-        WritEvent::InboxFileArrived {
+        JotraEvent::InboxFileArrived {
             path: path.to_string(),
         },
-        WritEvent::HotkeyToggle,
-        WritEvent::MenuAction {
+        JotraEvent::HotkeyToggle,
+        JotraEvent::MenuAction {
             action: "file.save".to_string(),
         },
-        WritEvent::McpPendingChanged,
-        WritEvent::McpCalledWhileOff,
-        WritEvent::FlushBeforeQuit,
-        WritEvent::PluginEvent {
-            plugin_id: "writ.test".to_string(),
+        JotraEvent::McpPendingChanged,
+        JotraEvent::McpCalledWhileOff,
+        JotraEvent::FlushBeforeQuit,
+        JotraEvent::PluginEvent {
+            plugin_id: "jotra.test".to_string(),
             data: serde_json::json!({}),
         },
     ];
@@ -300,25 +300,25 @@ fn every_event(state: &AppState, id: &str, path: &str) -> Vec<WritEvent> {
     events
 }
 
-/// Names every kind of event with no wildcard, so a kind added to `WritEvent`
+/// Names every kind of event with no wildcard, so a kind added to `JotraEvent`
 /// does not compile here until [`every_event`] emits one too.
-fn listed(event: &WritEvent) {
+fn listed(event: &JotraEvent) {
     match event {
-        WritEvent::BufferOpened { .. }
-        | WritEvent::ConfigChanged { .. }
-        | WritEvent::BufferExternal { .. }
-        | WritEvent::WorkspaceChanged { .. }
-        | WritEvent::WorkspaceSwept { .. }
-        | WritEvent::NotesChanged { .. }
-        | WritEvent::NotesSwept { .. }
-        | WritEvent::NotesIndexed { .. }
-        | WritEvent::InboxFileArrived { .. }
-        | WritEvent::HotkeyToggle
-        | WritEvent::MenuAction { .. }
-        | WritEvent::McpPendingChanged
-        | WritEvent::McpCalledWhileOff
-        | WritEvent::FlushBeforeQuit
-        | WritEvent::PluginEvent { .. } => {}
+        JotraEvent::BufferOpened { .. }
+        | JotraEvent::ConfigChanged { .. }
+        | JotraEvent::BufferExternal { .. }
+        | JotraEvent::WorkspaceChanged { .. }
+        | JotraEvent::WorkspaceSwept { .. }
+        | JotraEvent::NotesChanged { .. }
+        | JotraEvent::NotesSwept { .. }
+        | JotraEvent::NotesIndexed { .. }
+        | JotraEvent::InboxFileArrived { .. }
+        | JotraEvent::HotkeyToggle
+        | JotraEvent::MenuAction { .. }
+        | JotraEvent::McpPendingChanged
+        | JotraEvent::McpCalledWhileOff
+        | JotraEvent::FlushBeforeQuit
+        | JotraEvent::PluginEvent { .. } => {}
     }
 }
 

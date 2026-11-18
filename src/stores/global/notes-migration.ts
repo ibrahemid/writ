@@ -3,7 +3,7 @@ import * as api from "../../services/tauri";
 import { joinPath } from "../../lib/path";
 import type { MoveArchiveOutcome, NotesMigrationReport } from "../../services/tauri";
 
-// Singleton state — Writ is single-window. The report is read once per launch
+// Singleton state — Jotra is single-window. The report is read once per launch
 // and shown until the user dismisses it, after which no launch shows it again.
 
 export type { MoveArchiveOutcome, NotesMigrationReport };
@@ -26,7 +26,7 @@ function createNotesMigrationStore() {
   }
 
   // The panel goes as soon as it is dismissed, whether or not the row records
-  // it: a panel that stays on screen while Writ writes to the database reads
+  // it: a panel that stays on screen while Jotra writes to the database reads
   // as a button that did nothing.
   async function dismiss(): Promise<void> {
     setReport(null);
@@ -39,7 +39,7 @@ function createNotesMigrationStore() {
 
   // The folder the pass wrote text into when it could not place it with
   // confidence. Its name is fixed by the migration
-  // (`writ_storage::notes_migration::RECOVERED_FOLDER`). The notes folder is
+  // (`jotra_storage::notes_migration::RECOVERED_FOLDER`). The notes folder is
   // asked for rather than read off the report, because a folder the user has
   // since moved took this one with it.
   async function showRecovered(): Promise<void> {

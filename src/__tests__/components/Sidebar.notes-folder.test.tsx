@@ -5,9 +5,9 @@ import type { WorkspaceEntry } from "../../types/workspace";
 
 // The sidebar's folder section on a fresh install: the notes folder is the
 // tree whenever no other folder is open, the tag filter filters it, and a
-// write Writ makes itself reaches it through `notes:indexed`.
+// write Jotra makes itself reaches it through `notes:indexed`.
 
-const NOTES = "/Users/me/Writ";
+const NOTES = "/Users/me/Jotra";
 
 const h = vi.hoisted(() => ({
   active: [] as BufferDocument[],
@@ -202,7 +202,7 @@ describe("the folder section on a fresh install", () => {
     const { container } = await mount();
 
     expect(container.querySelector(".files-section .sidebar-section-name")?.textContent).toBe(
-      "Writ",
+      "Jotra",
     );
     expect(treeNames(container)).toEqual(["2026-10-13"]);
     expect(container.textContent).not.toContain("No files yet.");
@@ -258,8 +258,8 @@ describe("the folder section on a fresh install", () => {
   });
 });
 
-describe("Writ's own writes reach the notes folder", () => {
-  it("lists a file Writ created once its index event arrives", async () => {
+describe("Jotra's own writes reach the notes folder", () => {
+  it("lists a file Jotra created once its index event arrives", async () => {
     h.notesDirs.set(NOTES, [file(`${NOTES}/A.md`)]);
     const { container } = await mount();
     expect(treeNames(container)).toEqual(["A"]);
@@ -271,7 +271,7 @@ describe("Writ's own writes reach the notes folder", () => {
     expect(treeNames(container)).toEqual(["A", "B"]);
   });
 
-  it("drops a file Writ deleted and follows one it renamed", async () => {
+  it("drops a file Jotra deleted and follows one it renamed", async () => {
     h.notesDirs.set(NOTES, [file(`${NOTES}/A.md`), file(`${NOTES}/B.md`)]);
     const { container } = await mount();
 
@@ -384,11 +384,11 @@ describe("tags over the notes folder", () => {
   it("lists the tagged files under the tag when the folder opened by hand holds the notes folder", async () => {
     // The way down to the notes folder passes a name a code folder's tree
     // leaves out, so the tree of the folder above cannot reach any note.
-    mockedApi.getNotesRoot.mockResolvedValueOnce("/Users/me/vendor/Writ");
+    mockedApi.getNotesRoot.mockResolvedValueOnce("/Users/me/vendor/Jotra");
     h.workspaceRoot = "/Users/me";
     h.workspaceDirs.set("/Users/me", [file("/Users/me/todo.md")]);
     mockedApi.noteAllTags.mockResolvedValue([{ tag: "plan", count: 1 }]);
-    mockedApi.notePathsForTag.mockResolvedValue(["/Users/me/vendor/Writ/Plan.md"]);
+    mockedApi.notePathsForTag.mockResolvedValue(["/Users/me/vendor/Jotra/Plan.md"]);
     const { container } = await mount();
 
     fireEvent.click(tagRow(container, "plan"));

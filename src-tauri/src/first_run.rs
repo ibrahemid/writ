@@ -1,12 +1,12 @@
 //! The first launch: the answer it records, the file it opens, and what may
 //! rename that file.
 //!
-//! The policy is [`writ_core::startup`]; this is the mechanism. Nothing is
+//! The policy is [`jotra_core::startup`]; this is the mechanism. Nothing is
 //! written until the screen is answered (ADR-041 §3), so the work runs from
 //! the `finish_first_run` command rather than from Tauri's setup. It records
 //! the chosen format, creates the file the window opens on, and it keeps the
 //! two facts the retitle guard rails read: whether a note's tab has been
-//! closed, and whether anything outside Writ has touched the note's path since
+//! closed, and whether anything outside Jotra has touched the note's path since
 //! it was created.
 
 use std::collections::HashMap;
@@ -14,16 +14,16 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 
+use jotra_core::buffer::document::BufferDocument;
+use jotra_core::config::{AppId, FileExtension};
+use jotra_core::startup::{retitle_answer, RetitleAnswer, RetitleFacts};
+use jotra_storage::paths::file_name_only;
 use tracing::info;
-use writ_core::buffer::document::BufferDocument;
-use writ_core::config::{AppId, FileExtension};
-use writ_core::startup::{retitle_answer, RetitleAnswer, RetitleFacts};
-use writ_storage::paths::file_name_only;
 
 use crate::poison::recover_poison;
 use crate::state::AppState;
 
-/// What has happened to each note Writ minted and has not yet retitled.
+/// What has happened to each note Jotra minted and has not yet retitled.
 ///
 /// A note leaves the table the first time its first line is answered for, so
 /// the retitle happens at most once per note however many times it is asked.
@@ -38,7 +38,7 @@ impl RetitleWatch {
         Self::default()
     }
 
-    /// Starts watching the note Writ just minted at `path`.
+    /// Starts watching the note Jotra just minted at `path`.
     pub fn watch(&self, path: &Path) {
         let mut entries = recover_poison(self.entries.lock(), "first_run::RetitleWatch::watch");
         entries.insert(path.to_path_buf(), RetitleFacts::default());
@@ -49,9 +49,9 @@ impl RetitleWatch {
         self.record(path, |facts| facts.has_been_closed = true);
     }
 
-    /// Records one change to `path` that Writ did not make.
+    /// Records one change to `path` that Jotra did not make.
     ///
-    /// Every caller is downstream of the watcher's ignore set, so a write Writ
+    /// Every caller is downstream of the watcher's ignore set, so a write Jotra
     /// made never reaches here.
     pub fn changed_outside(&self, path: &Path) {
         self.record(path, |facts| {
@@ -103,7 +103,7 @@ impl RetitleWatch {
 /// Answered once. The command stays callable for the whole session, and a
 /// second call writes nothing and opens nothing: the file the first call
 /// minted is the file this launch opens, and a second one would be an empty
-/// `writ-<yymmdd>-<hhmm>-2` beside it. The flag is set only after a run that
+/// `jotra-<yymmdd>-<hhmm>-2` beside it. The flag is set only after a run that
 /// got all the way through, so a run that could not record the config leaves
 /// the screen up with the answer still on it and may be answered again.
 pub fn finish_first_run_inner(
@@ -135,7 +135,7 @@ fn first_note(state: &AppState) -> Result<Option<BufferDocument>, String> {
     if let Some(path) = newest_note_in(&root) {
         return open_note_at(state, &path);
     }
-    // Minting is what arms the retitle watch, so only a file Writ made this
+    // Minting is what arms the retitle watch, so only a file Jotra made this
     // launch can be renamed from its own first line unasked.
     crate::commands::notes::new_note_inner(state).map(Some)
 }
@@ -144,7 +144,7 @@ fn first_note(state: &AppState) -> Result<Option<BufferDocument>, String> {
 fn has_open_notes(state: &AppState) -> Result<bool, String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let open = store
-        .list_by_status(writ_core::buffer::document::BufferStatus::Active)
+        .list_by_status(jotra_core::buffer::document::BufferStatus::Active)
         .map_err(|e| e.to_string())?;
     Ok(!open.is_empty())
 }
@@ -182,7 +182,7 @@ fn newest_note_in(root: &Path) -> Option<PathBuf> {
 /// Whether `path` is a note rather than one of the files a sync client, an
 /// editor or the operating system leaves in a folder.
 ///
-/// The extensions are [`writ_storage::notes_index::has_text_extension`]'s, the
+/// The extensions are [`jotra_storage::notes_index::has_text_extension`]'s, the
 /// list the index already reads, so a folder of `.txt` files is a folder with
 /// work in it rather than an empty one to mint into (ADR-041 §2).
 fn is_note_file(path: &Path) -> bool {
@@ -190,7 +190,7 @@ fn is_note_file(path: &Path) -> bool {
         .file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.starts_with('.'));
-    writ_storage::notes_index::has_text_extension(path) && !hidden
+    jotra_storage::notes_index::has_text_extension(path) && !hidden
 }
 
 /// Writes the config this launch found no trace of, carrying the format and

@@ -78,7 +78,7 @@ function chip(path: string, extra: Record<string, unknown> = {}) {
 
 /** What the chip says under a settled pointer. */
 function tipOver(container: HTMLElement): string {
-  fireEvent.pointerEnter(container.querySelector(".chat-chip .writ-tooltip-anchor") as Element);
+  fireEvent.pointerEnter(container.querySelector(".chat-chip .jotra-tooltip-anchor") as Element);
   vi.advanceTimersByTime(500);
   return document.querySelector('[role="tooltip"]')?.textContent ?? "";
 }
@@ -525,16 +525,16 @@ describe("what the composer teaches", () => {
     mocks.draft = "a question";
     const idle = mount();
     const send = idle.getByRole("button", { name: "Send" });
-    fireEvent.pointerEnter(send.closest(".writ-tooltip-anchor") as Element);
+    fireEvent.pointerEnter(send.closest(".jotra-tooltip-anchor") as Element);
     vi.advanceTimersByTime(500);
     expect(document.querySelector('[role="tooltip"]')?.textContent).toContain("Send");
-    expect(document.querySelector(".writ-tooltip-kbd")?.textContent).not.toBe("");
+    expect(document.querySelector(".jotra-tooltip-kbd")?.textContent).not.toBe("");
     cleanup();
 
     mocks.status = "streaming";
     const live = mount();
     const stop = live.getByRole("button", { name: "Stop" });
-    fireEvent.pointerEnter(stop.closest(".writ-tooltip-anchor") as Element);
+    fireEvent.pointerEnter(stop.closest(".jotra-tooltip-anchor") as Element);
     vi.advanceTimersByTime(500);
     expect(document.querySelector('[role="tooltip"]')?.textContent).toContain("Stop");
   });

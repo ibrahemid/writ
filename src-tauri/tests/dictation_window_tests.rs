@@ -7,16 +7,16 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime};
-use tauri::webview::PageLoadEvent;
-use tauri::{Manager, PhysicalSize, WindowEvent};
-use writ_tauri_lib::dictation::session::Controls;
-use writ_tauri_lib::dictation::window::{
+use jotra_tauri_lib::dictation::session::Controls;
+use jotra_tauri_lib::dictation::window::{
     cancel_on_page_load, read_on_main_thread, read_window_state, sight_after, stop_after,
     stop_when_gone, stop_when_out_of_sight, Sight, SightWatch, WindowState, MAIN_WINDOW,
     WATCH_PERIOD,
 };
-use writ_tauri_lib::dictation::DictationState;
+use jotra_tauri_lib::dictation::DictationState;
+use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime};
+use tauri::webview::PageLoadEvent;
+use tauri::{Manager, PhysicalSize, WindowEvent};
 
 fn app_with_window(label: &str) -> tauri::App<MockRuntime> {
     let app = mock_builder()
@@ -265,11 +265,11 @@ fn the_watchdog_reads_on_its_period_and_ends_with_the_session() {
 #[cfg(target_os = "macos")]
 #[test]
 fn appkit_reporting_the_main_window_minimized_stops_the_session() {
+    use jotra_tauri_lib::dictation::window::observe_minimize;
     use objc2::rc::Retained;
     use objc2::runtime::NSObject;
     use objc2_app_kit::NSWindowDidMiniaturizeNotification;
     use objc2_foundation::NSNotificationCenter;
-    use writ_tauri_lib::dictation::window::observe_minimize;
 
     let app = app_with_window(MAIN_WINDOW);
     let (_, controls) = live_session(&app);
@@ -298,10 +298,10 @@ fn appkit_reporting_the_main_window_minimized_stops_the_session() {
 #[cfg(target_os = "macos")]
 #[test]
 fn appkit_reporting_the_application_hidden_stops_the_session() {
+    use jotra_tauri_lib::dictation::window::observe_app_hide;
     use objc2::runtime::NSObject;
     use objc2_app_kit::NSApplicationDidHideNotification;
     use objc2_foundation::NSNotificationCenter;
-    use writ_tauri_lib::dictation::window::observe_app_hide;
 
     let app = app_with_window(MAIN_WINDOW);
     let (_, controls) = live_session(&app);

@@ -7,7 +7,7 @@
 //!
 //! **Embedded raw HTML passes through verbatim — no sanitization.** The CSP
 //! is the uniform boundary (see `docs/security/html-preview.md`): the
-//! rendered HTML loads in the same fixed-CSP `writ-preview://document`
+//! rendered HTML loads in the same fixed-CSP `jotra-preview://document`
 //! iframe as the HTML renderer's output, so a `<script>` or `<div>` in the
 //! Markdown is governed by exactly the same policy as one in a `.html`
 //! buffer. Stripping it here would be both redundant and inconsistent with
@@ -20,13 +20,13 @@
 
 use std::sync::Arc;
 
-use tracing::debug;
-use writ_core::preview::protocol::{resolve_asset_reference, ASSET_PREFIX};
-use writ_core::preview::{
+use jotra_core::preview::protocol::{resolve_asset_reference, ASSET_PREFIX};
+use jotra_core::preview::{
     AssetScope, ContentRenderer, ContentTypeId, RenderError, RenderOutput, RenderRequest,
     RendererCapabilities,
 };
-use writ_storage::notes_index::NotesIndexStore;
+use jotra_storage::notes_index::NotesIndexStore;
+use tracing::debug;
 
 use super::{katex, mermaid, theme};
 use crate::preview::embeds::IndexEmbeds;
@@ -37,7 +37,7 @@ const MAX_SAFE_BYTES: u64 = 50 * 1024 * 1024;
 
 /// True when a reference points at a file rather than somewhere else.
 ///
-/// A scheme (`https:`, `data:`, `writ-preview:`) or a protocol-relative
+/// A scheme (`https:`, `data:`, `jotra-preview:`) or a protocol-relative
 /// prefix names a resource the preview does not own, and a bare fragment
 /// names a place in the document itself. A one-letter prefix is a Windows
 /// drive, not a scheme.
@@ -67,7 +67,7 @@ fn is_url_segment(value: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
 }
 
-/// The resolver the renderer hands `writ-render`: a reference in, an asset
+/// The resolver the renderer hands `jotra-render`: a reference in, an asset
 /// URL out, nothing when the file lies outside both containment roots.
 ///
 /// The URL carries the scope's token, the root's discriminator and the path
@@ -89,9 +89,9 @@ pub(crate) fn asset_url(scope: &AssetScope, reference: &str) -> Option<String> {
         return None;
     }
     match resolve_asset_reference(&scope.notes_root, &scope.note_dir, reference) {
-        // Root-relative, not absolute `writ-preview://…`, so it resolves against
-        // the document's own origin — `writ-preview://document` on macOS/Linux,
-        // `http://writ-preview.document` on Windows (TS-03/DS-03). The handler
+        // Root-relative, not absolute `jotra-preview://…`, so it resolves against
+        // the document's own origin — `jotra-preview://document` on macOS/Linux,
+        // `http://jotra-preview.document` on Windows (TS-03/DS-03). The handler
         // still receives the absolute form the engine resolves it to.
         Ok(found) => Some(format!(
             "/{ASSET_PREFIX}/{}/{}/{}/{}",
@@ -165,7 +165,7 @@ impl MarkdownRenderer {
         Some(IndexEmbeds::new(
             index,
             scope.clone(),
-            writ_storage::buffer_store::dataless_flags,
+            jotra_storage::buffer_store::dataless_flags,
         ))
     }
 }
@@ -197,22 +197,22 @@ impl ContentRenderer for MarkdownRenderer {
         }
         let wikilinks = wikilinks
             .as_ref()
-            .map(|resolver| resolver as &dyn writ_render::WikilinkResolver);
+            .map(|resolver| resolver as &dyn jotra_render::WikilinkResolver);
         let embeds = self.embeds(request.assets.as_ref());
         let embeds = embeds
             .as_ref()
-            .map(|resolver| resolver as &dyn writ_render::NoteEmbedResolver);
+            .map(|resolver| resolver as &dyn jotra_render::NoteEmbedResolver);
         let fragment = match &request.assets {
             Some(scope) => {
                 let resolver = asset_resolver(scope);
-                writ_render::render_markdown_fragment_with(
+                jotra_render::render_markdown_fragment_with(
                     &request.buffer_text,
                     Some(&resolver),
                     wikilinks,
                     embeds,
                 )
             }
-            None => writ_render::render_markdown_fragment_with(
+            None => jotra_render::render_markdown_fragment_with(
                 &request.buffer_text,
                 None,
                 wikilinks,
@@ -295,7 +295,7 @@ mod tests {
         // Self-contained document with the theme inlined as <style>.
         assert!(out.document_html.contains("<!doctype html>"));
         assert!(out.document_html.contains("<style>"));
-        assert!(out.document_html.contains("--writ-preview-bg"));
+        assert!(out.document_html.contains("--jotra-preview-bg"));
         // The inlined style precedes the rendered body.
         let style_idx = out.document_html.find("<style>").unwrap();
         let body_idx = out.document_html.find("<h1>").unwrap();
@@ -352,7 +352,7 @@ mod tests {
             .contains("src=\"/_assets/mermaid/init.js\""));
         assert!(!out
             .document_html
-            .contains("writ-preview://document/_assets"));
+            .contains("jotra-preview://document/_assets"));
     }
 
     #[test]
@@ -416,7 +416,7 @@ mod tests {
         assert!(out.document_html.contains("src=\"/_assets/katex/init.js\""));
         assert!(!out
             .document_html
-            .contains("writ-preview://document/_assets"));
+            .contains("jotra-preview://document/_assets"));
     }
 
     #[test]
@@ -494,7 +494,7 @@ mod tests {
     #[test]
     fn a_reference_outside_the_roots_is_left_as_authored_and_logged() {
         let guard = tempfile::tempdir().unwrap();
-        let notes = guard.path().join("Writ");
+        let notes = guard.path().join("Jotra");
         let note_dir = notes.join("daily");
         std::fs::create_dir_all(&note_dir).unwrap();
         let request = RenderRequest {
@@ -523,7 +523,7 @@ mod tests {
     #[test]
     fn a_token_that_is_not_one_url_segment_emits_no_asset_url() {
         let guard = tempfile::tempdir().unwrap();
-        let notes = guard.path().join("Writ");
+        let notes = guard.path().join("Jotra");
         let note_dir = notes.join("daily");
         std::fs::create_dir_all(&note_dir).unwrap();
         std::fs::write(note_dir.join("a.png"), b"\x89PNG\r\n\x1a\n").unwrap();
@@ -559,12 +559,12 @@ mod tests {
     #[test]
     fn a_wikilink_is_a_link_only_when_the_index_knows_the_note() {
         let guard = tempfile::tempdir().unwrap();
-        let notes = guard.path().join("Writ");
+        let notes = guard.path().join("Jotra");
         std::fs::create_dir_all(&notes).unwrap();
         std::fs::write(notes.join("Note.md"), "# Note\n").unwrap();
-        let db_path = guard.path().join("writ.db");
-        let conn = writ_storage::database::connection::open_database(&db_path).unwrap();
-        writ_storage::database::migrations::run_migrations(&conn).unwrap();
+        let db_path = guard.path().join("jotra.db");
+        let conn = jotra_storage::database::connection::open_database(&db_path).unwrap();
+        jotra_storage::database::migrations::run_migrations(&conn).unwrap();
         drop(conn);
         let index = Arc::new(NotesIndexStore::open(&db_path).unwrap());
         index.reconcile(&notes, &|| false, &|_| false).unwrap();
@@ -583,21 +583,23 @@ mod tests {
             .render(request())
             .unwrap()
             .document_html;
-        assert!(html.contains("<a class=\"writ-wikilink\" href=\"writ-note:Note.md\">Note</a>"));
-        assert!(html.contains("<span class=\"writ-wikilink writ-wikilink-missing\">Nowhere</span>"));
+        assert!(html.contains("<a class=\"jotra-wikilink\" href=\"jotra-note:Note.md\">Note</a>"));
+        assert!(
+            html.contains("<span class=\"jotra-wikilink jotra-wikilink-missing\">Nowhere</span>")
+        );
 
         let plain = MarkdownRenderer::without_index()
             .render(request())
             .unwrap()
             .document_html;
         assert!(plain.contains("[[Note]]"));
-        assert!(!plain.contains("writ-wikilink"));
+        assert!(!plain.contains("jotra-wikilink"));
     }
 
     #[test]
     fn a_buffer_id_that_is_not_one_url_segment_emits_no_asset_url() {
         let guard = tempfile::tempdir().unwrap();
-        let notes = guard.path().join("Writ");
+        let notes = guard.path().join("Jotra");
         let note_dir = notes.join("daily");
         std::fs::create_dir_all(&note_dir).unwrap();
         std::fs::write(note_dir.join("a.png"), b"\x89PNG\r\n\x1a\n").unwrap();
@@ -641,6 +643,6 @@ mod tests {
         let out = render("");
         assert!(out.used_fallback_stylesheet);
         assert!(out.document_html.contains("<!doctype html>"));
-        assert!(out.document_html.contains("--writ-preview-bg"));
+        assert!(out.document_html.contains("--jotra-preview-bg"));
     }
 }

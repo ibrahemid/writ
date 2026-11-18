@@ -1,10 +1,10 @@
 .inbox-list {
   display: flex;
   flex-direction: column;
-  padding: var(--writ-space-1) 0 var(--writ-space-3);
+  padding: var(--jotra-space-1) 0 var(--jotra-space-3);
 }
 
-.inbox-list .writ-tooltip-anchor {
+.inbox-list .jotra-tooltip-anchor {
   display: block;
 }
 
@@ -14,20 +14,20 @@
   display: flex;
   align-items: center;
   width: auto;
-  padding: 0 var(--writ-space-3-5) 0 30px;
+  padding: 0 var(--jotra-space-3-5) 0 30px;
   border: none;
   background: transparent;
   text-align: left;
   cursor: pointer;
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
   font-family: inherit;
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  transition: background var(--writ-motion);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  transition: background var(--jotra-motion);
 }
 
 .inbox-item:hover {
-  background: var(--writ-bg-hover);
+  background: var(--jotra-bg-hover);
 }
 
 .inbox-item-name {
@@ -40,8 +40,8 @@
 
 .inbox-item-size {
   flex-shrink: 0;
-  color: var(--writ-fg-faint);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
+  color: var(--jotra-fg-faint);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
   font-variant-numeric: tabular-nums;
 }

@@ -17,7 +17,7 @@ const h = vi.hoisted(() => ({
   saves: [] as Array<[string, string]>,
   readFails: new Map<string, unknown>(),
   gates: new Map<string, Promise<void>>(),
-  // The text each file held when Writ last read or wrote it.
+  // The text each file held when Jotra last read or wrote it.
   seen: new Map<string, string>(),
 }));
 
@@ -173,9 +173,9 @@ describe("typing reaches its file when the view goes away", () => {
   });
 
   it("closing the last tab right after typing writes the typing", async () => {
-    h.content.set("L1", "as Writ opened it");
+    h.content.set("L1", "as Jotra opened it");
     const { win, view } = await mountWith("L1", 9501);
-    expect(view!.state.doc.toString()).toBe("as Writ opened it");
+    expect(view!.state.doc.toString()).toBe("as Jotra opened it");
 
     view!.dispatch({ changes: { from: view!.state.doc.length, insert: " and my last words" } });
     await flush();
@@ -183,8 +183,8 @@ describe("typing reaches its file when the view goes away", () => {
     await win.tabs.closeTab("L1");
     await flush();
 
-    expect(h.saves).toContainEqual(["L1", "as Writ opened it and my last words"]);
-    expect(h.content.get("L1")).toBe("as Writ opened it and my last words");
+    expect(h.saves).toContainEqual(["L1", "as Jotra opened it and my last words"]);
+    expect(h.content.get("L1")).toBe("as Jotra opened it and my last words");
   });
 
   it("opening a file whose bytes are not here right after typing writes the typing", async () => {
@@ -242,7 +242,7 @@ describe("typing reaches its file when the view goes away", () => {
   });
 });
 
-describe("a file Writ could not read", () => {
+describe("a file Jotra could not read", () => {
   beforeEach(async () => {
     const { resetAutosave } = await import("../../../services/autosave");
     resetAutosave();
@@ -260,7 +260,7 @@ describe("a file Writ could not read", () => {
   });
 
   it("never opens as a writable empty document", async () => {
-    h.content.set("L3", "café bytes Writ could not decode");
+    h.content.set("L3", "café bytes Jotra could not decode");
     h.readFails.set("L3", "ERR_READ_NOT_UTF8: stream did not contain valid UTF-8");
     const { win, view, screen } = await mountWith("L3", 9503);
 
@@ -272,7 +272,7 @@ describe("a file Writ could not read", () => {
     await win.editor.flushAutosave("L3");
     await win.editor.saveActiveBuffer();
     expect(h.saves).toEqual([]);
-    expect(h.content.get("L3")).toBe("café bytes Writ could not decode");
+    expect(h.content.get("L3")).toBe("café bytes Jotra could not decode");
   });
 
   it("opens a file that is not UTF-8 into a tab showing the failure", async () => {
@@ -593,7 +593,7 @@ describe("a crash screen in front of the editor", () => {
     const { useActiveBuffer } = await import("../../../lib/use-active-buffer");
     const { bufferRegistry } = await import("../../../stores/global/buffer-registry");
 
-    h.content.set("E1", "as Writ opened it");
+    h.content.set("E1", "as Jotra opened it");
     bufferRegistry.registerOpenResult({ doc: mockBuffer("E1"), mode: { kind: "Normal" }, size_bytes: 17 });
 
     const [broken, setBroken] = createSignal(false);
@@ -634,8 +634,8 @@ describe("a crash screen in front of the editor", () => {
     await flush();
 
     const remounted = viewIn(screen.container)!;
-    expect(remounted.state.doc.toString()).toBe("as Writ opened it typed before the crash");
+    expect(remounted.state.doc.toString()).toBe("as Jotra opened it typed before the crash");
     await win!.editor.flushAutosave();
-    expect(h.content.get("E1")).toBe("as Writ opened it typed before the crash");
+    expect(h.content.get("E1")).toBe("as Jotra opened it typed before the crash");
   });
 });

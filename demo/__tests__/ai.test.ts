@@ -31,7 +31,7 @@ const hosted = (consented: boolean): AiConfig => ({
 });
 
 describe("the provider table and endpoint rules", () => {
-  it("carries the sixteen rows writ-core serialises", () => {
+  it("carries the sixteen rows jotra-core serialises", () => {
     expect(PROVIDERS.map((row) => row.id)).toEqual([
       "ollama", "lmstudio", "llamacpp", "jan", "anthropic", "openai", "gemini", "openrouter", "groq", "deepseek", "mistral", "xai", "together", "fireworks", "custom", "apple",
     ]);
@@ -120,8 +120,8 @@ describe("changing the connection", () => {
 describe("connected programs", () => {
   it("hands out the bundled binary's command and the static tool list", () => {
     expect(getMcpServerCommand()).toEqual({
-      path: "/Applications/Writ.app/Contents/MacOS/writ",
-      command: '"/Applications/Writ.app/Contents/MacOS/writ" mcp',
+      path: "/Applications/Jotra.app/Contents/MacOS/jotra",
+      command: '"/Applications/Jotra.app/Contents/MacOS/jotra" mcp',
       needs_install: false,
       needs_move: false,
     });

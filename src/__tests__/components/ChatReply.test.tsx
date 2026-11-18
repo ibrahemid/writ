@@ -89,7 +89,7 @@ describe("a rendered reply", () => {
   it("asks before it opens an http link, and never navigates", async () => {
     const { container } = render(() => (
       <ChatTurn
-        message={reply('<p><a href="https://writ.md/docs?d=note">the docs</a></p>')}
+        message={reply('<p><a href="https://jotra.md/docs?d=note">the docs</a></p>')}
         thinking={false}
       />
     ));
@@ -104,7 +104,7 @@ describe("a rendered reply", () => {
     expect(ask).not.toBeNull();
     await waitFor(() =>
       expect(ask.querySelector(".link-confirm-url")?.textContent).toBe(
-        "https://writ.md/docs?d=note",
+        "https://jotra.md/docs?d=note",
       ),
     );
     const open = ask.querySelector(".link-confirm-open") as HTMLButtonElement;
@@ -112,14 +112,14 @@ describe("a rendered reply", () => {
 
     fireEvent.click(open);
 
-    expect(mocks.openExternalUrl).toHaveBeenCalledWith("https://writ.md/docs?d=note");
+    expect(mocks.openExternalUrl).toHaveBeenCalledWith("https://jotra.md/docs?d=note");
     expect(container.querySelector(".link-confirm")).toBeNull();
   });
 
   it("opens nothing when the question is cancelled", async () => {
     const { container } = render(() => (
       <ChatTurn
-        message={reply('<p><a href="https://writ.md/docs">the docs</a></p>')}
+        message={reply('<p><a href="https://jotra.md/docs">the docs</a></p>')}
         thinking={false}
       />
     ));

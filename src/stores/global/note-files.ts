@@ -1,7 +1,7 @@
 import * as api from "../../services/tauri";
 import type { ChangeChoice, ResolveOutcome } from "../../types/buffer";
 
-/** The file side of a note's actions: the save panel, a change outside Writ, the file manager. */
+/** The file side of a note's actions: the save panel, a change outside Jotra, the file manager. */
 export const noteFiles = {
   pickSavePath(id: string): Promise<string | null> {
     return api.pickNoteSavePath(id);

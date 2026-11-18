@@ -14,11 +14,11 @@
 
 use std::path::Path;
 
+use jotra_core::events::bus::{EventBus, JotraEvent};
 use tauri::{AppHandle, Manager};
 use tracing::info;
-use writ_core::events::bus::{EventBus, WritEvent};
 
-use crate::events::{bus_bridge, emit_event, WritFrontendEvent};
+use crate::events::{bus_bridge, emit_event, JotraFrontendEvent};
 use crate::state::AppState;
 
 /// What the subscribers reach the running application through.
@@ -30,7 +30,7 @@ pub trait BusHost: Clone + Send + Sync + 'static {
     /// The state every subscriber acts on.
     fn app_state(&self) -> &AppState;
     /// Hands an event to the frontend.
-    fn to_frontend(&self, event: WritFrontendEvent);
+    fn to_frontend(&self, event: JotraFrontendEvent);
     /// Redraws the menu bar after the configuration was read again.
     fn redraw_menu_bar(&self);
     /// Tells the frontend the programs waiting for approval changed.
@@ -42,7 +42,7 @@ impl BusHost for AppHandle {
         self.state::<AppState>().inner()
     }
 
-    fn to_frontend(&self, event: WritFrontendEvent) {
+    fn to_frontend(&self, event: JotraFrontendEvent) {
         let _ = emit_event(self, event);
     }
 
@@ -60,14 +60,14 @@ impl BusHost for AppHandle {
 pub fn attach_bus_subscribers<H: BusHost>(host: &H) {
     let bus: &EventBus = &host.app_state().event_bus;
 
-    // An edit to config.toml from outside Writ is read back into the copy
+    // An edit to config.toml from outside Jotra is read back into the copy
     // every command answers from. Subscribed ahead of the bridge, so by the
     // time the frontend hears the file changed and asks for the config, the
     // answer is the file's.
     {
         let host = host.clone();
         bus.subscribe(move |event| {
-            if let WritEvent::ConfigChanged { .. } = event {
+            if let JotraEvent::ConfigChanged { .. } = event {
                 if host.app_state().reload_config_from_disk() {
                     host.redraw_menu_bar();
                 }
@@ -88,7 +88,7 @@ pub fn attach_bus_subscribers<H: BusHost>(host: &H) {
     {
         let host = host.clone();
         bus.subscribe(move |event| {
-            if let WritEvent::McpPendingChanged = event {
+            if let JotraEvent::McpPendingChanged = event {
                 host.announce_waiting_clients();
             }
         });
@@ -97,9 +97,9 @@ pub fn attach_bus_subscribers<H: BusHost>(host: &H) {
     {
         let host = host.clone();
         bus.subscribe(move |event| {
-            if let WritEvent::McpCalledWhileOff = event {
+            if let JotraEvent::McpCalledWhileOff = event {
                 if let Some(offer) =
-                    crate::commands::mcp_connect::off_call_event(&host.app_state().writ_dir)
+                    crate::commands::mcp_connect::off_call_event(&host.app_state().jotra_dir)
                 {
                     host.to_frontend(offer);
                 }
@@ -113,10 +113,10 @@ pub fn attach_bus_subscribers<H: BusHost>(host: &H) {
     {
         let index = host.app_state().workspace_index.clone();
         bus.subscribe(move |event| match event {
-            WritEvent::WorkspaceChanged { path, removed } => {
+            JotraEvent::WorkspaceChanged { path, removed } => {
                 crate::workspace_index::on_workspace_changed(&index, path, *removed);
             }
-            WritEvent::WorkspaceSwept { .. } => {
+            JotraEvent::WorkspaceSwept { .. } => {
                 crate::workspace_index::on_workspace_swept(&index);
             }
             _ => {}
@@ -137,7 +137,7 @@ pub fn attach_bus_subscribers<H: BusHost>(host: &H) {
             // walks the folder instead of patching a path. The root is read
             // live rather than captured: moving the notes folder restarts the
             // watcher, and the walk has to follow.
-            if let WritEvent::NotesSwept { .. } = event {
+            if let JotraEvent::NotesSwept { .. } = event {
                 let root_host = host.clone();
                 crate::spawn_notes_reconcile(
                     index.clone(),
@@ -151,13 +151,13 @@ pub fn attach_bus_subscribers<H: BusHost>(host: &H) {
     }
 
     // A rename the note's own first line asks for is only safe while nothing
-    // outside Writ has looked at the note. The bus is where that is seen:
-    // every write Writ made has already been dropped by the watcher's ignore
+    // outside Jotra has looked at the note. The bus is where that is seen:
+    // every write Jotra made has already been dropped by the watcher's ignore
     // set before an event reaches here.
     {
         let watch = host.app_state().retitle_watch.clone();
         bus.subscribe(move |event| {
-            if let WritEvent::NotesChanged { path, .. } = event {
+            if let JotraEvent::NotesChanged { path, .. } = event {
                 watch.changed_outside(Path::new(path));
             }
         });

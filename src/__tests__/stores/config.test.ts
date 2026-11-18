@@ -17,12 +17,12 @@ import {
 import { commandUsageStore } from "../../stores/global/command-usage";
 import { createEffect, createRoot } from "solid-js";
 import { getConfig, recordCommandUses, updateConfig } from "../../services/tauri";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 
 const mockedGetConfig = vi.mocked(getConfig);
 const mockedUpdateConfig = vi.mocked(updateConfig);
 
-const MOCK_CONFIG: WritConfig = {
+const MOCK_CONFIG: JotraConfig = {
   hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
   sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false, width: 240, collapsed: [], hidden: [] },
   panel: { open: false, width: 240 },
@@ -69,13 +69,13 @@ describe("configStore", () => {
       expect(configStore.config().editor.tab_size).toBe(4);
     });
 
-    // A config file written before Writ had a format to ask about carries no
+    // A config file written before Jotra had a format to ask about carries no
     // [files] table; the answer it never gave is the one a first launch
     // starts on.
     it("fills the format in for a config that predates the question", async () => {
-      const older: Partial<WritConfig> = { ...MOCK_CONFIG };
+      const older: Partial<JotraConfig> = { ...MOCK_CONFIG };
       delete older.files;
-      mockedGetConfig.mockResolvedValueOnce(older as WritConfig);
+      mockedGetConfig.mockResolvedValueOnce(older as JotraConfig);
 
       await configStore.load();
 
@@ -107,7 +107,7 @@ describe("configStore", () => {
       expect(resetConfig.editor.font_size).not.toBe(18);
       expect(resetConfig.hotkey.toggle).toBeTruthy();
       expect(resetConfig.editor.autosave_debounce_ms).toBeGreaterThan(0);
-      // Matches default_status_bar in writ-core: the fallback config and the
+      // Matches default_status_bar in jotra-core: the fallback config and the
       // one the backend writes have to agree on what a first launch shows.
       expect(resetConfig.editor.status_bar).toBe(true);
       expect(resetConfig.editor.status_bar_counts).toBe(false);
@@ -346,8 +346,8 @@ describe("configStore", () => {
     });
 
     it("defaults to 240 when the stored config predates the setting", async () => {
-      const legacy = { ...MOCK_CONFIG, sidebar: { ...MOCK_CONFIG.sidebar } } as WritConfig;
-      delete (legacy.sidebar as Partial<WritConfig["sidebar"]>).width;
+      const legacy = { ...MOCK_CONFIG, sidebar: { ...MOCK_CONFIG.sidebar } } as JotraConfig;
+      delete (legacy.sidebar as Partial<JotraConfig["sidebar"]>).width;
       mockedGetConfig.mockResolvedValueOnce(legacy);
 
       await configStore.load();
@@ -401,9 +401,9 @@ describe("configStore", () => {
     });
 
     it("reads no folded or hidden sections from a config that predates them", async () => {
-      const legacy = { ...MOCK_CONFIG, sidebar: { ...MOCK_CONFIG.sidebar } } as WritConfig;
-      delete (legacy.sidebar as Partial<WritConfig["sidebar"]>).collapsed;
-      delete (legacy.sidebar as Partial<WritConfig["sidebar"]>).hidden;
+      const legacy = { ...MOCK_CONFIG, sidebar: { ...MOCK_CONFIG.sidebar } } as JotraConfig;
+      delete (legacy.sidebar as Partial<JotraConfig["sidebar"]>).collapsed;
+      delete (legacy.sidebar as Partial<JotraConfig["sidebar"]>).hidden;
       mockedGetConfig.mockResolvedValueOnce(legacy);
 
       await configStore.load();
@@ -421,7 +421,7 @@ describe("configStore", () => {
           ...MOCK_CONFIG.sidebar,
           collapsed: ["open", "recent", "recent"],
           hidden: ["tags", 4],
-        } as unknown as WritConfig["sidebar"],
+        } as unknown as JotraConfig["sidebar"],
       });
 
       await configStore.load();
@@ -493,7 +493,7 @@ describe("configStore", () => {
   describe("app offers and first switch-ons", () => {
     it("reads offers as allowed and none made from a file that predates them", async () => {
       const older = { ...MOCK_CONFIG, apps: { connections: true, graph: false, tags: true } };
-      mockedGetConfig.mockResolvedValueOnce(older as WritConfig);
+      mockedGetConfig.mockResolvedValueOnce(older as JotraConfig);
       await configStore.load();
       expect(configStore.appOffersOn()).toBe(true);
       expect(configStore.wasAppOffered("tags")).toBe(false);
@@ -508,7 +508,7 @@ describe("configStore", () => {
           offered: ["tags", "nonsense", "tags"],
           opened: ["graph"],
         },
-      } as unknown as WritConfig);
+      } as unknown as JotraConfig);
       await configStore.load();
       expect(configStore.config().apps.offered).toEqual(["tags"]);
       expect(configStore.config().apps.opened).toEqual(["graph"]);

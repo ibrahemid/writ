@@ -218,7 +218,7 @@ describe("saveStatusStore", () => {
   });
 
   it("drops a failure when the same file turns into a question about a change", async () => {
-    // One bar for one file. A save refused against a change outside Writ, and
+    // One bar for one file. A save refused against a change outside Jotra, and
     // the question about that change, are the same event twice: the failure
     // has to go before the question renders, or a note carries two bars
     // saying different things about one file. Both callers that raise a bar

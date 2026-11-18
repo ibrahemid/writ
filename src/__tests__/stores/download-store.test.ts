@@ -15,7 +15,7 @@ const onEvent = vi.hoisted(() => vi.fn().mockResolvedValue(() => undefined));
 vi.mock("../../services/events", () => ({ onEvent }));
 
 const NOTE = {
-  path: "/home/user/Writ/away.md",
+  path: "/home/user/Jotra/away.md",
   title: "away.md",
   provider: "iCloud Drive",
 };
@@ -208,7 +208,7 @@ describe("download store", () => {
     expect(downloads.pending()).toHaveLength(1);
     expect(downloads.pending()[0].state).toBe("failed");
     expect(downloads.pending()[0].reason).toBe("open");
-    // The failure is Writ's to explain, so nothing of the raw error is kept.
+    // The failure is Jotra's to explain, so nothing of the raw error is kept.
     expect(downloads.pending()[0].message).toBeNull();
     expect(downloads.selected()?.path).toBe(NOTE.path);
     // The tab is still up and the note can be opened again, so the permission
@@ -319,7 +319,7 @@ describe("download store", () => {
     const reopen = vi.fn().mockResolvedValue(undefined);
     downloads.attachOpener(reopen);
 
-    await downloads.handle({ path: "/home/user/Writ/other.md", state: "done" });
+    await downloads.handle({ path: "/home/user/Jotra/other.md", state: "done" });
 
     expect(reopen).not.toHaveBeenCalled();
     expect(downloads.pending()).toEqual([]);

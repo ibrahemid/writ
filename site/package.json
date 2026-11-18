@@ -1,9 +1,9 @@
 {
-  "name": "writ-site",
+  "name": "jotra-site",
   "type": "module",
   "version": "1.0.1",
   "private": true,
-  "description": "Landing page for Writ",
+  "description": "Landing page for Jotra",
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",

@@ -42,8 +42,8 @@ function report(overrides: Record<string, unknown> = {}) {
   return {
     ran_at: "2026-08-30T09:00:00Z",
     first_ran_at: "2026-08-30T09:00:00Z",
-    notes_folder: "/home/user/Writ",
-    archive_folder: "/home/user/.writ/archive",
+    notes_folder: "/home/user/Jotra",
+    archive_folder: "/home/user/.jotra/archive",
     migrated: 3,
     archived: 0,
     recovered: 1,
@@ -68,7 +68,7 @@ describe("NotesMigrationReport", () => {
     mocks.moveArchived.mockReset().mockResolvedValue({ moved: 2, collided: [] });
     mocks.folder
       .mockReset()
-      .mockReturnValue({ path: "/home/user/Writ", display_path: "~/Writ", fallback: null });
+      .mockReturnValue({ path: "/home/user/Jotra", display_path: "~/Jotra", fallback: null });
     mocks.loadFolder.mockReset().mockResolvedValue(undefined);
     mocks.showToast.mockReset();
   });
@@ -84,7 +84,7 @@ describe("NotesMigrationReport", () => {
   // migrated + piped + recovered: every note the pass put in the folder.
   it("counts every note that became a file in the folder", () => {
     const { container } = render(() => <NotesMigrationReport />);
-    expect(text(container)).toContain("5 files are now in ~/Writ.");
+    expect(text(container)).toContain("5 files are now in ~/Jotra.");
     expect(text(container)).not.toContain("archive");
     expect(container.querySelector("[data-action='notes-report-show']")).not.toBeNull();
   });
@@ -111,10 +111,10 @@ describe("NotesMigrationReport", () => {
     await waitFor(() => expect(mocks.showRecovered).toHaveBeenCalledTimes(1));
   });
 
-  it("never says a note is still inside Writ", () => {
+  it("never says a note is still inside Jotra", () => {
     mocks.report.mockReturnValue(report({ archived: 4, failed: 2 }));
     const { container } = render(() => <NotesMigrationReport />);
-    expect(text(container)).not.toContain("still inside Writ");
+    expect(text(container)).not.toContain("still inside Jotra");
   });
 
   it("agrees with itself on one of each", () => {
@@ -122,7 +122,7 @@ describe("NotesMigrationReport", () => {
       report({ migrated: 1, recovered: 0, piped: 0, archived: 1, failed: 1 }),
     );
     const { container } = render(() => <NotesMigrationReport />);
-    expect(text(container)).toContain("1 file is now in ~/Writ.");
+    expect(text(container)).toContain("1 file is now in ~/Jotra.");
     expect(text(container)).toContain("1 older file is waiting in an archive folder.");
     expect(text(container)).toContain("1 file could not be checked.");
   });
@@ -158,7 +158,7 @@ describe("NotesMigrationReport", () => {
     const { container } = render(() => <NotesMigrationReport />);
     for (const action of ["show", "archive", "details", "dismiss"]) {
       expect(
-        container.querySelector(`[data-action='notes-report-${action}']`)!.classList.contains("writ-btn"),
+        container.querySelector(`[data-action='notes-report-${action}']`)!.classList.contains("jotra-btn"),
         action,
       ).toBe(true);
     }

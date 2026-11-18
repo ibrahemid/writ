@@ -78,7 +78,7 @@ def available_bash_paths() -> list[str]:
 class KeychainSearchListTests(unittest.TestCase):
     def setUp(self) -> None:
         self.script = read_step_script(WORKFLOW, STEP_NAME)
-        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="writ-keychain-step-"))
+        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="jotra-keychain-step-"))
         self.addCleanup(shutil.rmtree, self.tmp)
 
     def make_env(self, work: pathlib.Path, existing_keychains: list[str]) -> dict[str, str]:

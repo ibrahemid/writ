@@ -31,7 +31,7 @@ export const DROP_FAILED_NOTICE = "Could not add the images";
 export const DROP_TAB_CHANGED_NOTICE = "The tab changed before the images were added";
 const NOTICE_MS = 6000;
 
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 const targets = new Set<ImageDropTarget>();
 
 /** Adds `target` to the editors a drop can land on; returns its removal. */
@@ -95,7 +95,7 @@ export async function pasteClipboardImages(bufferId: string): Promise<ClipboardP
 /** The most web image loads the person did not click that run at once. */
 export const AUTOMATIC_REMOTE_LOADS_AT_ONCE = 4;
 
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 let automaticLoadsRunning = 0;
 const automaticLoadsWaiting: (() => void)[] = [];
 

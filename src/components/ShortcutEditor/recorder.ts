@@ -113,7 +113,7 @@ export interface FixedChord {
 
 /**
  * The rows whose chord a fixed item already holds, by command id, with that
- * item's name. The macOS menu bar answers its own chords before Writ sees the
+ * item's name. The macOS menu bar answers its own chords before Jotra sees the
  * key, so a command bound to one would never run.
  */
 export function findFixedConflicts(

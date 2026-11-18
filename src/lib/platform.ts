@@ -11,13 +11,13 @@ export function detectPlatform(): Platform {
 const PLATFORMS: readonly Platform[] = ["mac", "win", "linux"];
 
 /**
- * The platform the chrome renders as. `VITE_WRIT_PLATFORM` forces one in a dev
+ * The platform the chrome renders as. `VITE_JOTRA_PLATFORM` forces one in a dev
  * build so the Windows and GNOME shells can be driven and captured on a Mac; a
  * release build always reads the host.
  */
 export function resolvePlatform(): Platform {
   if (import.meta.env.DEV) {
-    const forced = import.meta.env.VITE_WRIT_PLATFORM;
+    const forced = import.meta.env.VITE_JOTRA_PLATFORM;
     if (typeof forced === "string" && (PLATFORMS as readonly string[]).includes(forced)) {
       return forced as Platform;
     }
@@ -28,7 +28,7 @@ export function resolvePlatform(): Platform {
 export const IS_MAC = detectPlatform() === "mac";
 
 // What each platform calls its file manager, so a button names the app the
-// user will see when it opens. Mirrors writ_core::startup::file_manager_name.
+// user will see when it opens. Mirrors jotra_core::startup::file_manager_name.
 const FILE_MANAGER_NAMES: Record<Platform, string> = {
   mac: "Finder",
   win: "Explorer",

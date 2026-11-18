@@ -4,25 +4,25 @@
    a conversation and a diff of what a reply would change need 320-520. */
 
 .chat-pane {
-  /* The column's own spacing. `--writ-space-*` is a fixed pixel scale, so at a
+  /* The column's own spacing. `--jotra-space-*` is a fixed pixel scale, so at a
      larger interface size the type grows and the gutters do not; these follow
      the text they sit around. */
-  --writ-chat-gap: calc(var(--writ-ui-md-lh) * 0.5);
-  --writ-chat-inset: calc(var(--writ-ui-md-lh) * 0.75);
+  --jotra-chat-gap: calc(var(--jotra-ui-md-lh) * 0.5);
+  --jotra-chat-inset: calc(var(--jotra-ui-md-lh) * 0.75);
   position: relative;
   flex-shrink: 0;
   width: 0;
   height: 100%;
-  background: var(--writ-bg-sidebar);
-  border-left: 1px solid var(--writ-border);
+  background: var(--jotra-bg-sidebar);
+  border-left: 1px solid var(--jotra-border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: width var(--writ-motion);
+  transition: width var(--jotra-motion);
 }
 
 .chat-pane.is-open {
-  width: var(--writ-chat-live-width, 380px);
+  width: var(--jotra-chat-live-width, 380px);
 }
 
 .chat-pane.is-resizing {
@@ -35,7 +35,7 @@
   flex: 1;
   flex-shrink: 0;
   min-height: 0;
-  width: var(--writ-chat-live-width, 380px);
+  width: var(--jotra-chat-live-width, 380px);
   display: flex;
   flex-direction: column;
 }
@@ -46,19 +46,19 @@
   left: 0;
   bottom: 0;
   width: 4px;
-  z-index: var(--writ-z-drag);
+  z-index: var(--jotra-z-drag);
   cursor: col-resize;
   touch-action: none;
   background: transparent;
-  transition: background var(--writ-motion);
+  transition: background var(--jotra-motion);
 }
 
 .chat-pane-resizer:hover {
-  background: var(--writ-border);
+  background: var(--jotra-border);
 }
 
 .chat-pane-resizer:focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
   outline-offset: -2px;
 }
 
@@ -66,7 +66,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: var(--writ-space-2) var(--writ-space-3);
+  padding: var(--jotra-space-2) var(--jotra-space-3);
   flex-shrink: 0;
 }
 
@@ -77,17 +77,17 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
   font-weight: inherit;
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
 }
 
 .chat-pane-title-row {
   display: flex;
   flex: 1;
   align-items: center;
-  gap: var(--writ-space-1);
+  gap: var(--jotra-space-1);
   min-width: 0;
 }
 
@@ -116,30 +116,30 @@
 .chat-chats-rename {
   flex: 1;
   min-width: 0;
-  padding: 1px var(--writ-space-1);
-  border: 1px solid var(--writ-accent);
-  border-radius: var(--writ-r-control);
-  background: var(--writ-bg-canvas);
-  color: var(--writ-fg);
+  padding: 1px var(--jotra-space-1);
+  border: 1px solid var(--jotra-accent);
+  border-radius: var(--jotra-r-control);
+  background: var(--jotra-bg-canvas);
+  color: var(--jotra-fg);
   font: inherit;
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
 }
 
 .chat-pane-rename:focus-visible,
 .chat-chats-rename:focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
   outline-offset: -2px;
 }
 
 .chat-section-title {
   margin: 0;
-  padding: 0 var(--writ-space-3) 4px;
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
+  padding: 0 var(--jotra-space-3) 4px;
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
   font-weight: inherit;
-  letter-spacing: var(--writ-ui-tracking);
-  color: var(--writ-fg-muted);
+  letter-spacing: var(--jotra-ui-tracking);
+  color: var(--jotra-fg-muted);
 }
 
 /* Every chat on disk. It drops in over the transcript rather than beside it,
@@ -148,13 +148,13 @@
   flex-shrink: 0;
   max-height: 40%;
   overflow-y: auto;
-  padding-bottom: var(--writ-space-2);
-  border-bottom: 1px solid var(--writ-border-soft);
+  padding-bottom: var(--jotra-space-2);
+  border-bottom: 1px solid var(--jotra-border-soft);
 }
 
 .chat-chats-list {
   margin: 0;
-  padding: 0 var(--writ-space-2);
+  padding: 0 var(--jotra-space-2);
   list-style: none;
 }
 
@@ -162,15 +162,15 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  border-radius: var(--writ-r-row);
+  border-radius: var(--jotra-r-row);
 }
 
 .chat-chats-row:hover {
-  background: var(--writ-bg-hover);
+  background: var(--jotra-bg-hover);
 }
 
 .chat-chats-row.is-current {
-  background: var(--writ-bg-selected, var(--writ-bg-hover));
+  background: var(--jotra-bg-selected, var(--jotra-bg-hover));
 }
 
 .chat-chats-open {
@@ -179,21 +179,21 @@
   gap: 6px;
   flex: 1;
   min-width: 0;
-  min-height: var(--writ-sidebar-row-fill);
-  padding: 2px var(--writ-space-2);
+  min-height: var(--jotra-sidebar-row-fill);
+  padding: 2px var(--jotra-space-2);
   border: none;
-  border-radius: var(--writ-r-row);
+  border-radius: var(--jotra-r-row);
   background: transparent;
   font: inherit;
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  color: var(--writ-fg);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  color: var(--jotra-fg);
   text-align: left;
   cursor: pointer;
 }
 
 .chat-chats-open:focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
   outline-offset: -2px;
 }
 
@@ -207,22 +207,22 @@
 
 .chat-chats-time {
   flex-shrink: 0;
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-fg-faint);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-fg-faint);
   font-variant-numeric: tabular-nums;
 }
 
 .chat-empty {
   margin: 0;
-  padding: 4px var(--writ-space-3) var(--writ-space-2);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-fg-muted);
+  padding: 4px var(--jotra-space-3) var(--jotra-space-2);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-fg-muted);
 }
 
 .chat-empty-line {
-  margin: 0 0 var(--writ-space-2);
+  margin: 0 0 var(--jotra-space-2);
 }
 
 .chat-transcript {
@@ -231,12 +231,12 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: calc(var(--writ-chat-gap, var(--writ-space-3)) * 2);
-  padding: var(--writ-chat-gap, var(--writ-space-3)) var(--writ-chat-inset, var(--writ-space-4));
+  gap: calc(var(--jotra-chat-gap, var(--jotra-space-3)) * 2);
+  padding: var(--jotra-chat-gap, var(--jotra-space-3)) var(--jotra-chat-inset, var(--jotra-space-4));
 }
 
 .chat-transcript:focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
   outline-offset: -2px;
 }
 
@@ -262,8 +262,8 @@
   bottom: 0;
   display: flex;
   justify-content: center;
-  padding-top: var(--writ-space-2);
-  animation: chat-latest-in var(--writ-motion);
+  padding-top: var(--jotra-space-2);
+  animation: chat-latest-in var(--jotra-motion);
 }
 
 @keyframes chat-latest-in {
@@ -281,7 +281,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
   min-width: 0;
 }
 
@@ -295,16 +295,16 @@
 }
 
 .chat-turn.is-mine .chat-turn-text {
-  padding: calc(var(--writ-chat-gap, var(--writ-space-3)) * 0.5) var(--writ-chat-gap, var(--writ-space-3));
-  border-radius: var(--writ-r-card);
-  background: var(--writ-bg-sunken);
+  padding: calc(var(--jotra-chat-gap, var(--jotra-space-3)) * 0.5) var(--jotra-chat-gap, var(--jotra-space-3));
+  border-radius: var(--jotra-r-card);
+  background: var(--jotra-bg-sunken);
 }
 
 .chat-turn-text {
   margin: 0;
-  font-size: var(--writ-ui-md);
+  font-size: var(--jotra-ui-md);
   line-height: 1.55;
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   -webkit-user-select: text;
@@ -326,18 +326,18 @@
   align-items: center;
   gap: 4px;
   padding: 1px 6px;
-  border-radius: var(--writ-r-row);
-  background: var(--writ-bg-sunken);
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
-  color: var(--writ-fg-muted);
+  border-radius: var(--jotra-r-row);
+  background: var(--jotra-bg-sunken);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
+  color: var(--jotra-fg-muted);
 }
 
 /* Editing a sent turn is a rare answer to a bad reply, so its control stays
    out of the way until the turn is pointed at or tabbed to. */
 .chat-turn-actions {
   opacity: 0;
-  transition: opacity var(--writ-motion);
+  transition: opacity var(--jotra-motion);
 }
 
 .chat-turn:hover .chat-turn-actions,
@@ -350,9 +350,9 @@
   align-items: center;
   gap: 6px;
   margin: 0;
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-fg-muted);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-fg-muted);
 }
 
 .chat-thinking-dots {
@@ -364,8 +364,8 @@
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: var(--writ-fg-faint);
-  animation: chat-thinking 1.2s var(--writ-ease) infinite;
+  background: var(--jotra-fg-faint);
+  animation: chat-thinking 1.2s var(--jotra-ease) infinite;
 }
 
 .chat-thinking-dots span:nth-child(2) {
@@ -391,9 +391,9 @@
    holds no raw HTML: what is styled here is the Markdown the model wrote. */
 .chat-reply {
   min-width: 0;
-  font-size: var(--writ-ui-md);
+  font-size: var(--jotra-ui-md);
   line-height: 1.55;
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
   overflow-wrap: anywhere;
   -webkit-user-select: text;
   user-select: text;
@@ -411,62 +411,62 @@
 .chat-reply ul,
 .chat-reply ol,
 .chat-reply blockquote {
-  margin: 0 0 var(--writ-space-2);
+  margin: 0 0 var(--jotra-space-2);
 }
 
 .chat-reply ul,
 .chat-reply ol {
-  padding-left: var(--writ-space-4, 20px);
+  padding-left: var(--jotra-space-4, 20px);
 }
 
 .chat-reply h1,
 .chat-reply h2,
 .chat-reply h3,
 .chat-reply h4 {
-  margin: var(--writ-space-3) 0 var(--writ-space-2);
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
+  margin: var(--jotra-space-3) 0 var(--jotra-space-2);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
   font-weight: 600;
 }
 
 .chat-reply blockquote {
-  padding-left: var(--writ-space-2);
-  border-left: 2px solid var(--writ-border);
-  color: var(--writ-fg-muted);
+  padding-left: var(--jotra-space-2);
+  border-left: 2px solid var(--jotra-border);
+  color: var(--jotra-fg-muted);
 }
 
 .chat-reply a {
-  color: var(--writ-accent);
+  color: var(--jotra-accent);
 }
 
 .chat-reply code {
-  font-family: var(--writ-font-mono);
+  font-family: var(--jotra-font-mono);
   font-size: 0.92em;
 }
 
 .chat-reply :not(pre) > code {
   padding: 1px 4px;
-  border-radius: var(--writ-r-media);
-  background: var(--writ-bg-sunken);
+  border-radius: var(--jotra-r-media);
+  background: var(--jotra-bg-sunken);
 }
 
 /* The block scrolls sideways inside the box; the box is what the copy button
    is placed against, so the button stays where it was put. */
 .chat-code {
   position: relative;
-  margin: 0 0 var(--writ-space-2);
+  margin: 0 0 var(--jotra-space-2);
 }
 
 .chat-reply pre {
   margin: 0;
-  padding: var(--writ-space-2);
+  padding: var(--jotra-space-2);
   overflow-x: auto;
-  border-radius: var(--writ-r-media);
-  background: var(--writ-bg-sunken);
+  border-radius: var(--jotra-r-media);
+  background: var(--jotra-bg-sunken);
 }
 
 .chat-reply-table {
-  margin: 0 0 var(--writ-space-2);
+  margin: 0 0 var(--jotra-space-2);
   overflow-x: auto;
 }
 
@@ -474,13 +474,13 @@
   width: 100%;
   margin: 0;
   border-collapse: collapse;
-  font-size: var(--writ-ui-sm);
+  font-size: var(--jotra-ui-sm);
 }
 
 .chat-reply th,
 .chat-reply td {
   padding: 2px 6px;
-  border: 1px solid var(--writ-border-soft);
+  border: 1px solid var(--jotra-border-soft);
   text-align: left;
 }
 
@@ -491,16 +491,16 @@
   top: 4px;
   right: 4px;
   padding: 1px 6px;
-  border: 1px solid var(--writ-border);
-  border-radius: var(--writ-r-control);
-  background: var(--writ-bg-raised);
-  color: var(--writ-fg-muted);
+  border: 1px solid var(--jotra-border);
+  border-radius: var(--jotra-r-control);
+  background: var(--jotra-bg-raised);
+  color: var(--jotra-fg-muted);
   font: inherit;
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
   cursor: pointer;
   opacity: 0;
-  transition: opacity var(--writ-motion);
+  transition: opacity var(--jotra-motion);
 }
 
 .chat-code:hover .chat-code-copy,
@@ -509,7 +509,7 @@
 }
 
 .chat-code-copy:focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
   outline-offset: -2px;
 }
 
@@ -517,14 +517,14 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
 }
 
 .chat-error-text {
   margin: 0;
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-status-error);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-status-error);
   -webkit-user-select: text;
   user-select: text;
 }
@@ -534,11 +534,11 @@
 .chat-proposal {
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-2);
-  padding: var(--writ-space-2);
-  border: 1px solid var(--writ-border-soft);
-  border-radius: var(--writ-r-card);
-  background: var(--writ-bg-raised);
+  gap: var(--jotra-space-2);
+  padding: var(--jotra-space-2);
+  border: 1px solid var(--jotra-border-soft);
+  border-radius: var(--jotra-r-card);
+  background: var(--jotra-bg-raised);
   min-width: 0;
 }
 
@@ -547,9 +547,9 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
-  color: var(--writ-fg);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
+  color: var(--jotra-fg);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
 }
 
 .chat-proposal-path {
@@ -564,18 +564,18 @@
 
 .chat-proposal-summary {
   margin: 0;
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  color: var(--writ-fg);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  color: var(--jotra-fg);
   -webkit-user-select: text;
   user-select: text;
 }
 
 .chat-proposal-stale {
   margin: 0;
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-status-warning);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-status-warning);
 }
 
 /* The one place this column raises its voice: the lines that would change,
@@ -583,14 +583,14 @@
 .chat-diff {
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-2);
-  max-height: calc(var(--writ-ui-sm-lh) * 12);
+  gap: var(--jotra-space-2);
+  max-height: calc(var(--jotra-ui-sm-lh) * 12);
   overflow: auto;
-  padding: var(--writ-space-1) 0;
-  border-radius: var(--writ-r-media);
-  background: var(--writ-bg-sunken);
-  font-family: var(--writ-font-mono);
-  font-size: var(--writ-ui-sm);
+  padding: var(--jotra-space-1) 0;
+  border-radius: var(--jotra-r-media);
+  background: var(--jotra-bg-sunken);
+  font-family: var(--jotra-font-mono);
+  font-size: var(--jotra-ui-sm);
   line-height: 1.5;
   -webkit-user-select: text;
   user-select: text;
@@ -600,20 +600,20 @@
   display: flex;
   align-items: baseline;
   gap: 6px;
-  padding: 0 var(--writ-space-2);
+  padding: 0 var(--jotra-space-2);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
 }
 
 .chat-diff-row[data-kind="added"] {
-  background: color-mix(in srgb, var(--writ-status-success) 20%, transparent);
-  color: var(--writ-fg);
+  background: color-mix(in srgb, var(--jotra-status-success) 20%, transparent);
+  color: var(--jotra-fg);
 }
 
 .chat-diff-row[data-kind="removed"] {
-  background: color-mix(in srgb, var(--writ-status-error) 20%, transparent);
-  color: var(--writ-fg);
+  background: color-mix(in srgb, var(--jotra-status-error) 20%, transparent);
+  color: var(--jotra-fg);
 }
 
 /* Wide enough for the line numbers most notes have, and free to grow for the
@@ -622,14 +622,14 @@
   flex-shrink: 0;
   min-width: 2.5ch;
   text-align: right;
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
   font-variant-numeric: tabular-nums;
 }
 
 .chat-diff-mark {
   flex-shrink: 0;
   width: 1ch;
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
 }
 
 .chat-diff-text {
@@ -640,30 +640,30 @@
 .chat-proposal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
 }
 
 .chat-proposal-verdict {
   margin: 0;
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-fg-muted);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-fg-muted);
 }
 
 .chat-composer {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-2);
-  padding: var(--writ-chat-gap, var(--writ-space-3)) var(--writ-chat-inset, var(--writ-space-4));
-  border-top: 1px solid var(--writ-border-soft);
+  gap: var(--jotra-space-2);
+  padding: var(--jotra-chat-gap, var(--jotra-space-3)) var(--jotra-chat-inset, var(--jotra-space-4));
+  border-top: 1px solid var(--jotra-border-soft);
 }
 
 .chat-composer-editing {
   margin: 0;
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-fg-muted);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-fg-muted);
 }
 
 /* What leaves the machine, beside the words that go with it. */
@@ -680,23 +680,23 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  min-height: calc(var(--writ-ui-xs-lh) + var(--writ-space-3));
-  padding: var(--writ-space-1) var(--writ-space-2);
-  border: 1px solid var(--writ-border-soft);
-  border-radius: var(--writ-r-row);
-  background: var(--writ-bg-raised);
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
-  color: var(--writ-fg);
+  min-height: calc(var(--jotra-ui-xs-lh) + var(--jotra-space-3));
+  padding: var(--jotra-space-1) var(--jotra-space-2);
+  border: 1px solid var(--jotra-border-soft);
+  border-radius: var(--jotra-r-row);
+  background: var(--jotra-bg-raised);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
+  color: var(--jotra-fg);
   max-width: 100%;
 }
 
 .chat-chip:hover {
-  background: var(--writ-bg-hover);
+  background: var(--jotra-bg-hover);
 }
 
 .chat-chip.is-unreadable {
-  border-color: var(--writ-status-error);
+  border-color: var(--jotra-status-error);
 }
 
 /* The tab in front's chip, which follows the editor and was not picked: a
@@ -705,10 +705,10 @@
 .chat-chip.is-auto {
   border-style: dashed;
   background: transparent;
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
 }
 
-.chat-chip > .writ-tooltip-anchor {
+.chat-chip > .jotra-tooltip-anchor {
   min-width: 0;
 }
 
@@ -721,7 +721,7 @@
 
 .chat-chip-size {
   flex-shrink: 0;
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
   font-variant-numeric: tabular-nums;
 }
 
@@ -734,7 +734,7 @@
 
 .chat-chip-count {
   flex-shrink: 0;
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
   font-variant-numeric: tabular-nums;
 }
 
@@ -743,15 +743,15 @@
   position: absolute;
   left: 0;
   bottom: calc(100% + 4px);
-  z-index: var(--writ-z-popover, 40);
+  z-index: var(--jotra-z-popover, 40);
   min-width: 100%;
   max-width: 260px;
   margin: 0;
-  padding: var(--writ-space-1) var(--writ-space-2);
-  border: 1px solid var(--writ-border);
-  border-radius: var(--writ-r-card);
-  background: var(--writ-bg-raised);
-  box-shadow: var(--writ-shadow-popover);
+  padding: var(--jotra-space-1) var(--jotra-space-2);
+  border: 1px solid var(--jotra-border);
+  border-radius: var(--jotra-r-card);
+  background: var(--jotra-bg-raised);
+  box-shadow: var(--jotra-shadow-popover);
   list-style: none;
 }
 
@@ -764,7 +764,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
   white-space: nowrap;
 }
 
@@ -780,16 +780,16 @@
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
   cursor: pointer;
 }
 
 .chat-chip-remove:hover {
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
 }
 
 .chat-chip-remove:focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
   outline-offset: 1px;
 }
 
@@ -801,21 +801,21 @@
   display: block;
   width: 100%;
   resize: none;
-  min-height: calc(var(--writ-ui-md-lh) * 2 + var(--writ-space-3));
-  max-height: calc(var(--writ-ui-md-lh) * 10 + var(--writ-space-3));
+  min-height: calc(var(--jotra-ui-md-lh) * 2 + var(--jotra-space-3));
+  max-height: calc(var(--jotra-ui-md-lh) * 10 + var(--jotra-space-3));
   overflow-y: auto;
-  padding: var(--writ-space-2);
-  border: 1px solid var(--writ-border);
-  border-radius: var(--writ-r-control);
-  background: var(--writ-bg-canvas);
-  color: var(--writ-fg);
+  padding: var(--jotra-space-2);
+  border: 1px solid var(--jotra-border);
+  border-radius: var(--jotra-r-control);
+  background: var(--jotra-bg-canvas);
+  color: var(--jotra-fg);
   font: inherit;
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
 }
 
 .chat-composer-input:focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
   outline-offset: -2px;
 }
 
@@ -826,14 +826,14 @@
   left: 0;
   right: 0;
   bottom: calc(100% + 4px);
-  z-index: var(--writ-z-popover, 40);
-  max-height: calc(var(--writ-ui-md-lh) * 8);
+  z-index: var(--jotra-z-popover, 40);
+  max-height: calc(var(--jotra-ui-md-lh) * 8);
   overflow-y: auto;
-  padding: var(--writ-space-1);
-  border: 1px solid var(--writ-border);
-  border-radius: var(--writ-r-card);
-  background: var(--writ-bg-raised);
-  box-shadow: var(--writ-shadow-popover);
+  padding: var(--jotra-space-1);
+  border: 1px solid var(--jotra-border);
+  border-radius: var(--jotra-r-card);
+  background: var(--jotra-bg-raised);
+  box-shadow: var(--jotra-shadow-popover);
 }
 
 .chat-mention-row {
@@ -841,22 +841,22 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  min-height: var(--writ-sidebar-row-fill);
-  padding: 2px var(--writ-space-2);
+  min-height: var(--jotra-sidebar-row-fill);
+  padding: 2px var(--jotra-space-2);
   border: none;
-  border-radius: var(--writ-r-row);
+  border-radius: var(--jotra-r-row);
   background: transparent;
   font: inherit;
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  color: var(--writ-fg);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  color: var(--jotra-fg);
   text-align: left;
   cursor: pointer;
 }
 
 .chat-mention-row.is-active,
 .chat-mention-row:hover {
-  background: var(--writ-bg-hover);
+  background: var(--jotra-bg-hover);
 }
 
 .chat-mention-name {
@@ -873,14 +873,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
 }
 
 .chat-composer-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
 }
 
 /* Which connection answers, in the room a name needs and no more: the row's
@@ -895,26 +895,26 @@
 .chat-connection {
   display: inline-flex;
   align-items: center;
-  gap: var(--writ-space-1);
+  gap: var(--jotra-space-1);
   max-width: 18ch;
-  padding: 2px var(--writ-space-2);
+  padding: 2px var(--jotra-space-2);
   border: 1px solid transparent;
-  border-radius: var(--writ-r-control);
+  border-radius: var(--jotra-r-control);
   background: transparent;
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
   font: inherit;
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
   cursor: pointer;
 }
 
 .chat-connection:hover {
-  background: var(--writ-bg-hover);
-  color: var(--writ-fg);
+  background: var(--jotra-bg-hover);
+  color: var(--jotra-fg);
 }
 
 .chat-connection:focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
   outline-offset: -2px;
 }
 
@@ -931,31 +931,31 @@
   position: absolute;
   left: 0;
   bottom: calc(100% + 4px);
-  z-index: var(--writ-z-popover, 40);
+  z-index: var(--jotra-z-popover, 40);
   min-width: 15rem;
   max-width: 22rem;
-  max-height: calc(var(--writ-ui-md-lh) * 14);
+  max-height: calc(var(--jotra-ui-md-lh) * 14);
   overflow-y: auto;
-  padding: var(--writ-space-1);
-  border: 1px solid var(--writ-border);
-  border-radius: var(--writ-r-card);
-  background: var(--writ-bg-raised);
-  box-shadow: var(--writ-shadow-popover);
+  padding: var(--jotra-space-1);
+  border: 1px solid var(--jotra-border);
+  border-radius: var(--jotra-r-card);
+  background: var(--jotra-bg-raised);
+  box-shadow: var(--jotra-shadow-popover);
 }
 
 .chat-menu-group + .chat-menu-group,
 .chat-menu-group + .chat-menu-settings {
-  border-top: 1px solid var(--writ-border-soft);
-  margin-top: var(--writ-space-1);
-  padding-top: var(--writ-space-1);
+  border-top: 1px solid var(--jotra-border-soft);
+  margin-top: var(--jotra-space-1);
+  padding-top: var(--jotra-space-1);
 }
 
 .chat-menu-label {
   margin: 0;
-  padding: var(--writ-space-1) var(--writ-space-2);
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
-  color: var(--writ-fg-faint);
+  padding: var(--jotra-space-1) var(--jotra-space-2);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
+  color: var(--jotra-fg-faint);
 }
 
 .chat-menu-row {
@@ -963,31 +963,31 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  min-height: var(--writ-sidebar-row-fill);
-  padding: 2px var(--writ-space-2);
+  min-height: var(--jotra-sidebar-row-fill);
+  padding: 2px var(--jotra-space-2);
   border: none;
-  border-radius: var(--writ-r-row);
+  border-radius: var(--jotra-r-row);
   background: transparent;
   font: inherit;
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  color: var(--writ-fg);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  color: var(--jotra-fg);
   text-align: left;
   cursor: pointer;
 }
 
 .chat-menu-row:hover:not([disabled]),
 .chat-menu-row:focus-visible {
-  background: var(--writ-bg-hover);
+  background: var(--jotra-bg-hover);
 }
 
 .chat-menu-row:focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
   outline-offset: -2px;
 }
 
 .chat-menu-row[disabled] {
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
   cursor: default;
 }
 
@@ -995,7 +995,7 @@
   flex-shrink: 0;
   display: inline-flex;
   width: 11px;
-  color: var(--writ-accent);
+  color: var(--jotra-accent);
 }
 
 .chat-menu-name {
@@ -1008,17 +1008,17 @@
 
 .chat-menu-note {
   flex-shrink: 0;
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
-  color: var(--writ-fg-faint);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
+  color: var(--jotra-fg-faint);
 }
 
 .chat-menu-empty {
   margin: 0;
-  padding: var(--writ-space-1) var(--writ-space-2);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-fg-muted);
+  padding: var(--jotra-space-1) var(--jotra-space-2);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-fg-muted);
 }
 
 
@@ -1036,48 +1036,48 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  min-height: calc(var(--writ-ui-xs-lh) + var(--writ-space-3));
-  padding: var(--writ-space-1) var(--writ-space-2);
-  border: 1px dashed var(--writ-border);
-  border-radius: var(--writ-r-row);
+  min-height: calc(var(--jotra-ui-xs-lh) + var(--jotra-space-3));
+  padding: var(--jotra-space-1) var(--jotra-space-2);
+  border: 1px dashed var(--jotra-border);
+  border-radius: var(--jotra-r-row);
   background: transparent;
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
   font: inherit;
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
   cursor: pointer;
 }
 
 .chat-chip-add:hover:not([disabled]) {
-  background: var(--writ-bg-hover);
-  color: var(--writ-fg);
+  background: var(--jotra-bg-hover);
+  color: var(--jotra-fg);
 }
 
 .chat-chip-add[disabled] {
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
   cursor: default;
 }
 
 .chat-chip-add:focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
   outline-offset: 1px;
 }
 
 /* How the field sends, under an empty field only. */
 .chat-composer-hint {
   margin: 0;
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
-  color: var(--writ-fg-faint);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
+  color: var(--jotra-fg-faint);
 }
 
 /* Why a note cannot be attached, or cannot be read, under the row it is
    about. */
 .chat-composer-note {
   margin: 0;
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
-  color: var(--writ-fg-muted);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
+  color: var(--jotra-fg-muted);
 }
 
 /* What the connection still needs, between the conversation and the field. */
@@ -1085,18 +1085,18 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--writ-space-2);
-  padding: var(--writ-space-2) var(--writ-chat-inset, var(--writ-space-4));
-  border-top: 1px solid var(--writ-border-soft);
-  background: var(--writ-bg-sunken);
+  gap: var(--jotra-space-2);
+  padding: var(--jotra-space-2) var(--jotra-chat-inset, var(--jotra-space-4));
+  border-top: 1px solid var(--jotra-border-soft);
+  background: var(--jotra-bg-sunken);
 }
 
 .chat-readiness-text {
   margin: 0;
   min-width: 0;
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-fg-muted);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-fg-muted);
 }
 
 /* The first-use card: what was found, then the ways to answer it, wrapping
@@ -1108,15 +1108,15 @@
 .chat-readiness-body {
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-1);
+  gap: var(--jotra-space-1);
   min-width: 0;
 }
 
 .chat-readiness-help {
   margin: 0;
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
-  color: var(--writ-fg-faint);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
+  color: var(--jotra-fg-faint);
 }
 
 .chat-readiness-actions,
@@ -1124,7 +1124,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
 }
 
 .chat-readiness-key {
@@ -1134,54 +1134,54 @@
 .chat-readiness-input {
   flex: 1 1 12rem;
   min-width: 0;
-  padding: var(--writ-space-1) var(--writ-space-2);
-  border: 1px solid var(--writ-border-soft);
-  border-radius: var(--writ-r-row);
-  background: var(--writ-bg-raised);
-  color: var(--writ-fg);
+  padding: var(--jotra-space-1) var(--jotra-space-2);
+  border: 1px solid var(--jotra-border-soft);
+  border-radius: var(--jotra-r-row);
+  background: var(--jotra-bg-raised);
+  color: var(--jotra-fg);
   font: inherit;
-  font-size: var(--writ-ui-sm);
+  font-size: var(--jotra-ui-sm);
 }
 
 .chat-readiness-input:focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
   outline-offset: -2px;
 }
 
 .chat-readiness-error {
   flex: 1 1 100%;
   margin: 0;
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
-  color: var(--writ-status-error);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
+  color: var(--jotra-status-error);
 }
 
 /* What happened to a reply, beside what it said: stopped, cut off, or an
    offer that could not be made. */
 .chat-note {
   margin: 0;
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-fg-muted);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-fg-muted);
 }
 
 .chat-identity {
   margin: 0;
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
-  color: var(--writ-fg-faint);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
+  color: var(--jotra-fg-faint);
 }
 
 .chat-error-identity {
   margin: 0;
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
-  color: var(--writ-fg-faint);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
+  color: var(--jotra-fg-faint);
 }
 
 .chat-error-actions {
   display: flex;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
 }
 
 /* A reply still arriving in a chat nobody is reading. */
@@ -1190,7 +1190,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--writ-accent);
+  background: var(--jotra-accent);
 }
 
 /* Windows paints the chrome as part of the window backdrop, GNOME as a
@@ -1201,17 +1201,17 @@
 }
 
 :root[data-platform="win"] .chat-pane-header {
-  padding: var(--writ-space-2) var(--writ-space-4);
+  padding: var(--jotra-space-2) var(--jotra-space-4);
 }
 
 :root[data-platform="linux"] .chat-pane {
   border-left: 0;
-  box-shadow: inset 1px 0 var(--writ-border-soft);
+  box-shadow: inset 1px 0 var(--jotra-border-soft);
 }
 
 :root[data-platform="linux"] .chat-section-title {
   font-weight: 700;
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
   opacity: 0.55;
 }
 

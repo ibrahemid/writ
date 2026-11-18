@@ -1,4 +1,4 @@
-import type { WritConfig } from "../../../src/types/config";
+import type { JotraConfig } from "../../../src/types/config";
 import type { CommandUsage, CommandUse } from "../../../src/types/command-usage";
 import type { IndexStatus } from "../../../src/types/search";
 import type { Answer, CommandTable, DemoState } from "../state";
@@ -6,13 +6,13 @@ import { HOME, NOTES_ROOT } from "../vfs";
 
 export function createConfigCommands(state: DemoState): CommandTable {
   const previewScriptsOn = new Set<string>();
-  // writ.db's command_usage table, for the length of the visit.
+  // jotra.db's command_usage table, for the length of the visit.
   let usage: Record<string, CommandUsage> = {};
   return {
     // Config and first run
     get_config: () => structuredClone(state.config),
     update_config: (args) => {
-      state.config = structuredClone(args.config as WritConfig);
+      state.config = structuredClone(args.config as JotraConfig);
       return null;
     },
     get_config_diagnostics: () => [],
@@ -45,11 +45,11 @@ export function createConfigCommands(state: DemoState): CommandTable {
     finish_first_run: () => null,
     get_notes_migration_report: () => null,
     dismiss_notes_migration_report: () => null,
-    get_storage_info: () => ({ db_path: `${HOME}/.writ/writ.db`, dir: `${HOME}/.writ` }),
+    get_storage_info: () => ({ db_path: `${HOME}/.jotra/jotra.db`, dir: `${HOME}/.jotra` }),
     global_hotkey_status: () => ({ chord: state.config.hotkey.toggle, registered: true }),
     cli_status: () => ({
       installed: true,
-      path: "/usr/local/bin/writ",
+      path: "/usr/local/bin/jotra",
       can_install: true,
       needs_move: false,
     }),
@@ -63,7 +63,7 @@ export function createConfigCommands(state: DemoState): CommandTable {
     discard_unsaved_text: () => null,
     // The updater is the host's; from a page its request reaches nothing.
     check_for_update: () => {
-      const emitPhase = (payload: unknown) => state.bridge.emit("writ://update-status", { kind: "update:status", payload });
+      const emitPhase = (payload: unknown) => state.bridge.emit("jotra://update-status", { kind: "update:status", payload });
       emitPhase({ status: "checking" });
       setTimeout(() => emitPhase({ status: "failed", message: "error sending request for url (<redacted-url>)" }), 0);
       return null;
@@ -115,7 +115,7 @@ export function createConfigCommands(state: DemoState): CommandTable {
     preview_set_layout: () => null,
     preview_close: () => null,
     // The macOS and Linux base; the page serves nothing under it.
-    preview_url_prefix: (): Answer<"previewUrlPrefix"> => "writ-preview://",
+    preview_url_prefix: (): Answer<"previewUrlPrefix"> => "jotra-preview://",
     preview_get_scripts: (args): Answer<"previewGetScripts"> => previewScriptsOn.has(String(args.bufferId)),
     preview_set_scripts: (args) => {
       if (args.enabled === true) previewScriptsOn.add(String(args.bufferId));
@@ -123,7 +123,7 @@ export function createConfigCommands(state: DemoState): CommandTable {
       return null;
     },
     // Markdown renders in the editor. The HTML renderer needs the host's
-    // writ-preview:// scheme, which a browser does not have.
+    // jotra-preview:// scheme, which a browser does not have.
     preview_list_renderers: (): Answer<"previewListRenderers"> => [
       {
         content_type: "markdown",

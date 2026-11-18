@@ -4,7 +4,7 @@ export interface CommandUsage {
   last_used_ms: number;
 }
 
-/** Runs of one command to add to what writ.db holds. */
+/** Runs of one command to add to what jotra.db holds. */
 export interface CommandUse {
   id: string;
   count: number;

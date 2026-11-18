@@ -3,7 +3,7 @@
 The release key at install.sh:9 is replaced with a key generated per run, and
 the fixture release is signed with it the way release_signing.py signs a real
 one (minisign's prehashed Ed25519, base64-wrapped for the AppImage). Signing
-needs OpenSSL 3.0 or later: WRIT_TEST_OPENSSL, then `openssl` on PATH, then
+needs OpenSSL 3.0 or later: JOTRA_TEST_OPENSSL, then `openssl` on PATH, then
 Homebrew's openssl@3. The minisign case also needs minisign: MINISIGN, then
 `minisign` on PATH.
 
@@ -27,7 +27,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "install.sh"
 KEY_LINE = re.compile(r'^MINISIGN_PUBKEY="[A-Za-z0-9+/=]+"$', re.MULTILINE)
 VERSION = "9.9.9"
-ASSET = f"Writ_{VERSION}_amd64.AppImage"
+ASSET = f"Jotra_{VERSION}_amd64.AppImage"
 
 # Tools install.sh calls, linked one by one so a test decides whether
 # `openssl` and `minisign` exist.
@@ -69,7 +69,7 @@ cp "$FIXTURES/$name" "$out"
 
 FAKE_APPIMAGE = """#!/bin/sh
 mkdir -p squashfs-root/usr/bin
-printf '#!/bin/sh\\necho writ\\n' > squashfs-root/usr/bin/writ
+printf '#!/bin/sh\\necho jotra\\n' > squashfs-root/usr/bin/jotra
 """
 
 OLD_OPENSSL = """#!/bin/sh
@@ -80,7 +80,7 @@ exit 1
 
 def find_openssl3() -> str | None:
     candidates = [
-        os.environ.get("WRIT_TEST_OPENSSL"),
+        os.environ.get("JOTRA_TEST_OPENSSL"),
         shutil.which("openssl"),
         "/opt/homebrew/opt/openssl@3/bin/openssl",
         "/usr/local/opt/openssl@3/bin/openssl",
@@ -147,10 +147,14 @@ class TestKey:
         )
 
 
-@unittest.skipIf(OPENSSL is None, "signing the fixtures needs OpenSSL 3.0 or later")
-class InstallScriptTests(unittest.TestCase):
+FUSERMOUNT = """#!/bin/sh
+exit 0
+"""
+
+
+class InstallScriptFixture(unittest.TestCase):
     def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory(prefix="writ-install-sh-test-")
+        tmp = tempfile.TemporaryDirectory(prefix="jotra-install-sh-test-")
         self.addCleanup(tmp.cleanup)
         self.root = pathlib.Path(tmp.name)
         self.signer = TestKey(self.root / "key", b"\x01\x02\x03\x04\x05\x06\x07\x08")
@@ -229,14 +233,89 @@ class InstallScriptTests(unittest.TestCase):
     def assert_installed(self, result: subprocess.CompletedProcess[str]) -> None:
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(f"installed {VERSION}", result.stdout)
-        self.assertTrue((self.home / ".local/share/writ/Writ.AppImage").is_file())
-        self.assertTrue((self.home / ".local/bin/writ").is_file())
+        self.assertTrue((self.home / ".local/share/jotra/Jotra.AppImage").is_file())
+        self.assertTrue((self.home / ".local/bin/jotra").is_file())
 
     def assert_refused(self, result: subprocess.CompletedProcess[str], message: str) -> None:
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn(message, result.stderr)
-        self.assertFalse((self.home / ".local/share/writ/Writ.AppImage").exists())
-        self.assertFalse((self.home / ".local/bin/writ").exists())
+        self.assertFalse((self.home / ".local/share/jotra/Jotra.AppImage").exists())
+        self.assertFalse((self.home / ".local/bin/jotra").exists())
+
+    def assert_wrapper(
+        self,
+        command: str,
+        gui: pathlib.Path,
+        cli: pathlib.Path,
+        command_name: str | None = None,
+    ) -> None:
+        wrapper = self.home / ".local/bin" / command
+        self.assertTrue(os.access(wrapper, os.X_OK))
+        name_line = (
+            "" if command_name is None else f'JOTRA_COMMAND_NAME="{command_name}"; export JOTRA_COMMAND_NAME\n'
+        )
+        self.assertEqual(
+            wrapper.read_text(),
+            "#!/bin/sh\n"
+            'JOTRA_GUI_BIN="${JOTRA_GUI_BIN:-${WRIT_GUI_BIN:-}}"\n'
+            f'[ -n "${{JOTRA_GUI_BIN}}" ] || JOTRA_GUI_BIN="{gui}"\n'
+            "export JOTRA_GUI_BIN\n"
+            f'{name_line}exec "{cli}" "$@"\n',
+        )
+        ran = subprocess.run([str(wrapper)], env=self.env, capture_output=True, text=True)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        self.assertEqual(ran.stdout, "jotra\n")
+
+    def assert_gui_variable_precedence(self, command: str, gui: pathlib.Path, cli: pathlib.Path) -> None:
+        cli.write_text('#!/bin/sh\nprintf "%s\\n" "$JOTRA_GUI_BIN"\n')
+        wrapper = self.home / ".local/bin" / command
+        cases = (
+            ({}, str(gui)),
+            ({"WRIT_GUI_BIN": "/set/old"}, "/set/old"),
+            ({"JOTRA_GUI_BIN": "/set/new"}, "/set/new"),
+            ({"JOTRA_GUI_BIN": "/set/new", "WRIT_GUI_BIN": "/set/old"}, "/set/new"),
+            ({"JOTRA_GUI_BIN": "", "WRIT_GUI_BIN": ""}, str(gui)),
+        )
+        for extra, expected in cases:
+            with self.subTest(command=command, env=extra):
+                ran = subprocess.run([str(wrapper)], env={**self.env, **extra}, capture_output=True, text=True)
+                self.assertEqual(ran.returncode, 0, ran.stderr)
+                self.assertEqual(ran.stdout, f"{expected}\n")
+
+
+@unittest.skipIf(OPENSSL is None, "signing the fixtures needs OpenSSL 3.0 or later")
+class InstallScriptTests(InstallScriptFixture):
+    def test_installs_the_layout_and_the_command_wrapper(self) -> None:
+        self.use("openssl", OPENSSL)  # type: ignore[arg-type]
+        self.stub("fusermount", FUSERMOUNT)
+        result = self.run_install()
+
+        self.assert_installed(result)
+        layout = self.home / ".local/share/jotra"
+        self.assertEqual((layout / "Jotra.AppImage").read_bytes(), FAKE_APPIMAGE.encode())
+        self.assertFalse((layout / "jotra-gui").exists())
+        self.assert_wrapper("jotra", layout / "Jotra.AppImage", layout / "jotra-cli")
+        self.assertIn(f"app:     {layout / 'Jotra.AppImage'}", result.stdout)
+
+    def test_runs_the_app_from_an_unpacked_copy_without_fusermount(self) -> None:
+        self.use("openssl", OPENSSL)  # type: ignore[arg-type]
+        result = self.run_install()
+
+        self.assert_installed(result)
+        layout = self.home / ".local/share/jotra"
+        self.assertIn("fusermount not found", result.stderr)
+        self.assertEqual(
+            (layout / "jotra-gui").read_text(),
+            f'#!/bin/sh\nexec "{layout / "Jotra.AppImage"}" --appimage-extract-and-run "$@"\n',
+        )
+        self.assert_wrapper("jotra", layout / "jotra-gui", layout / "jotra-cli")
+
+    def test_the_command_wrapper_keeps_a_gui_path_the_person_set(self) -> None:
+        self.use("openssl", OPENSSL)  # type: ignore[arg-type]
+        self.stub("fusermount", FUSERMOUNT)
+        self.assert_installed(self.run_install())
+        layout = self.home / ".local/share/jotra"
+        self.assert_gui_variable_precedence("jotra", layout / "Jotra.AppImage", layout / "jotra-cli")
 
     def test_installs_a_release_openssl_verifies(self) -> None:
         self.use("openssl", OPENSSL)  # type: ignore[arg-type]
@@ -263,7 +342,7 @@ class InstallScriptTests(unittest.TestCase):
 
     def test_refuses_an_asset_the_sums_do_not_list(self) -> None:
         self.use("openssl", OPENSSL)  # type: ignore[arg-type]
-        self.publish(FAKE_APPIMAGE.encode(), listed_name="Writ_9.9.8_amd64.AppImage")
+        self.publish(FAKE_APPIMAGE.encode(), listed_name="Jotra_9.9.8_amd64.AppImage")
         self.assert_refused(self.run_install(), f"{ASSET} is not listed in SHA256SUMS.txt")
 
     def test_refuses_sums_signed_by_another_key(self) -> None:
@@ -286,7 +365,7 @@ class InstallScriptTests(unittest.TestCase):
     def test_fails_closed_without_a_verifier(self) -> None:
         result = self.run_install()
         self.assert_refused(result, "install minisign or OpenSSL 3.0 or later")
-        self.assertIn("WRIT_INSTALL_SKIP_SIGNATURE=1", result.stderr)
+        self.assertIn("JOTRA_INSTALL_SKIP_SIGNATURE=1", result.stderr)
         self.assertEqual(self.downloads(), [])
 
     def test_an_openssl_older_than_3_is_no_verifier(self) -> None:
@@ -294,14 +373,14 @@ class InstallScriptTests(unittest.TestCase):
         self.assert_refused(self.run_install(), "install minisign or OpenSSL 3.0 or later")
 
     def test_the_escape_installs_without_a_signature_check_and_says_so(self) -> None:
-        result = self.run_install(WRIT_INSTALL_SKIP_SIGNATURE="1")
+        result = self.run_install(JOTRA_INSTALL_SKIP_SIGNATURE="1")
         self.assert_installed(result)
-        self.assertIn("the release signature is not checked", result.stderr)
+        self.assertIn("JOTRA_INSTALL_SKIP_SIGNATURE=1 is set, so the release signature is not checked", result.stderr)
         self.assertNotIn("SHA256SUMS.txt.minisig", self.downloads())
 
     def test_the_escape_still_checks_the_checksum(self) -> None:
         (self.fixtures / ASSET).write_bytes(FAKE_APPIMAGE.encode() + b"# tampered\n")
-        self.assert_refused(self.run_install(WRIT_INSTALL_SKIP_SIGNATURE="1"), "checksum mismatch")
+        self.assert_refused(self.run_install(JOTRA_INSTALL_SKIP_SIGNATURE="1"), "checksum mismatch")
 
 
 if __name__ == "__main__":

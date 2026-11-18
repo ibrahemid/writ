@@ -144,7 +144,7 @@ const KEY_THAT_TYPES_NOTHING = /^F(1[3-9]|2[0-4])$/;
  * Whether the OS can hold `binding` for every app without taking a key the
  * other apps type: it needs Cmd, Ctrl or Alt, or a key from F13 to F24.
  * Shift does not count, since Shift+A is a capital A everywhere else. The
- * same rule as `check_global_chord` in writ-core.
+ * same rule as `check_global_chord` in jotra-core.
  */
 export function worksFromAnyApp(binding: string): boolean {
   const parts = chordParts(binding.trim());
@@ -167,4 +167,4 @@ export function sameChord(a: string, b: string): boolean {
 
 /** Why the window's chord was not taken: Rust registers only these keys. */
 export const UNUSABLE_GLOBAL_KEY =
-  "Writ can't use that key. Pick a letter, number, punctuation, arrow, Space or F1–F24 key.";
+  "Jotra can't use that key. Pick a letter, number, punctuation, arrow, Space or F1–F24 key.";

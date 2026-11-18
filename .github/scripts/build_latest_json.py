@@ -13,7 +13,7 @@ Each platform entry must contain a signed URL and the .sig content.
 
 The `-deb` key exists because tauri-plugin-updater resolves a payload by trying
 `{os}-{arch}-{installer}` before `{os}-{arch}`, where `{installer}` comes from
-the bundle type patched into the binary at build time. A .deb-installed Writ
+the bundle type patched into the binary at build time. A .deb-installed Jotra
 reports `deb` and hands the downloaded bytes to `dpkg`, which rejects the
 AppImage served under `linux-x86_64`.
 """

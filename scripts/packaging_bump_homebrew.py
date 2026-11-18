@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rewrite packaging/homebrew/Casks/writ.rb with the release version and universal PKG SHA."""
+"""Rewrite packaging/homebrew/Casks/jotra.rb with the release version and universal PKG SHA."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import pathlib
 import re
 import sys
 
-CASK_PATH = pathlib.Path("packaging/homebrew/Casks/writ.rb")
+CASK_PATH = pathlib.Path("packaging/homebrew/Casks/jotra.rb")
 
 
 def get_env(name: str) -> str:

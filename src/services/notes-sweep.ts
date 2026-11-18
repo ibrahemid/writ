@@ -15,7 +15,7 @@ export interface NotesSweepDeps {
   tabs: { activeTabs: () => SweptNote[] };
   // What the note's file holds now, read through Rust.
   diskStateOf: (id: string) => Promise<NoteDiskAnswer>;
-  // What Writ last recorded that file holding.
+  // What Jotra last recorded that file holding.
   lastKnownDiskHash: (id: string) => string | undefined;
   // The same route a named change takes.
   onChanged: (payload: ExternalEditPayload) => void | Promise<void>;
@@ -28,13 +28,13 @@ export interface NotesSweepDeps {
 //
 // A sweep says the folder moved without saying which files did, so the tabs
 // have to ask. One question per open tab, answered by the file itself, and a
-// note whose file still holds what Writ recorded produces nothing. Up to
+// note whose file still holds what Jotra recorded produces nothing. Up to
 // SWEEP_CONCURRENCY questions are in flight at once, and one that fails is
 // reported and skipped rather than stopping the tabs after it.
 //
 // Two notes are passed over rather than reported:
 //
-// A note with no recorded hash is one Writ has not read this launch — a tab
+// A note with no recorded hash is one Jotra has not read this launch — a tab
 // restored at launch and never brought to the front. There is nothing to
 // compare against, and claiming a change would put a discard-your-work prompt
 // over a document nobody has typed into. It reads its file when it mounts, so

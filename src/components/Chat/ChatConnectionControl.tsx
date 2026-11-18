@@ -12,7 +12,7 @@ import { aiRewriteStore } from "../../stores/global/ai-rewrite";
 import { modelOptions, seedModel } from "../../stores/global/ai-models";
 import { openSettings } from "../SettingsModal/SettingsModal";
 
-// Singleton state — Writ is single-window. A failed reply offers to change the
+// Singleton state — Jotra is single-window. A failed reply offers to change the
 // model, and the control it opens is the one in the composer below it.
 const [openRequests, setOpenRequests] = createSignal(0);
 

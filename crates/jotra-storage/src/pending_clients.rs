@@ -1,0 +1,215 @@
+//! Programs the harness has seen and the user has not decided on.
+//!
+//! `<data dir>/mcp-pending.json` holds one entry per client name. It exists
+//! because the activity log cannot answer "who is waiting": the log is capped
+//! and rotates, so a program looping calls the gate is refusing writes its own
+//! rows over the pending ones the user needed in order to decide about it
+//! (ADR-031 rule 5.4 caps the log; rule 7.2 wants the client shown). One entry
+//! per name, so no volume of calls evicts anyone; only a name past
+//! [`MAX_WAITING`] does, and it takes the oldest last call with it.
+//!
+//! Written through [`crate::atomic::write_atomic`], under the same lock the
+//! activity log takes, so a reader never sees half a file and two servers never
+//! interleave.
+
+use std::path::{Path, PathBuf};
+
+use jotra_core::activity::{ClientId, PendingClient};
+use serde::{Deserialize, Serialize};
+
+use crate::activity_log;
+use crate::errors::StorageResult;
+
+/// The file inside the data folder.
+const FILE: &str = "mcp-pending.json";
+
+/// How many names the file holds. Past this the entry with the oldest last
+/// call is dropped, so a program spraying names cannot grow the file without
+/// end and cannot push the cost of one update up with it. What this does not
+/// bound is the number of writes: a name the file does not list is written the
+/// moment it calls, by design, so each new name, and each name pushed out,
+/// still costs one write.
+pub const MAX_WAITING: usize = 64;
+
+/// The shape on disk. An object rather than a bare array, so a later field can
+/// be added without every older build failing to parse the file.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct PendingFile {
+    #[serde(default)]
+    clients: Vec<PendingClient>,
+}
+
+/// Where the file sits inside `dir`.
+pub fn path(dir: &Path) -> PathBuf {
+    dir.join(FILE)
+}
+
+/// Everyone waiting, oldest first seen first.
+///
+/// A file that is not there, or one that does not parse, reads as nobody
+/// waiting: this is a convenience for the settings surface, and a bad file is
+/// not a reason to fail a call.
+pub fn read(dir: &Path) -> Vec<PendingClient> {
+    let _guard = activity_log::shared_guard(dir);
+    oldest_first(read_unlocked(dir).clients)
+}
+
+/// Everyone waiting, oldest first seen first, or `None` while the file cannot
+/// be read whole.
+///
+/// The file is written by another process. Every Jotra writer replaces it in
+/// one rename under the lock this read shares, so the read sees one version or
+/// the other. `None` is a file that is there and could not be opened, or one
+/// that does not parse, such as a write something else left half done: the
+/// caller keeps what it last had rather than taking it for nobody waiting, and
+/// the write that completes the file raises its own change. A file that is not
+/// there is nobody waiting.
+pub fn read_settled(dir: &Path) -> Option<Vec<PendingClient>> {
+    let _guard = activity_log::shared_guard(dir);
+    let bytes = match std::fs::read(path(dir)) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Some(Vec::new()),
+        Err(_) => return None,
+    };
+    let file: PendingFile = serde_json::from_slice(&bytes).ok()?;
+    Some(oldest_first(file.clients))
+}
+
+fn oldest_first(mut clients: Vec<PendingClient>) -> Vec<PendingClient> {
+    clients.sort_by_key(|entry| entry.first_seen);
+    clients
+}
+
+/// Records `calls` more calls from `client`, creating the entry on first sight.
+///
+/// The caller decides how often this is worth doing; rate limiting lives in the
+/// gate, which is what knows how many calls it has not written yet.
+pub fn note_calls(dir: &Path, client: &ClientId, calls: u64) -> StorageResult<()> {
+    note_calls_at(dir, client, calls, chrono::Utc::now())
+}
+
+/// [`note_calls`] against a stated clock, so a test can place the entries in
+/// time rather than race one.
+pub fn note_calls_at(
+    dir: &Path,
+    client: &ClientId,
+    calls: u64,
+    now: chrono::DateTime<chrono::Utc>,
+) -> StorageResult<()> {
+    with_file(
+        dir,
+        |file| {
+            match file
+                .clients
+                .iter_mut()
+                .find(|entry| entry.name == client.name)
+            {
+                Some(entry) => {
+                    entry.calls = entry.calls.saturating_add(calls);
+                    entry.last_seen = now;
+                    if client.version.is_some() {
+                        entry.version = client.version.clone();
+                    }
+                }
+                None => {
+                    let mut entry = PendingClient::first_call(client, now);
+                    entry.calls = calls.max(1);
+                    file.clients.push(entry);
+                }
+            }
+            evict_oldest(file, &client.name);
+        },
+        |_| {},
+    )
+}
+
+/// Drops the entry for `name`. A name that is not there is already forgotten.
+///
+/// `before_write` is handed the bytes the file is about to hold, before they
+/// are written, so the app can record its own write where its watcher looks.
+pub fn forget(dir: &Path, name: &str, before_write: impl FnOnce(&[u8])) -> StorageResult<()> {
+    with_file(
+        dir,
+        |file| {
+            file.clients.retain(|entry| entry.name != name);
+        },
+        before_write,
+    )
+}
+
+/// Puts `entry` back on the list: the undo of a decision, so the program waits
+/// to be decided on again.
+///
+/// A name already waiting keeps the entry it has, which holds the calls
+/// counted since. `before_write` is handed the bytes as [`forget`] hands them.
+pub fn put_back(
+    dir: &Path,
+    entry: PendingClient,
+    before_write: impl FnOnce(&[u8]),
+) -> StorageResult<()> {
+    with_file(
+        dir,
+        |file| {
+            if !file
+                .clients
+                .iter()
+                .any(|waiting| waiting.name == entry.name)
+            {
+                let name = entry.name.clone();
+                file.clients.push(entry);
+                evict_oldest(file, &name);
+            }
+        },
+        before_write,
+    )
+}
+
+/// Reads, applies `change`, and writes the result back, all under the exclusive
+/// lock so two servers cannot lose each other's edit. `before_write` sees the
+/// bytes after they are serialised and before the file is replaced.
+fn with_file(
+    dir: &Path,
+    change: impl FnOnce(&mut PendingFile),
+    before_write: impl FnOnce(&[u8]),
+) -> StorageResult<()> {
+    let lock = activity_log::open_lock(dir)?;
+    lock.lock()?;
+    let mut file = read_unlocked(dir);
+    change(&mut file);
+    let written = serde_json::to_vec_pretty(&file)
+        .map_err(Into::into)
+        .and_then(|text| {
+            before_write(&text);
+            crate::atomic::write_atomic(&path(dir), &text).map_err(Into::into)
+        });
+    let _ = lock.unlock();
+    written
+}
+
+/// Drops entries until the file is back under the cap, oldest last call first.
+///
+/// `keep` is the name the caller just wrote, which is never the one dropped:
+/// the clock is the caller's, so a call recorded behind the others would
+/// otherwise evict itself and the update would do nothing.
+fn evict_oldest(file: &mut PendingFile, keep: &str) {
+    while file.clients.len() > MAX_WAITING {
+        let Some(index) = file
+            .clients
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.name != keep)
+            .min_by_key(|(_, entry)| entry.last_seen)
+            .map(|(index, _)| index)
+        else {
+            break;
+        };
+        file.clients.remove(index);
+    }
+}
+
+fn read_unlocked(dir: &Path) -> PendingFile {
+    let Ok(text) = std::fs::read_to_string(path(dir)) else {
+        return PendingFile::default();
+    };
+    serde_json::from_str(&text).unwrap_or_default()
+}

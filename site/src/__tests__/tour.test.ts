@@ -69,17 +69,17 @@ describe('isFrameMessage', () => {
 
 describe('readFrameMessage', () => {
   it('reads the three messages the app sends', () => {
-    expect(readFrameMessage({ type: 'writ-demo-ready' })).toEqual({ type: 'writ-demo-ready' });
-    expect(readFrameMessage({ type: 'writ-demo-engaged' })).toEqual({ type: 'writ-demo-engaged' });
-    expect(readFrameMessage({ type: 'writ-demo-scene', name: 'search', state: 'done' })).toEqual({
-      type: 'writ-demo-scene',
+    expect(readFrameMessage({ type: 'jotra-demo-ready' })).toEqual({ type: 'jotra-demo-ready' });
+    expect(readFrameMessage({ type: 'jotra-demo-engaged' })).toEqual({ type: 'jotra-demo-engaged' });
+    expect(readFrameMessage({ type: 'jotra-demo-scene', name: 'search', state: 'done' })).toEqual({
+      type: 'jotra-demo-scene',
       name: 'search',
       state: 'done',
     });
   });
 
   it('drops anything else', () => {
-    for (const data of [null, 'writ-demo-ready', 3, {}, { type: 'writ-demo-scene', name: 'chat', state: 'done' }, { type: 'writ-demo-scene', name: 'apps', state: 'late' }, { type: 'other' }]) {
+    for (const data of [null, 'jotra-demo-ready', 3, {}, { type: 'jotra-demo-scene', name: 'chat', state: 'done' }, { type: 'jotra-demo-scene', name: 'apps', state: 'late' }, { type: 'other' }]) {
       expect(readFrameMessage(data), JSON.stringify(data)).toBeNull();
     }
   });
@@ -242,7 +242,7 @@ function setup(options: { wide?: boolean; reduced?: boolean; tokens?: Record<str
       const on = force ?? !attributes.has(name);
       if (on) attributes.add(name);
       else attributes.delete(name);
-      if (name === 'data-writ-tour') layout.onTour(on);
+      if (name === 'data-jotra-tour') layout.onTour(on);
       return on;
     },
   };
@@ -274,7 +274,7 @@ function setup(options: { wide?: boolean; reduced?: boolean; tokens?: Record<str
       (listeners[type] ??= []).push(fn);
     },
   };
-  const tokens = options.tokens ?? { '--writ-site-nav-height': `${NAV}px`, '--writ-site-tour-band': `${BAND}px` };
+  const tokens = options.tokens ?? { '--jotra-site-nav-height': `${NAV}px`, '--jotra-site-tour-band': `${BAND}px` };
   const env = {
     doc,
     matchMedia: (query: string) => {
@@ -461,17 +461,17 @@ describe('startTour', () => {
     const { attributes, flip, tour, scroll, deliver } = setup();
     const sent: SceneName[] = [];
     tour.connectFrame((scene) => sent.push(scene));
-    expect(attributes.has('data-writ-tour')).toBe(true);
+    expect(attributes.has('data-jotra-tour')).toBe(true);
     flip('(min-width: 1200px)', false);
-    expect(attributes.has('data-writ-tour')).toBe(false);
+    expect(attributes.has('data-jotra-tour')).toBe(false);
     scroll(900 - LINE);
     expect(sent).toEqual(['hero']);
     flip('(min-width: 1200px)', true);
-    expect(attributes.has('data-writ-tour')).toBe(true);
+    expect(attributes.has('data-jotra-tour')).toBe(true);
     deliver();
     expect(sent).toEqual(['hero', 'any-file']);
     flip('(prefers-reduced-motion: reduce)', true);
-    expect(attributes.has('data-writ-tour')).toBe(false);
+    expect(attributes.has('data-jotra-tour')).toBe(false);
   });
 
   it('posts nothing as the tour turns off, and the step at the line in the tour layout when it comes back', () => {
@@ -501,7 +501,7 @@ describe('startTour', () => {
     scroll(900 - LINE + 800);
     flip('(prefers-reduced-motion: reduce)', true);
     expect(log).toEqual(['hero', 'markdown', 'hero', 'tour off']);
-    expect(attributes.has('data-writ-tour')).toBe(false);
+    expect(attributes.has('data-jotra-tour')).toBe(false);
     scroll(900 - LINE + 2 * 800);
     expect(log).toEqual(['hero', 'markdown', 'hero', 'tour off']);
     flip('(prefers-reduced-motion: reduce)', false);
@@ -523,7 +523,7 @@ describe('startTour', () => {
     const { attributes, tour } = setup({ reduced: true });
     const sent: SceneName[] = [];
     tour.connectFrame((scene) => sent.push(scene));
-    expect(attributes.has('data-writ-tour')).toBe(false);
+    expect(attributes.has('data-jotra-tour')).toBe(false);
     expect(sent).toEqual([]);
   });
 
@@ -539,6 +539,6 @@ describe('startTour', () => {
   });
 
   it('fails loudly when a band token is missing', () => {
-    expect(() => setup({ tokens: { '--writ-site-nav-height': `${NAV}px` } })).toThrow(TourTokenError);
+    expect(() => setup({ tokens: { '--jotra-site-nav-height': `${NAV}px` } })).toThrow(TourTokenError);
   });
 });

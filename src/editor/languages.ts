@@ -8,9 +8,9 @@ import { MARKDOWN_EXTENSIONS } from "./markdown-math";
  *
  * Every grammar comes from CodeMirror's `@codemirror/language-data` table and
  * loads the first time a file needs it, so the main chunk carries no grammar
- * and a plain-text file never waits for one. Two descriptions are Writ's own:
- * Markdown, which Writ parses with the GitHub extensions, with math, and with
- * every fence highlighted in its language, and JavaScript, which Writ parses with JSX the
+ * and a plain-text file never waits for one. Two descriptions are Jotra's own:
+ * Markdown, which Jotra parses with the GitHub extensions, with math, and with
+ * every fence highlighted in its language, and JavaScript, which Jotra parses with JSX the
  * way it always has, so a React file named `.js` keeps its tags highlighted.
  *
  * A language is named by an id: the description's name in lower case
@@ -28,7 +28,7 @@ export class LanguageCatalogError extends Error {
   }
 }
 
-// A Writ-owned description keeps the table's names, aliases and file patterns,
+// A Jotra-owned description keeps the table's names, aliases and file patterns,
 // so detection and the picker see one entry, and swaps only how it loads.
 function ownDescription(
   name: string,
@@ -45,7 +45,7 @@ function ownDescription(
   });
 }
 
-const WRIT_OWNED: readonly LanguageDescription[] = [
+const JOTRA_OWNED: readonly LanguageDescription[] = [
   ownDescription("Markdown", () =>
     import("@codemirror/lang-markdown").then((m) =>
       m.markdown({
@@ -60,11 +60,11 @@ const WRIT_OWNED: readonly LanguageDescription[] = [
   ),
 ];
 
-/** Every language the editor can show a file in, Writ's own first. */
+/** Every language the editor can show a file in, Jotra's own first. */
 export const LANGUAGE_CATALOG: readonly LanguageDescription[] = [
-  ...WRIT_OWNED,
+  ...JOTRA_OWNED,
   ...LANGUAGE_DATA.filter((description) =>
-    WRIT_OWNED.every((own) => own.name !== description.name),
+    JOTRA_OWNED.every((own) => own.name !== description.name),
   ),
 ];
 
@@ -91,7 +91,7 @@ const EXTENSIONS_THE_TABLE_MISREADS = new Set(["cfg", "in"]);
 
 /**
  * The language a file name names in the table: a whole name (`Dockerfile`,
- * `PKGBUILD`), or an extension Writ's own map does not list (`.c`, `.kt`), in
+ * `PKGBUILD`), or an extension Jotra's own map does not list (`.c`, `.kt`), in
  * any case.
  *
  * A name that says plain text names nothing, whole names included

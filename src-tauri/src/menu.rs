@@ -7,10 +7,10 @@
 //! routing are the contract both menus answer to, so they compile — and are
 //! tested — on every target.
 
+use jotra_core::config::AppId;
 use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::OnceLock;
-use writ_core::config::AppId;
 
 const MENU_COMMANDS_JSON: &str = include_str!("../../src/commands/menu-commands.json");
 const NATIVE_MENU_CHORDS_JSON: &str = include_str!("../../src/commands/native-menu-chords.json");
@@ -92,7 +92,7 @@ pub enum MenuAction {
 }
 
 /// The command ids of the Transform submenu, in the order it lists them. One
-/// per built-in transform (`writ_plugin::transform::builtins`); the frontend
+/// per built-in transform (`jotra_plugin::transform::builtins`); the frontend
 /// registers each as `transform.<transform id>` from the same registry.
 pub const TRANSFORM_MENU_IDS: [&str; 9] = [
     "transform.trim_trailing_whitespace",
@@ -164,7 +164,7 @@ impl MenuAction {
     ];
 
     /// The command id the frontend registry answers to. It is the wire format
-    /// `WritEvent::MenuAction` carries, so it is spelled the registry's way.
+    /// `JotraEvent::MenuAction` carries, so it is spelled the registry's way.
     pub fn command_id(self) -> &'static str {
         match self {
             MenuAction::ThirdPartyNotices => "app.thirdPartyNotices",
@@ -731,7 +731,7 @@ mod tests {
             labels_in(&plan_with(&[]), MenuSection::Help),
             [
                 ("palette.open", "Command Palette… ⇧⇧"),
-                ("help.docs", "Writ Help"),
+                ("help.docs", "Jotra Help"),
                 ("shortcuts.customize", "Keyboard Shortcuts"),
                 ("help.whatsNew", "What's New"),
                 ("help.showSetup", "Show Setup Again"),
@@ -804,8 +804,8 @@ mod tests {
         let ids: Vec<&str> = transforms.iter().map(|item| item.id.as_str()).collect();
         assert_eq!(ids, TRANSFORM_MENU_IDS);
 
-        let mut registry = writ_plugin::transform::TransformRegistry::new();
-        writ_plugin::transform::builtins::register_builtins(&mut registry).expect("builtins");
+        let mut registry = jotra_plugin::transform::TransformRegistry::new();
+        jotra_plugin::transform::builtins::register_builtins(&mut registry).expect("builtins");
         let built_in: BTreeSet<String> = registry
             .list()
             .iter()

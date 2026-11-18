@@ -1,14 +1,15 @@
 [workspace]
 members = [
-    "crates/writ-core",
-    "crates/writ-lint",
-    "crates/writ-render",
-    "crates/writ-storage",
-    "crates/writ-plugin",
-    "crates/writ-cli",
-    "crates/writ-mcp",
-    "crates/writ-ai",
-    "crates/writ-audio",
+    "crates/jotra-core",
+    "crates/jotra-lint",
+    "crates/jotra-render",
+    "crates/jotra-storage",
+    "crates/jotra-plugin",
+    "crates/jotra-cli",
+    "crates/jotra-mcp",
+    "crates/jotra-ai",
+    "crates/jotra-audio",
+    "crates/writ-tauri",
     "src-tauri",
 ]
 # The fuzz crate is its own workspace (needs nightly + libfuzzer); keep it
@@ -43,7 +44,7 @@ strip = "symbols"
 panic = "unwind"
 
 # wry's macOS collect_paths() unwraps the propertyListForType read, which AppKit
-# returns as nil for some drag and trackpad gestures (Writ #113). The panic
+# returns as nil for some drag and trackpad gestures (Jotra #113). The panic
 # unwinds out of an Objective-C callback and aborts the app on drop. Upstream
 # wry still unwraps there as of 0.57.0. This pins a one-commit fork of
 # wry-v0.57.0, the minor tauri-runtime-wry 2.12 requires (^0.57), whose only

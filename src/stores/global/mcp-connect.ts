@@ -31,7 +31,7 @@ export type CardTest =
   | { phase: "failed"; message: string };
 
 /**
- * Where a client stands with Writ: on the waiting list, decided on, added
+ * Where a client stands with Jotra: on the waiting list, decided on, added
  * from its card and not heard from yet, or none of these. Read off the same
  * lists the rest of the section shows, by the name the program sends.
  */
@@ -41,13 +41,13 @@ export type CardStanding =
   | { kind: "expecting" }
   | { kind: "new" };
 
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 const [cards, setCards] = createSignal<McpClientCard[] | null>(null);
 const [loadFailed, setLoadFailed] = createSignal(false);
 const [actions, setActions] = createSignal<Partial<Record<McpClientId, CardAction>>>({});
 const [tests, setTests] = createSignal<Partial<Record<McpClientId, CardTest>>>({});
 
-const ACTION_FAILED = "Writ could not be added.";
+const ACTION_FAILED = "Jotra could not be added.";
 const TEST_FAILED = "The test could not run.";
 
 /** Reads the cards: what each client is handed, and whether its command was
@@ -80,7 +80,7 @@ function setTest(id: McpClientId, test: CardTest): void {
 }
 
 /**
- * Adds Writ to the client the card is for: runs its own `mcp add`, opens its
+ * Adds Jotra to the client the card is for: runs its own `mcp add`, opens its
  * install link, or opens the Claude Desktop bundle. A client whose command was
  * not found has nothing to run, so its card copies the command instead.
  */

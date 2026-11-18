@@ -6,23 +6,23 @@
 //! assertions here are about: nothing the migration is going to write may be
 //! reclaimed first, and nothing may be deleted before its file verified.
 //!
-//! One test in its own binary, because `initialize` reads `WRIT_DATA_DIR` and
-//! `WRIT_NOTES_DIR` from the process environment and a second test in the same
+//! One test in its own binary, because `initialize` reads `JOTRA_DATA_DIR` and
+//! `JOTRA_NOTES_DIR` from the process environment and a second test in the same
 //! binary would race it.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
+use jotra_core::buffer::document::{BufferDocument, BufferStatus};
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::notes_migration::{MigrationReport, RECOVERED_FOLDER};
+use jotra_storage::rollback::ROLLBACK_COPY_SUFFIX;
+use jotra_storage::schema_meta::{self, KEY_NOTES_MIGRATION_REPORT};
+use jotra_tauri_lib::state::AppState;
 use tempfile::TempDir;
-use writ_core::buffer::document::{BufferDocument, BufferStatus};
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::notes_migration::{MigrationReport, RECOVERED_FOLDER};
-use writ_storage::rollback::ROLLBACK_COPY_SUFFIX;
-use writ_storage::schema_meta::{self, KEY_NOTES_MIGRATION_REPORT};
-use writ_tauri_lib::state::AppState;
 
 fn row(id: &str, title: &str, source_path: Option<String>) -> BufferDocument {
     let now = Utc::now();
@@ -41,7 +41,7 @@ fn row(id: &str, title: &str, source_path: Option<String>) -> BufferDocument {
         closed_at: None,
         read_only: false,
         size_bytes: 0,
-        line_ending: writ_core::notes::line_ending::LineEnding::Lf,
+        line_ending: jotra_core::notes::line_ending::LineEnding::Lf,
         encoding: None,
     }
 }
@@ -57,14 +57,14 @@ fn names_in(dir: &Path) -> HashSet<String> {
         .unwrap_or_default()
 }
 
-/// Writes the four row shapes plus a file of piped input into `writ_dir`,
+/// Writes the four row shapes plus a file of piped input into `jotra_dir`,
 /// exactly as 0.3.5 would have left them.
-fn seed_a_0_3_5_data_folder(writ_dir: &Path) -> PathBuf {
-    let buffers = writ_dir.join("buffers");
+fn seed_a_0_3_5_data_folder(jotra_dir: &Path) -> PathBuf {
+    let buffers = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers).expect("mirror folder");
-    std::fs::create_dir_all(writ_dir.join("piped")).expect("piped folder");
+    std::fs::create_dir_all(jotra_dir.join("piped")).expect("piped folder");
 
-    let conn = open_database(&writ_dir.join("writ.db")).expect("open db");
+    let conn = open_database(&jotra_dir.join("jotra.db")).expect("open db");
     run_migrations(&conn).expect("migrations");
     let store = BufferStore::new(conn, buffers.clone());
 
@@ -78,7 +78,7 @@ fn seed_a_0_3_5_data_folder(writ_dir: &Path) -> PathBuf {
     store.close("history-1").unwrap();
 
     // 3. A file opened from outside, whose copy agrees with it.
-    let outside = writ_dir.join("outside");
+    let outside = jotra_dir.join("outside");
     std::fs::create_dir_all(&outside).unwrap();
     let kept = outside.join("kept.md");
     std::fs::write(&kept, b"# Kept").unwrap();
@@ -105,12 +105,12 @@ fn seed_a_0_3_5_data_folder(writ_dir: &Path) -> PathBuf {
     std::fs::write(buffers.join("diverged-1.txt"), b"what the editor had").unwrap();
 
     // An empty row, which is deleted rather than written out.
-    store.insert(&row("empty-1", "writ-17", None)).unwrap();
+    store.insert(&row("empty-1", "jotra-17", None)).unwrap();
     std::fs::write(buffers.join("empty-1.txt"), b"").unwrap();
 
     // A file the CLI wrote from piped input.
     std::fs::write(
-        writ_dir.join("piped").join("build-log.txt"),
+        jotra_dir.join("piped").join("build-log.txt"),
         b"cargo output",
     )
     .unwrap();
@@ -124,16 +124,16 @@ fn a_launch_over_an_0_3_5_data_folder_turns_every_note_into_a_file() {
     let notes = TempDir::new().expect("notes folder");
     let kept = seed_a_0_3_5_data_folder(data.path());
 
-    std::env::set_var("WRIT_DATA_DIR", data.path());
-    std::env::set_var("WRIT_NOTES_DIR", notes.path());
+    std::env::set_var("JOTRA_DATA_DIR", data.path());
+    std::env::set_var("JOTRA_NOTES_DIR", notes.path());
     let state = AppState::initialize().expect("the launch must not fail");
-    std::env::remove_var("WRIT_DATA_DIR");
-    std::env::remove_var("WRIT_NOTES_DIR");
+    std::env::remove_var("JOTRA_DATA_DIR");
+    std::env::remove_var("JOTRA_NOTES_DIR");
 
     let notes_root = state.notes_root().clone();
     assert_eq!(
         notes_root,
-        writ_tauri_lib::security::canonicalize_root(notes.path()).unwrap()
+        jotra_tauri_lib::security::canonicalize_root(notes.path()).unwrap()
     );
 
     // The file set.
@@ -154,12 +154,12 @@ fn a_launch_over_an_0_3_5_data_folder_turns_every_note_into_a_file() {
     assert_eq!(
         names_in(&data.path().join("archive")),
         HashSet::from(["Old ideas.md".to_string()]),
-        "a closed note waits under Writ's own folder until the user moves it"
+        "a closed note waits under Jotra's own folder until the user moves it"
     );
     assert_eq!(
         std::fs::read_to_string(&kept).unwrap(),
         "# Kept",
-        "a file Writ only opened is never rewritten"
+        "a file Jotra only opened is never rewritten"
     );
     assert_eq!(
         std::fs::read_to_string(data.path().join("outside").join("diverged.md")).unwrap(),
@@ -194,7 +194,7 @@ fn a_launch_over_an_0_3_5_data_folder_turns_every_note_into_a_file() {
     }
 
     // The report.
-    let conn = open_database(&data.path().join("writ.db")).unwrap();
+    let conn = open_database(&data.path().join("jotra.db")).unwrap();
     let stored: MigrationReport = serde_json::from_str(
         &schema_meta::get(&conn, KEY_NOTES_MIGRATION_REPORT)
             .unwrap()
@@ -210,7 +210,7 @@ fn a_launch_over_an_0_3_5_data_folder_turns_every_note_into_a_file() {
     assert_eq!(stored.notes_folder, notes_root.to_string_lossy());
 
     // The rollback copy, and the launch that took it counting itself.
-    let copy = data.path().join(format!("writ.db{ROLLBACK_COPY_SUFFIX}"));
+    let copy = data.path().join(format!("jotra.db{ROLLBACK_COPY_SUFFIX}"));
     assert!(
         copy.exists(),
         "the database is copied before the first write"

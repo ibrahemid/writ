@@ -31,7 +31,7 @@ export interface AppEntry {
 }
 
 /** The apps, in the order Settings and the setup screen list them
- * (`writ_core::config::AppId::ALL`). */
+ * (`jotra_core::config::AppId::ALL`). */
 export const APPS: readonly AppEntry[] = [
   {
     id: "chat",
@@ -113,7 +113,7 @@ export const APPS: readonly AppEntry[] = [
 ];
 
 /** The line that offers Connected programs while it is off, once, when a
- * program has called Writ: `name` is the program as a person knows it. */
+ * program has called Jotra: `name` is the program as a person knows it. */
 export function programsCallOffer(name: string): string {
   return `${name} asked for your files, and Connected programs is off.`;
 }

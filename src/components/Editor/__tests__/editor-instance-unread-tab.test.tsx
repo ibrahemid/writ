@@ -5,13 +5,13 @@ import type { BufferDocument } from "../../../types/buffer";
 import type { OpenOutcome } from "../../../stores/global/buffer-registry";
 import WindowProvider from "../../WindowProvider/WindowProvider";
 
-// A tab the last session left open whose file is over the size Writ opens
+// A tab the last session left open whose file is over the size Jotra opens
 // without asking is not read when it is shown. It asks first, and its text is
-// read only once the open answered. A file past the size Writ opens shows the
+// read only once the open answered. A file past the size Jotra opens shows the
 // reason in the editor's place.
 
 const SIXTY_MB = 60_000_000;
-const REFUSAL = "it is 600 MB, and Writ opens files up to 524 MB.";
+const REFUSAL = "it is 600 MB, and Jotra opens files up to 524 MB.";
 
 const h = vi.hoisted(() => ({
   readContent: vi.fn(async (_id: string) => "2026-10-13 10:30:00 INFO a line of a log\n"),

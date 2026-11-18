@@ -8,7 +8,7 @@
             "$value": "\"Segoe UI Variable Text\", \"Segoe UI\", Selawik, system-ui, sans-serif"
           },
           "prose": {
-            "$value": "var(--writ-font-ui)"
+            "$value": "var(--jotra-font-ui)"
           },
           "mono": {
             "$value": "\"Cascadia Code\", \"Cascadia Mono\", Consolas, ui-monospace, monospace"
@@ -305,8 +305,8 @@
           "default": {
             "$value": "rgba(0,0,0,.161)",
             "$extensions": {
-              "writ": {
-                "cssName": "--writ-border"
+              "jotra": {
+                "cssName": "--jotra-border"
               }
             }
           },
@@ -318,8 +318,8 @@
           "default": {
             "$value": "rgba(0,0,0,.894)",
             "$extensions": {
-              "writ": {
-                "cssName": "--writ-fg"
+              "jotra": {
+                "cssName": "--jotra-fg"
               }
             }
           },
@@ -399,8 +399,8 @@
           "default": {
             "$value": "rgba(255,255,255,.094)",
             "$extensions": {
-              "writ": {
-                "cssName": "--writ-border"
+              "jotra": {
+                "cssName": "--jotra-border"
               }
             }
           },
@@ -412,8 +412,8 @@
           "default": {
             "$value": "#FFFFFF",
             "$extensions": {
-              "writ": {
-                "cssName": "--writ-fg"
+              "jotra": {
+                "cssName": "--jotra-fg"
               }
             }
           },

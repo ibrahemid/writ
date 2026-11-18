@@ -99,7 +99,7 @@ function isReplace(spec: DecorationSpec): boolean {
 // ─── Links: the url is hidden, the label is the target ────────────────────
 
 describe("inline link decorations", () => {
-  const doc = "See [Writ](https://example.com) now\ncursor\n";
+  const doc = "See [Jotra](https://example.com) now\ncursor\n";
   const urlFrom = doc.indexOf("https://");
   const urlTo = urlFrom + "https://example.com".length;
 
@@ -120,10 +120,10 @@ describe("inline link decorations", () => {
   it("resolves a click on a link label to the enclosing link's url", () => {
     const state = stateFor(doc);
     treeFor(state);
-    const hit = inlineLinkTargetAt(state, doc.indexOf("Writ") + 1);
+    const hit = inlineLinkTargetAt(state, doc.indexOf("Jotra") + 1);
     expect(hit).toEqual({
-      from: doc.indexOf("Writ"),
-      to: doc.indexOf("Writ") + "Writ".length,
+      from: doc.indexOf("Jotra"),
+      to: doc.indexOf("Jotra") + "Jotra".length,
       kind: "url",
       target: "https://example.com",
     });
@@ -139,7 +139,7 @@ describe("inline link decorations", () => {
     const state = stateFor(doc);
     treeFor(state);
     const ranges = findLinkTargets(state, 0, state.doc.length);
-    const label = ranges.find((r) => r.from === doc.indexOf("Writ"));
+    const label = ranges.find((r) => r.from === doc.indexOf("Jotra"));
     expect(label).toEqual(
       expect.objectContaining({ kind: "url", target: "https://example.com" }),
     );
@@ -291,12 +291,12 @@ describe("inline image decorations", () => {
   it("draws the picture once the bytes arrive", () => {
     const widget = new InlineImageWidget("shots/one.png", {
       status: "ready",
-      src: "writ-preview://document/_note-asset/b/t/n/shots/one.png",
+      src: "jotra-preview://document/_note-asset/b/t/n/shots/one.png",
       label: "one.png",
     });
     const image = widget.toDOM(NO_VIEW).querySelector("img");
     expect(image?.getAttribute("src")).toBe(
-      "writ-preview://document/_note-asset/b/t/n/shots/one.png",
+      "jotra-preview://document/_note-asset/b/t/n/shots/one.png",
     );
     expect(image?.getAttribute("alt")).toBe("one.png");
   });
@@ -320,7 +320,7 @@ describe("inline image decorations", () => {
       pending.eq(
         new InlineImageWidget("shots/one.png", {
           status: "ready",
-          src: "writ-preview://document/_note-asset/b/t/n/shots/one.png",
+          src: "jotra-preview://document/_note-asset/b/t/n/shots/one.png",
           label: "one.png",
         }),
       ),
@@ -348,7 +348,7 @@ describe("inline image decorations", () => {
 describe("inlineImages", () => {
   const doc = "![Alt text](shots/one.png)\n";
 
-  const SRC = "writ-preview://document/_note-asset/buf-1/tok/n/shots/one.png";
+  const SRC = "jotra-preview://document/_note-asset/buf-1/tok/n/shots/one.png";
 
   function mount(
     resolve: InlineImageDeps["resolve"],
@@ -497,7 +497,7 @@ describe("inlineImages", () => {
 
   const WEB = "https://images.example.com:8443/shots/two.png";
   const WEB_DOC = `![Web](${WEB})\n`;
-  const WEB_SRC = "writ-preview://document/_remote-image/key";
+  const WEB_SRC = "jotra-preview://document/_remote-image/key";
 
   async function settle() {
     for (let tick = 0; tick < 8; tick++) await Promise.resolve();
@@ -761,12 +761,12 @@ describe("the image widget", () => {
     const view = viewWith([]);
     const widget = new InlineImageWidget("shots/one.png", {
       status: "ready",
-      src: "writ-preview://document/_note-asset/b/t/n/shots/one.png",
+      src: "jotra-preview://document/_note-asset/b/t/n/shots/one.png",
       label: "one.png",
     });
     const image = widget.toDOM(view).querySelector("img")!;
     expect(image.getAttribute("src")).toBe(
-      "writ-preview://document/_note-asset/b/t/n/shots/one.png",
+      "jotra-preview://document/_note-asset/b/t/n/shots/one.png",
     );
     expect(image.decoding).toBe("async");
     const frame = image.parentElement!;

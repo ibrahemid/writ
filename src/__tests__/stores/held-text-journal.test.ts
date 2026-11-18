@@ -166,7 +166,7 @@ describe("typing in a note whose saves are held", () => {
 // ADR-044 §4: a note whose first file the launch could not make is held like a
 // deleted one, named by the file it was to be, and "Save As…" gives it a file.
 describe("a note whose first file could not be made", () => {
-  const unmade = { name: "2026-10-13.txt", folder: "Writ" };
+  const unmade = { name: "2026-10-13.txt", folder: "Jotra" };
 
   it("is held and named by the file it was to be", () => {
     const store = showing("two", "the note in front");
@@ -215,10 +215,10 @@ describe("a note whose first file could not be made", () => {
   });
 });
 
-// A tab restored at launch that Writ has not read has no text of its own, and
+// A tab restored at launch that Jotra has not read has no text of its own, and
 // one whose read was refused for its size keeps what its refused save left in
 // the journal (ADR-044 §2, ADR-019).
-describe("a tab whose file Writ has not read", () => {
+describe("a tab whose file Jotra has not read", () => {
   it("hands nothing over, whatever happens to its file", async () => {
     const store = showing("two", "the note in front");
 

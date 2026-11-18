@@ -8,29 +8,29 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-use tempfile::TempDir;
-use writ_core::config::WritConfig;
-use writ_core::events::bus::EventBus;
-use writ_core::preview::ContentRendererRegistry;
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
-use writ_storage::workspace_grep::{GrepLimits, ScanObserver};
-use writ_tauri_lib::commands::workspace::{
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::EventBus;
+use jotra_core::preview::ContentRendererRegistry;
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::notes_index::NotesIndexStore;
+use jotra_storage::workspace_grep::{GrepLimits, ScanObserver};
+use jotra_tauri_lib::commands::workspace::{
     run_content_search, search_workspace_files_inner, workspace_index_status_inner, SearchBatch,
 };
-use writ_tauri_lib::preview::handler::RenderCache;
-use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::AuthorizedPaths;
-use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::create_ignore_set;
-use writ_tauri_lib::workspace_index::{self, WorkspaceIndex};
+use jotra_tauri_lib::preview::handler::RenderCache;
+use jotra_tauri_lib::quit::QuitState;
+use jotra_tauri_lib::security::AuthorizedPaths;
+use jotra_tauri_lib::state::AppState;
+use jotra_tauri_lib::watcher::handler::create_ignore_set;
+use jotra_tauri_lib::workspace_index::{self, WorkspaceIndex};
+use tempfile::TempDir;
 
 fn write_file(dir: &Path, rel: &str, body: &str) {
     let path = dir.join(rel);
@@ -40,38 +40,38 @@ fn write_file(dir: &Path, rel: &str, body: &str) {
     std::fs::write(path, body).unwrap();
 }
 
-fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
-    let writ_dir = writ_dir_holder.path().to_path_buf();
-    let buffers_dir = writ_dir.join("buffers");
+fn make_state(jotra_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
+    let jotra_dir = jotra_dir_holder.path().to_path_buf();
+    let buffers_dir = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).unwrap();
 
-    let notes_root = writ_dir.join("Writ");
+    let notes_root = jotra_dir.join("Jotra");
     std::fs::create_dir_all(&notes_root).unwrap();
-    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).unwrap();
+    let notes_root = jotra_tauri_lib::security::canonicalize_root(&notes_root).unwrap();
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).unwrap();
     run_migrations(&conn).unwrap();
     let store = BufferStore::new(conn, buffers_dir.clone());
 
-    let config_path = writ_dir.join("config.toml");
+    let config_path = jotra_dir.join("config.toml");
     let config_store = ConfigStore::new(config_path);
 
     let note_history = Arc::new(
-        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+        jotra_storage::note_history::NoteHistoryStore::open(&jotra_dir).expect("version store"),
     );
 
     AppState {
         store: Mutex::new(store),
         config_store,
-        config: Mutex::new(WritConfig::default()),
-        writ_dir,
+        config: Mutex::new(JotraConfig::default()),
+        jotra_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: std::sync::atomic::AtomicBool::new(false),
         menu_apps: std::sync::Mutex::new(None),
-        retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+        retitle_watch: std::sync::Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -97,7 +97,7 @@ fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).unwrap()),
-        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+        command_usage: jotra_storage::command_usage::CommandUsageStore::new(
             open_database(&db_path).expect("usage db"),
         ),
         config_diagnostics: std::sync::Mutex::new(Vec::new()),
@@ -107,7 +107,7 @@ fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
-        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(WorkspaceIndex::new(ws_root))),
         search_generation: Arc::new(AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
@@ -118,14 +118,14 @@ fn make_state(writ_dir_holder: &TempDir, ws_root: Option<PathBuf>) -> AppState {
 
 #[test]
 fn search_workspace_files_ranks_index_and_reports_status() {
-    let writ_dir = TempDir::new().unwrap();
+    let jotra_dir = TempDir::new().unwrap();
     let ws = TempDir::new().unwrap();
     write_file(ws.path(), "src/main.rs", "x");
     write_file(ws.path(), "src/lib.rs", "x");
     write_file(ws.path(), "node_modules/pkg/index.js", "x");
 
-    let root = writ_tauri_lib::security::canonicalize_root(ws.path()).unwrap();
-    let state = make_state(&writ_dir, Some(root));
+    let root = jotra_tauri_lib::security::canonicalize_root(ws.path()).unwrap();
+    let state = make_state(&jotra_dir, Some(root));
     workspace_index::rebuild_blocking(&state.workspace_index);
 
     let hits = search_workspace_files_inner(&state, "main");
@@ -144,7 +144,7 @@ fn content_search_streams_batches_and_final_outcome() {
     write_file(ws.path(), "b.rs", "no match here");
     write_file(ws.path(), "c.rs", "third needle");
 
-    let root = writ_tauri_lib::security::canonicalize_root(ws.path()).unwrap();
+    let root = jotra_tauri_lib::security::canonicalize_root(ws.path()).unwrap();
     let counter = Arc::new(AtomicU64::new(0));
     let batches: Arc<Mutex<Vec<SearchBatch>>> = Arc::new(Mutex::new(Vec::new()));
     let sink = batches.clone();
@@ -184,7 +184,7 @@ fn content_search_streams_batches_and_final_outcome() {
 fn content_search_second_call_bumps_generation() {
     let ws = TempDir::new().unwrap();
     write_file(ws.path(), "a.rs", "needle");
-    let root = writ_tauri_lib::security::canonicalize_root(ws.path()).unwrap();
+    let root = jotra_tauri_lib::security::canonicalize_root(ws.path()).unwrap();
 
     let counter = Arc::new(AtomicU64::new(0));
     let seen_generations: Arc<Mutex<Vec<u64>>> = Arc::new(Mutex::new(Vec::new()));
@@ -218,7 +218,7 @@ fn content_search_superseded_mid_flight_reports_cancelled() {
     for i in 0..FILES {
         write_file(ws.path(), &format!("f{i}.txt"), "needle");
     }
-    let root = writ_tauri_lib::security::canonicalize_root(ws.path()).unwrap();
+    let root = jotra_tauri_lib::security::canonicalize_root(ws.path()).unwrap();
 
     let counter = Arc::new(AtomicU64::new(0));
     // Start a "newer" search from inside the walk, on the first file it reaches:
@@ -280,9 +280,9 @@ fn content_search_superseded_mid_flight_reports_cancelled() {
 /// notification latency.
 #[test]
 fn notes_watcher_upserts_one_path_and_removes_it_on_delete() {
+    use jotra_core::events::bus::JotraEvent;
+    use jotra_tauri_lib::watcher::handler::classify_notes_event;
     use std::time::{Duration, Instant};
-    use writ_core::events::bus::WritEvent;
-    use writ_tauri_lib::watcher::handler::classify_notes_event;
 
     let holder = TempDir::new().expect("tempdir");
     let state = make_state(&holder, None);
@@ -295,7 +295,7 @@ fn notes_watcher_upserts_one_path_and_removes_it_on_delete() {
 
     let created = classify_notes_event(&note, &notes, &ignore, ttl, Instant::now())
         .expect("a note another program wrote must be classified");
-    let WritEvent::NotesChanged { path, removed } = created else {
+    let JotraEvent::NotesChanged { path, removed } = created else {
         panic!("the notes watcher must emit NotesChanged");
     };
     assert!(!removed);
@@ -304,8 +304,8 @@ fn notes_watcher_upserts_one_path_and_removes_it_on_delete() {
         .index_path(Path::new(&path))
         .expect("index_path"));
 
-    let query = writ_core::search::to_prefix_match("kestrel").expect("query");
-    let terms = writ_core::search::search_terms("kestrel");
+    let query = jotra_core::search::to_prefix_match("kestrel").expect("query");
+    let terms = jotra_core::search::search_terms("kestrel");
     let hits = state
         .notes_index
         .search_hits(&query, &terms, 10)
@@ -313,7 +313,7 @@ fn notes_watcher_upserts_one_path_and_removes_it_on_delete() {
     assert_eq!(hits.len(), 1, "the watched note is in the index");
     assert_eq!(
         hits[0].path.as_deref(),
-        Some(writ_storage::notes_index::index_key(&note).as_str())
+        Some(jotra_storage::notes_index::index_key(&note).as_str())
     );
 
     // Replaying the same event changes nothing.
@@ -326,7 +326,7 @@ fn notes_watcher_upserts_one_path_and_removes_it_on_delete() {
     std::fs::remove_file(&note).expect("remove note");
     let deleted = classify_notes_event(&note, &notes, &ignore, ttl, Instant::now())
         .expect("a deleted note must be classified");
-    let WritEvent::NotesChanged { path, removed } = deleted else {
+    let JotraEvent::NotesChanged { path, removed } = deleted else {
         panic!("the notes watcher must emit NotesChanged");
     };
     assert!(removed, "a vanished file is reported as removed");
@@ -348,25 +348,25 @@ fn notes_watcher_upserts_one_path_and_removes_it_on_delete() {
         .expect("replayed forget_path");
 }
 
-/// Writ's own save is stamped into the ignore set before it lands, so the
+/// Jotra's own save is stamped into the ignore set before it lands, so the
 /// notes watcher never sees it: without the stamp the save would arrive back
 /// as somebody else's edit.
 #[test]
 fn the_notes_watcher_suppresses_writs_own_write() {
+    use jotra_tauri_lib::watcher::handler::classify_notes_event;
     use std::time::{Duration, Instant};
-    use writ_tauri_lib::watcher::handler::classify_notes_event;
 
     let holder = TempDir::new().expect("tempdir");
     let state = make_state(&holder, None);
     let notes = state.notes_root();
     let note = notes.join("saved.md");
-    let body = b"written by writ";
+    let body = b"written by jotra";
 
     let ignore = create_ignore_set();
-    let key = writ_core::watcher::ignore::source_key(
+    let key = jotra_core::watcher::ignore::source_key(
         // The spelling the watcher builds its key from: `canonicalize_root`
         // strips the Windows `\\?\` prefix, which the event path never carries.
-        &writ_tauri_lib::security::canonicalize_root(&notes)
+        &jotra_tauri_lib::security::canonicalize_root(&notes)
             .expect("canonical notes root")
             .join("saved.md"),
     );
@@ -383,8 +383,8 @@ fn the_notes_watcher_suppresses_writs_own_write() {
 /// The folders another client leaves behind never reach the index.
 #[test]
 fn the_notes_watcher_ignores_a_sync_clients_own_folders() {
+    use jotra_tauri_lib::watcher::handler::classify_notes_event;
     use std::time::{Duration, Instant};
-    use writ_tauri_lib::watcher::handler::classify_notes_event;
 
     let holder = TempDir::new().expect("tempdir");
     let state = make_state(&holder, None);
@@ -436,9 +436,9 @@ fn the_notes_watcher_ignores_a_sync_clients_own_folders() {
 /// reported like a change to any other note.
 #[test]
 fn the_notes_watcher_is_silent_for_the_files_nobody_wrote_and_no_others() {
+    use jotra_core::events::bus::JotraEvent;
+    use jotra_tauri_lib::watcher::handler::classify_notes_event;
     use std::time::{Duration, Instant};
-    use writ_core::events::bus::WritEvent;
-    use writ_tauri_lib::watcher::handler::classify_notes_event;
 
     let holder = TempDir::new().expect("tempdir");
     let state = make_state(&holder, None);
@@ -499,7 +499,7 @@ fn the_notes_watcher_is_silent_for_the_files_nobody_wrote_and_no_others() {
                 Duration::from_secs(5),
                 Instant::now()
             ),
-            Some(WritEvent::NotesChanged { removed: false, .. })
+            Some(JotraEvent::NotesChanged { removed: false, .. })
         ),
         "a copy that holds somebody's text is a change like any other"
     );

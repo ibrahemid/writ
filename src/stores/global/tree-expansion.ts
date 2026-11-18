@@ -1,11 +1,13 @@
 import { createStore, produce } from "solid-js/store";
+import { LEGACY_TREE_EXPANSION_STORAGE_KEY } from "../../lib/legacy-names";
+import { adoptLegacyStorageKey } from "../../lib/legacy-storage";
 
-// Singleton state — Writ is single-window. Which folders each sidebar tree has
+// Singleton state — Jotra is single-window. Which folders each sidebar tree has
 // open, by the tree's root, kept across launches in the webview's own storage:
 // a view preference, so it never reaches the config file. A folder stays open
 // when its parent is folded and unfolded again (NV-18).
 
-const STORAGE_KEY = "writ.tree.expanded.v1";
+const STORAGE_KEY = "jotra.tree.expanded.v1";
 /** Roots remembered; the least recently changed goes first. */
 const MAX_ROOTS = 20;
 /** Open folders remembered per root; the oldest goes first. */
@@ -14,6 +16,7 @@ const MAX_PATHS = 2000;
 type Expanded = Record<string, Record<string, true>>;
 
 function load(): Expanded {
+  adoptLegacyStorageKey(LEGACY_TREE_EXPANSION_STORAGE_KEY, STORAGE_KEY);
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return {};

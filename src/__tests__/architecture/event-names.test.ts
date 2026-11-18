@@ -14,7 +14,7 @@ function rustKinds(): Map<string, string> {
 
 function rustChannels(): Map<string, string> {
   const channels = new Map<string, string>();
-  const pattern = /WritFrontendEvent::([A-Z][A-Za-z]+)\s*(?:\{\s*\.\.\s*\}|\(\.\.\))\s*=>\s*"([^"]+)"/g;
+  const pattern = /JotraFrontendEvent::([A-Z][A-Za-z]+)\s*(?:\{\s*\.\.\s*\}|\(\.\.\))\s*=>\s*"([^"]+)"/g;
   for (const match of EMITTER.matchAll(pattern)) channels.set(match[1]!, match[2]!);
   return channels;
 }

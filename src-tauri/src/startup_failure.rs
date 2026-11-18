@@ -8,13 +8,13 @@
 //! a native dialog, and exits.
 //!
 //! Policy (what the report says, where it goes) lives in
-//! [`writ_core::startup`]; this module performs the writes and calls the
+//! [`jotra_core::startup`]; this module performs the writes and calls the
 //! platform dialog.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 
-use writ_core::startup::{
+use jotra_core::startup::{
     choose_report_path, format_failure_dialog, format_failure_report, StartupFailure, StartupStage,
     FAILURE_DIALOG_TITLE,
 };
@@ -138,7 +138,7 @@ fn write_report_with(
 /// Shows a blocking native error dialog.
 ///
 /// macOS and Windows use `rfd`, whose backends for those targets link no
-/// system libraries beyond the ones Writ already uses. The Linux backend
+/// system libraries beyond the ones Jotra already uses. The Linux backend
 /// would pull GTK in as a build dependency of this crate, so Linux spawns
 /// whichever desktop dialog binary exists instead.
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -223,7 +223,7 @@ mod tests {
         StartupFailure::new(
             StartupStage::AppState,
             "Permission denied (os error 13)",
-            Some(PathBuf::from("/home/user/.writ")),
+            Some(PathBuf::from("/home/user/.jotra")),
             "20260730-101500",
         )
     }
@@ -235,7 +235,7 @@ mod tests {
 
         let written = write_report(&failure(), Some(logs.path()), temp.path()).unwrap();
 
-        assert_eq!(written, logs.path().join("writ-crash-20260730-101500.txt"));
+        assert_eq!(written, logs.path().join("jotra-crash-20260730-101500.txt"));
         assert!(std::fs::read_to_string(&written)
             .unwrap()
             .contains("Error: Permission denied (os error 13)"));
@@ -258,7 +258,7 @@ mod tests {
 
         let written = write_report(&failure(), None, temp.path()).unwrap();
 
-        assert_eq!(written, temp.path().join("writ-crash-20260730-101500.txt"));
+        assert_eq!(written, temp.path().join("jotra-crash-20260730-101500.txt"));
         assert!(written.exists());
     }
 
@@ -275,7 +275,7 @@ mod tests {
 
         let written = write_report(&failure(), Some(&logs), temp.path()).unwrap();
 
-        assert_eq!(written, temp.path().join("writ-crash-20260730-101500.txt"));
+        assert_eq!(written, temp.path().join("jotra-crash-20260730-101500.txt"));
         std::fs::set_permissions(&logs, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 
@@ -287,7 +287,7 @@ mod tests {
 
         let written = write_report(&failure(), Some(&logs), temp.path()).unwrap();
 
-        assert_eq!(written, logs.join("writ-crash-20260730-101500.txt"));
+        assert_eq!(written, logs.join("jotra-crash-20260730-101500.txt"));
         assert!(written.exists());
     }
 
@@ -295,7 +295,7 @@ mod tests {
     fn report_falls_back_to_the_temp_dir_when_the_logs_dir_write_fails() {
         let logs = tempfile::tempdir().unwrap();
         let temp = tempfile::tempdir().unwrap();
-        let logs_target = logs.path().join("writ-crash-20260730-101500.txt");
+        let logs_target = logs.path().join("jotra-crash-20260730-101500.txt");
 
         let written = write_report_with(
             &failure(),
@@ -310,7 +310,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(written, temp.path().join("writ-crash-20260730-101500.txt"));
+        assert_eq!(written, temp.path().join("jotra-crash-20260730-101500.txt"));
         let contents = std::fs::read_to_string(&written).unwrap();
         assert!(contents.contains(&format!("Report file: {}", written.display())));
         assert!(!contents.contains(&logs.path().display().to_string()));
@@ -332,8 +332,8 @@ mod tests {
         assert_eq!(
             attempted,
             [
-                logs.path().join("writ-crash-20260730-101500.txt"),
-                temp.path().join("writ-crash-20260730-101500.txt"),
+                logs.path().join("jotra-crash-20260730-101500.txt"),
+                temp.path().join("jotra-crash-20260730-101500.txt"),
             ]
         );
     }
@@ -356,7 +356,7 @@ mod tests {
         assert!(body.contains("Error: WebView2 runtime not found"));
         assert_eq!(
             written,
-            Some(logs.path().join("writ-crash-20261014-101500.txt"))
+            Some(logs.path().join("jotra-crash-20261014-101500.txt"))
         );
     }
 

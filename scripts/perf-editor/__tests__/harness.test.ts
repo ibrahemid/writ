@@ -7,7 +7,7 @@ import { APP_ROOT, HARNESS_PAGE, ROOT, harnessBuildConfig } from "../harness.mjs
 
 describe("perf harness build", () => {
   it("builds the harness page alone, not the app's pages", async () => {
-    const config = await resolveConfig(harnessBuildConfig(join(tmpdir(), "writ-perf-harness")), "build");
+    const config = await resolveConfig(harnessBuildConfig(join(tmpdir(), "jotra-perf-harness")), "build");
     expect(config.root).toBe(normalizePath(APP_ROOT));
     expect(config.build.rolldownOptions.input).toBe(HARNESS_PAGE);
   });

@@ -81,8 +81,8 @@ describe("FindOverlay", () => {
     const { getByLabelText } = render(() => <FindOverlay store={find} />);
     find.open();
     fireEvent.click(getByLabelText("Replace"));
-    expect(getByLabelText("Find").hasAttribute("data-writ-focus-silent")).toBe(true);
-    expect(getByLabelText("Replace with").hasAttribute("data-writ-focus-silent")).toBe(true);
+    expect(getByLabelText("Find").hasAttribute("data-jotra-focus-silent")).toBe(true);
+    expect(getByLabelText("Replace with").hasAttribute("data-jotra-focus-silent")).toBe(true);
   });
 
   it("renders the match count and updates on navigation", () => {
@@ -245,7 +245,7 @@ describe("FindOverlay", () => {
 // accessible name once there is text inside.
 /** The label of the tip wrapping a control, which is where its key now lives. */
 function tipFor(container: HTMLElement, control: Element): string | undefined {
-  const anchor = control.closest(".writ-tooltip-anchor");
+  const anchor = control.closest(".jotra-tooltip-anchor");
   if (!anchor) return undefined;
   vi.useFakeTimers();
   try {
@@ -311,7 +311,7 @@ describe("the find bar's names", () => {
   it("keeps the option toggles pressed through the shared button", () => {
     const { container, getByLabelText, find } = openBar();
     const toggle = getByLabelText("Match case");
-    expect(toggle.classList.contains("writ-btn")).toBe(true);
+    expect(toggle.classList.contains("jotra-btn")).toBe(true);
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
 
     fireEvent.click(toggle);
@@ -332,7 +332,7 @@ describe("the find bar's names", () => {
     find.toggleReplace();
     const actions = [...container.querySelectorAll(".find-row-replace button")];
     expect(actions).toHaveLength(2);
-    for (const action of actions) expect(action.classList.contains("writ-btn")).toBe(true);
+    for (const action of actions) expect(action.classList.contains("jotra-btn")).toBe(true);
   });
 
   it("closes under one name", () => {

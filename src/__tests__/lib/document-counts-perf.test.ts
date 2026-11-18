@@ -20,7 +20,7 @@ const HEAP_GROWTH_BUDGET_MiB = 16;
 // can slow a run down, never speed one up.
 const RUNS = 3;
 
-const gated = !process.env.WRIT_PERF_GATE;
+const gated = !process.env.JOTRA_PERF_GATE;
 
 interface CountRun {
   progress: CountProgress;

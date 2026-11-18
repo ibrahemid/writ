@@ -1,7 +1,7 @@
 //! Apple's on-device speech analyzer, through the Swift bridge `build.rs`
-//! links on macOS (`swift/WritOnDevice`, `Dictation.swift`).
+//! links on macOS (`swift/JotraOnDevice`, `Dictation.swift`).
 //!
-//! What the bridge's failure codes mean is [`writ_core::dictation::on_device`];
+//! What the bridge's failure codes mean is [`jotra_core::dictation::on_device`];
 //! running a session on it is [`super::session`]. This module is the call and
 //! the callback. A build without the bridge, and every platform other than
 //! macOS, answers as the bridge does before macOS 26: on-device dictation is
@@ -72,7 +72,7 @@ const KIND_FINISHED: i32 = 4;
 const KIND_READY: i32 = 5;
 const KIND_PREPARING: i32 = 6;
 
-/// The event for one callback from `writ_dictation_start`; `None` for a kind
+/// The event for one callback from `jotra_dictation_start`; `None` for a kind
 /// the bridge does not send.
 fn decode(kind: i32, code: i32, text: Option<String>) -> Option<BridgeEvent> {
     let event = match kind {
@@ -117,7 +117,7 @@ pub fn start(locale: &str) -> (Recognition, mpsc::UnboundedReceiver<BridgeEvent>
     native::start(locale)
 }
 
-#[cfg(writ_on_device_bridge)]
+#[cfg(jotra_on_device_bridge)]
 mod native {
     use std::ffi::{c_char, c_void, CStr, CString};
 
@@ -129,20 +129,20 @@ mod native {
     type Sender = mpsc::UnboundedSender<BridgeEvent>;
 
     extern "C" {
-        fn writ_dictation_mic_status() -> i32;
-        fn writ_dictation_mic_request(context: *mut c_void, callback: Callback);
-        fn writ_dictation_supported_locales(context: *mut c_void, callback: Callback);
-        fn writ_dictation_system_locale() -> *mut c_char;
-        fn writ_dictation_free_string(pointer: *mut c_char);
-        fn writ_dictation_start(
+        fn jotra_dictation_mic_status() -> i32;
+        fn jotra_dictation_mic_request(context: *mut c_void, callback: Callback);
+        fn jotra_dictation_supported_locales(context: *mut c_void, callback: Callback);
+        fn jotra_dictation_system_locale() -> *mut c_char;
+        fn jotra_dictation_free_string(pointer: *mut c_char);
+        fn jotra_dictation_start(
             locale: *const c_char,
             context: *mut c_void,
             callback: Callback,
         ) -> *mut c_void;
-        fn writ_dictation_feed(handle: *mut c_void, samples: *const i16, count: isize);
-        fn writ_dictation_finish(handle: *mut c_void);
-        fn writ_dictation_stop(handle: *mut c_void);
-        fn writ_dictation_release(handle: *mut c_void);
+        fn jotra_dictation_feed(handle: *mut c_void, samples: *const i16, count: isize);
+        fn jotra_dictation_finish(handle: *mut c_void);
+        fn jotra_dictation_stop(handle: *mut c_void);
+        fn jotra_dictation_release(handle: *mut c_void);
     }
 
     /// The text of a callback, or `None` for a null pointer.
@@ -164,7 +164,7 @@ mod native {
     pub(super) fn mic_status_code() -> i32 {
         // SAFETY: takes no arguments and reads the process's microphone
         // authorization.
-        unsafe { writ_dictation_mic_status() }
+        unsafe { jotra_dictation_mic_status() }
     }
 
     /// Receives the one answer to a microphone request. The context is a
@@ -184,7 +184,7 @@ mod native {
         let context = Box::into_raw(Box::new(sender)) as *mut c_void;
         // SAFETY: the context is a live box the callback frees on its one
         // answer.
-        unsafe { writ_dictation_mic_request(context, on_mic_answer) };
+        unsafe { jotra_dictation_mic_request(context, on_mic_answer) };
         receiver.await.unwrap_or(false)
     }
 
@@ -232,16 +232,16 @@ mod native {
         let context = Box::into_raw(Box::new(list)) as *mut c_void;
         // SAFETY: the context is a live box the callback frees on the end of
         // the list.
-        unsafe { writ_dictation_supported_locales(context, on_locale) };
+        unsafe { jotra_dictation_supported_locales(context, on_locale) };
         receiver
             .await
-            .unwrap_or(Err(writ_core::dictation::on_device::BRIDGE_UNSUPPORTED))
+            .unwrap_or(Err(jotra_core::dictation::on_device::BRIDGE_UNSUPPORTED))
     }
 
     pub(super) fn system_locale() -> String {
         // SAFETY: takes no arguments; the result is null or a string the
         // bridge allocated for this caller.
-        let pointer = unsafe { writ_dictation_system_locale() };
+        let pointer = unsafe { jotra_dictation_system_locale() };
         if pointer.is_null() {
             return String::new();
         }
@@ -251,7 +251,7 @@ mod native {
             .to_string_lossy()
             .into_owned();
         // SAFETY: freed once, by the function the bridge names for it.
-        unsafe { writ_dictation_free_string(pointer) };
+        unsafe { jotra_dictation_free_string(pointer) };
         locale
     }
 
@@ -275,21 +275,21 @@ mod native {
             }
             // SAFETY: the handle is live until `drop`; the bridge copies the
             // samples before it returns.
-            unsafe { writ_dictation_feed(self.0, samples.as_ptr(), count) }
+            unsafe { jotra_dictation_feed(self.0, samples.as_ptr(), count) }
         }
 
         /// Ends the input: the text still pending arrives, then the finished
         /// event.
         pub fn finish(&self) {
             // SAFETY: the handle is live until `drop` releases it.
-            unsafe { writ_dictation_finish(self.0) }
+            unsafe { jotra_dictation_finish(self.0) }
         }
 
         /// Stops at once; the recognition ends with the stopped event unless
         /// it already ended.
         pub fn stop(&self) {
             // SAFETY: the handle is live until `drop` releases it.
-            unsafe { writ_dictation_stop(self.0) }
+            unsafe { jotra_dictation_stop(self.0) }
         }
     }
 
@@ -299,7 +299,7 @@ mod native {
             self.stop();
             // SAFETY: released once, here; the bridge keeps the session alive
             // for as long as it still calls back.
-            unsafe { writ_dictation_release(self.0) }
+            unsafe { jotra_dictation_release(self.0) }
         }
     }
 
@@ -342,15 +342,15 @@ mod native {
         let locale = c_text(locale);
         // SAFETY: the locale outlives the call, which copies it; the context
         // is a live box the callback frees on the ending event.
-        let handle = unsafe { writ_dictation_start(locale.as_ptr(), context, on_event) };
+        let handle = unsafe { jotra_dictation_start(locale.as_ptr(), context, on_event) };
         (Handle(handle), receiver)
     }
 }
 
-#[cfg(not(writ_on_device_bridge))]
+#[cfg(not(jotra_on_device_bridge))]
 mod native {
+    use jotra_core::dictation::on_device::BRIDGE_UNSUPPORTED;
     use tokio::sync::mpsc;
-    use writ_core::dictation::on_device::BRIDGE_UNSUPPORTED;
 
     use super::{decode, BridgeEvent, KIND_FAILED};
 
@@ -463,10 +463,10 @@ mod tests {
         })
     }
 
-    #[cfg(not(writ_on_device_bridge))]
+    #[cfg(not(jotra_on_device_bridge))]
     #[test]
     fn without_the_bridge_on_device_dictation_is_unsupported() {
-        use writ_core::dictation::on_device::BRIDGE_UNSUPPORTED;
+        use jotra_core::dictation::on_device::BRIDGE_UNSUPPORTED;
 
         let locales = tauri::async_runtime::block_on(supported_locales());
         assert_eq!(locales, Err(BRIDGE_UNSUPPORTED));
@@ -479,14 +479,15 @@ mod tests {
         );
     }
 
-    #[cfg(writ_on_device_bridge)]
+    #[cfg(jotra_on_device_bridge)]
     #[test]
     fn download_progress_reads_as_a_percent_or_unknown() {
         extern "C" {
-            fn writ_dictation_download_percent(fraction: f64, total: i64) -> i32;
+            fn jotra_dictation_download_percent(fraction: f64, total: i64) -> i32;
         }
         // SAFETY: takes two plain values and touches no state.
-        let percent = |fraction, total| unsafe { writ_dictation_download_percent(fraction, total) };
+        let percent =
+            |fraction, total| unsafe { jotra_dictation_download_percent(fraction, total) };
         assert_eq!(percent(0.42, 100), 42);
         assert_eq!(percent(1.7, 100), 100);
         assert_eq!(percent(-0.2, 100), 0);
@@ -495,10 +496,10 @@ mod tests {
         assert_eq!(percent(f64::INFINITY, 100), -1);
     }
 
-    #[cfg(writ_on_device_bridge)]
+    #[cfg(jotra_on_device_bridge)]
     #[test]
     fn the_bridge_reads_the_running_system() {
-        use writ_core::dictation::on_device::BRIDGE_UNSUPPORTED;
+        use jotra_core::dictation::on_device::BRIDGE_UNSUPPORTED;
 
         assert!(!system_locale().trim().is_empty());
         match tauri::async_runtime::block_on(supported_locales()) {
@@ -507,10 +508,10 @@ mod tests {
         }
     }
 
-    #[cfg(writ_on_device_bridge)]
+    #[cfg(jotra_on_device_bridge)]
     #[test]
     fn a_locale_the_bridge_lacks_ends_once_with_its_reason() {
-        use writ_core::dictation::on_device::{BRIDGE_LANGUAGE_UNSUPPORTED, BRIDGE_UNSUPPORTED};
+        use jotra_core::dictation::on_device::{BRIDGE_LANGUAGE_UNSUPPORTED, BRIDGE_UNSUPPORTED};
 
         let (handle, receiver) = start("zz-ZZ");
         let events = tauri::async_runtime::block_on(async {
@@ -532,7 +533,7 @@ mod tests {
         );
     }
 
-    #[cfg(writ_on_device_bridge)]
+    #[cfg(jotra_on_device_bridge)]
     #[test]
     fn a_stopped_recognition_ends_once_and_closes() {
         let (handle, receiver) = start("zz-ZZ");
@@ -560,7 +561,7 @@ mod tests {
     }
 
     /// A live recognition of synthesized speech on macOS 26 with the English
-    /// model installable: `cargo test -p writ-tauri --lib dictation::bridge -- --ignored`.
+    /// model installable: `cargo test -p jotra-tauri --lib dictation::bridge -- --ignored`.
     #[test]
     #[ignore = "needs macOS 26 and the English speech model"]
     fn synthesized_speech_comes_back_as_text() {
@@ -579,7 +580,7 @@ mod tests {
 
         let text = tauri::async_runtime::block_on(async move {
             let locales = supported_locales().await.expect("on-device dictation");
-            let locale = writ_core::dictation::on_device_locale("en", &system_locale(), &locales)
+            let locale = jotra_core::dictation::on_device_locale("en", &system_locale(), &locales)
                 .expect("an English locale");
             let (handle, mut receiver) = start(&locale);
             let mut text = String::new();

@@ -26,10 +26,10 @@ const ERR_LINK_NAME_NOT_UNIQUE = "ERR_LINK_NAME_NOT_UNIQUE";
 // What each code says to the person whose save did not land. Both read as the
 // second half of "Could not save <name>: ".
 const CODE_MESSAGES: Record<string, string> = {
-  [ERR_FILE_CHANGED_ON_DISK]: "the file changed outside Writ. A copy of your version is beside it.",
+  [ERR_FILE_CHANGED_ON_DISK]: "the file changed outside Jotra. A copy of your version is beside it.",
   [ERR_FILE_NOT_DOWNLOADED]:
     "this file has not finished downloading, so your changes were not saved yet.",
-  [ERR_HARD_LINKED]: "this file is shared with another name on disk, so Writ left it alone.",
+  [ERR_HARD_LINKED]: "this file is shared with another name on disk, so Jotra left it alone.",
   [ERR_READ_ONLY_DESTINATION]: "this file is read-only, so nothing was written.",
   [ERR_FOLDER_NOT_WRITABLE]:
     "the folder this file is in cannot be written to, so nothing was written.",
@@ -51,19 +51,19 @@ const UNKNOWN_MESSAGE = CODE_MESSAGES[ERR_WRITE_FAILED];
 
 // What a note a rename left alone says, as the second half of "<name>: ". Two
 // of these are not failures at all: a file can hold no link to rewrite, and a
-// link can name a note Writ cannot tell from another of the same name. Saying
+// link can name a note Jotra cannot tell from another of the same name. Saying
 // so is the point of the list, and the save wording would name a write that
 // was never attempted.
 const SKIPPED_CODE_MESSAGES: Record<string, string> = {
   [ERR_LINK_NOT_FOUND]: "holds no link to this note.",
   [ERR_LINK_NAME_NOT_UNIQUE]: "could be linking to another note of the same name.",
-  [ERR_FILE_CHANGED_ON_DISK]: "changed outside Writ.",
+  [ERR_FILE_CHANGED_ON_DISK]: "changed outside Jotra.",
   [ERR_FILE_NOT_DOWNLOADED]: "has not finished downloading.",
   [ERR_READ_ONLY_DESTINATION]: "is read-only.",
   [ERR_NOTE_READ_ONLY]: "is read-only.",
-  [ERR_FOLDER_NOT_WRITABLE]: "is in a folder Writ cannot write to.",
+  [ERR_FOLDER_NOT_WRITABLE]: "is in a folder Jotra cannot write to.",
   [ERR_HARD_LINKED]: "is shared with another name on disk.",
-  [ERR_PERMISSION_DENIED]: "cannot be changed by Writ.",
+  [ERR_PERMISSION_DENIED]: "cannot be changed by Jotra.",
   [ERR_FILE_IN_USE]: "is open in another program.",
   [ERR_FILE_MISSING]: "is no longer there.",
   [ERR_FILE_REMOVED_ON_DISK]: "was deleted.",
@@ -81,14 +81,14 @@ const SKIPPED_UNKNOWN = "was left as it was.";
  *
  * `otherName` is the note the code is about, for the code that is about one.
  * A link that could mean two notes is only actionable once the person can see
- * the second one, and that one is the note Writ does not list.
+ * the second one, and that one is the note Jotra does not list.
  */
 export function describeSkippedNote(
   code: string,
   otherName?: string | null,
 ): string {
   if (code === ERR_LINK_NAME_NOT_UNIQUE && otherName) {
-    return `could be linking to ${otherName}, which Writ does not list.`;
+    return `could be linking to ${otherName}, which Jotra does not list.`;
   }
   return SKIPPED_CODE_MESSAGES[code] ?? SKIPPED_UNKNOWN;
 }
@@ -97,7 +97,7 @@ export function describeSkippedNote(
 // its own, so nothing is set aside and the save wording would name a copy that
 // was never written.
 const RENAME_CODE_MESSAGES: Record<string, string> = {
-  [ERR_FILE_CHANGED_ON_DISK]: "The file changed outside Writ, so it was not renamed.",
+  [ERR_FILE_CHANGED_ON_DISK]: "The file changed outside Jotra, so it was not renamed.",
   [ERR_FILE_NOT_DOWNLOADED]: "This file has not finished downloading yet.",
   [ERR_READ_ONLY_DESTINATION]: "This file is read-only, so it was not renamed.",
 };
@@ -133,7 +133,7 @@ const NOT_WORTH_A_SECOND_PRESS = new Set([
 
 /** A failed save as the editor shows it. */
 export interface SaveFailureReason {
-  /** The code Writ minted, or null for a failure that carried none. */
+  /** The code Jotra minted, or null for a failure that carried none. */
   code: string | null;
   /** The reason, as the second half of `Could not save <name>: `. */
   message: string;

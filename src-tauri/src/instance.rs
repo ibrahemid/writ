@@ -1,8 +1,8 @@
-//! One Writ per data folder: what a second launch does, and how the running
+//! One Jotra per data folder: what a second launch does, and how the running
 //! one hears it (ADR-033, amended 2026-10-14).
 //!
 //! `run` claims the folder before anything opens the database
-//! ([`writ_storage::instance::acquire`]). A launch that finds it held leaves
+//! ([`jotra_storage::instance::acquire`]). A launch that finds it held leaves
 //! its paths as a request and waits for the running instance to take it. A
 //! relaunch races the process it replaces, which still holds the folder while
 //! it exits, so the wait also watches the lock: the moment it comes free the
@@ -16,16 +16,16 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use jotra_core::instance::OpenRequest;
+use jotra_storage::instance::{
+    acquire, requests_dir, send_request, take_requests, InstanceLock, InstanceLockError,
+};
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 use tauri::{AppHandle, Manager};
 use tracing::{error, info};
-use writ_core::instance::OpenRequest;
-use writ_storage::instance::{
-    acquire, requests_dir, send_request, take_requests, InstanceLock, InstanceLockError,
-};
 
-use crate::events::{emit_event, WritFrontendEvent};
+use crate::events::{emit_event, JotraFrontendEvent};
 use crate::poison::recover_poison;
 use crate::state::AppState;
 
@@ -63,23 +63,23 @@ pub fn now_ms() -> i64 {
 }
 
 /// The files a launch was given, resolved against this process's working
-/// folder ([`writ_core::file_ops::arg_paths_from_iter`]): the running instance
+/// folder ([`jotra_core::file_ops::arg_paths_from_iter`]): the running instance
 /// has a working folder of its own.
 pub fn launch_paths<I>(args: I) -> Vec<String>
 where
     I: IntoIterator<Item = OsString>,
 {
-    writ_core::file_ops::arg_paths_from_iter(args)
+    jotra_core::file_ops::arg_paths_from_iter(args)
         .into_iter()
         .filter_map(|path| path.to_str().map(String::from))
         .collect()
 }
 
-/// Leaves `paths` and `links` for the process holding `writ_dir` and waits up
+/// Leaves `paths` and `links` for the process holding `jotra_dir` and waits up
 /// to `wait` for them to be taken, claiming the folder instead if its holder
 /// exits first.
 pub fn hand_over(
-    writ_dir: &Path,
+    jotra_dir: &Path,
     paths: Vec<String>,
     links: Vec<String>,
     wait: Duration,
@@ -91,10 +91,10 @@ pub fn hand_over(
         links,
         ..OpenRequest::default()
     };
-    let sent = match send_request(writ_dir, &request) {
+    let sent = match send_request(jotra_dir, &request) {
         Ok(sent) => sent,
         Err(error) => {
-            eprintln!("writ: could not reach the running Writ: {error}");
+            eprintln!("jotra: could not reach the running Jotra: {error}");
             return Handover::NotSent;
         }
     };
@@ -103,7 +103,7 @@ pub fn hand_over(
         if !sent.exists() {
             return Handover::Delivered;
         }
-        if let Ok(lock) = acquire(writ_dir) {
+        if let Ok(lock) = acquire(jotra_dir) {
             // Taken by nobody who is still running: this process opens the
             // paths itself, as the instance it now is.
             let _ = std::fs::remove_file(&sent);
@@ -116,26 +116,26 @@ pub fn hand_over(
     }
 }
 
-/// Claims `writ_dir` for this launch, or hands its arguments to the instance
+/// Claims `jotra_dir` for this launch, or hands its arguments to the instance
 /// holding it and ends the process.
 ///
 /// Returns the lock to hold for the life of the process, or `None` with the
 /// reason when the folder cannot be locked at all (a filesystem without
-/// advisory locks): Writ then runs as it did before the lock existed, and the
+/// advisory locks): Jotra then runs as it did before the lock existed, and the
 /// caller logs why once logging is up.
-pub fn claim_or_hand_over(writ_dir: &Path) -> Result<InstanceLock, InstanceLockError> {
-    match acquire(writ_dir) {
+pub fn claim_or_hand_over(jotra_dir: &Path) -> Result<InstanceLock, InstanceLockError> {
+    match acquire(jotra_dir) {
         Err(InstanceLockError::Held) => {}
         claimed => return claimed,
     }
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
-    let links = writ_core::writ_link::link_args(args.iter().cloned());
+    let links = jotra_core::jotra_link::link_args(args.iter().cloned());
     let paths = launch_paths(args);
-    match hand_over(writ_dir, paths, links, HANDOVER_WAIT, HANDOVER_POLL) {
+    match hand_over(jotra_dir, paths, links, HANDOVER_WAIT, HANDOVER_POLL) {
         Handover::TookOver(lock) => Ok(lock),
         Handover::Delivered => std::process::exit(0),
         Handover::Unanswered => {
-            eprintln!("writ: the running Writ did not answer; it opens the files when it can");
+            eprintln!("jotra: the running Jotra did not answer; it opens the files when it can");
             std::process::exit(0)
         }
         Handover::NotSent => std::process::exit(1),
@@ -175,7 +175,7 @@ pub fn authorize_request(state: &AppState, request: &OpenRequest) -> ForwardedOp
     opens
 }
 
-/// Records the `writ --wait` a request carries against the files it opens,
+/// Records the `jotra --wait` a request carries against the files it opens,
 /// answering it at once when none of them could be opened.
 pub fn register_wait(state: &AppState, request: &OpenRequest, opens: &ForwardedOpens) {
     let Some(token) = request.wait_token() else {
@@ -184,7 +184,7 @@ pub fn register_wait(state: &AppState, request: &OpenRequest, opens: &ForwardedO
     let answer_now = recover_poison(state.cli_waits.lock(), "instance::register_wait")
         .register(token, opens.paths.iter().map(|path| wait_key(path)));
     if answer_now {
-        writ_storage::instance::release_wait(&state.writ_dir, token);
+        jotra_storage::instance::release_wait(&state.jotra_dir, token);
     }
 }
 
@@ -196,7 +196,7 @@ fn wait_key(path: &str) -> String {
         .unwrap_or_else(|_| path.to_string())
 }
 
-/// Answers every `writ --wait` whose last file is among `closed`, the files
+/// Answers every `jotra --wait` whose last file is among `closed`, the files
 /// whose last tab has just closed.
 ///
 /// Called after the close has let go of the store and the note's turn, so the
@@ -212,8 +212,8 @@ pub fn tabs_closed(state: &AppState, closed: &[String]) {
     let answered = recover_poison(state.cli_waits.lock(), "instance::tabs_closed")
         .closed(keys.iter().map(String::as_str));
     for token in answered {
-        info!("a waiting writ command was answered");
-        writ_storage::instance::release_wait(&state.writ_dir, &token);
+        info!("a waiting jotra command was answered");
+        jotra_storage::instance::release_wait(&state.jotra_dir, &token);
     }
 }
 
@@ -247,14 +247,14 @@ pub fn route_forwarded(state: &AppState, request: &OpenRequest) -> Option<Forwar
     None
 }
 
-/// Opens what a second launch or a `writ` command asked for, follows the
-/// `writ://` links it carries, and brings the window forward.
+/// Opens what a second launch or a `jotra` command asked for, follows the
+/// `jotra://` links it carries, and brings the window forward.
 pub fn deliver_forwarded(app: &AppHandle, request: &OpenRequest) {
     let state = app.state::<AppState>();
     if let Some(opens) = route_forwarded(&state, request) {
         let _ = emit_event(
             app,
-            WritFrontendEvent::PendingOpens {
+            JotraFrontendEvent::PendingOpens {
                 paths: opens.paths,
                 lines: opens.lines,
             },
@@ -273,14 +273,14 @@ pub fn bring_forward(app: &AppHandle) {
     }
 }
 
-/// Takes every request waiting in `writ_dir` and hands each fresh one to
+/// Takes every request waiting in `jotra_dir` and hands each fresh one to
 /// `deliver`, returning how many were delivered.
 ///
 /// A process that is `leaving` takes nothing: the launch waiting on its
 /// request claims the folder once this one has gone, and opens the paths
 /// itself.
 pub fn drain_requests(
-    writ_dir: &Path,
+    jotra_dir: &Path,
     now_ms: i64,
     leaving: bool,
     mut deliver: impl FnMut(OpenRequest),
@@ -289,11 +289,11 @@ pub fn drain_requests(
         return 0;
     }
     let mut delivered = 0;
-    for request in take_requests(writ_dir) {
+    for request in take_requests(jotra_dir) {
         if !request.is_fresh(now_ms) {
             info!("an open request older than a minute was dropped");
             if let Some(token) = request.wait_token() {
-                writ_storage::instance::release_wait(writ_dir, token);
+                jotra_storage::instance::release_wait(jotra_dir, token);
             }
             continue;
         }
@@ -309,13 +309,13 @@ pub struct OpenRequestWatcher {
     _debouncer: Debouncer<RecommendedWatcher>,
 }
 
-/// Watches `<writ_dir>/open-requests/` for a second launch's requests, and
+/// Watches `<jotra_dir>/open-requests/` for a second launch's requests, and
 /// takes what is already waiting there.
 pub fn start_open_request_watcher(
     app: AppHandle,
-    writ_dir: PathBuf,
+    jotra_dir: PathBuf,
 ) -> Result<OpenRequestWatcher, Box<dyn std::error::Error>> {
-    let dir = requests_dir(&writ_dir);
+    let dir = requests_dir(&jotra_dir);
     std::fs::create_dir_all(&dir)?;
     let (tx, rx) = mpsc::channel::<DebounceEventResult>();
     let mut debouncer = new_debouncer(REQUEST_DEBOUNCE, tx)?;
@@ -326,7 +326,7 @@ pub fn start_open_request_watcher(
     std::thread::spawn(move || {
         let drain = |app: &AppHandle| {
             let leaving = app.state::<AppState>().quit.has_begun();
-            drain_requests(&writ_dir, now_ms(), leaving, |request| {
+            drain_requests(&jotra_dir, now_ms(), leaving, |request| {
                 if let Some(ask) = request.context_ask(now_ms()) {
                     crate::open_context::answer_ask(app, ask);
                 }
@@ -357,17 +357,17 @@ pub fn start_open_request_watcher(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use writ_storage::instance::{acquire, send_request};
+    use jotra_storage::instance::{acquire, send_request};
 
     #[test]
     fn a_launch_finding_the_folder_held_is_answered_when_its_request_is_taken() {
         let dir = tempfile::tempdir().expect("tempdir");
         let _running = acquire(dir.path()).expect("running instance");
-        let writ_dir = dir.path().to_path_buf();
+        let jotra_dir = dir.path().to_path_buf();
         let taker = std::thread::spawn(move || {
             let deadline = Instant::now() + Duration::from_secs(5);
             while Instant::now() < deadline {
-                if !take_requests(&writ_dir).is_empty() {
+                if !take_requests(&jotra_dir).is_empty() {
                     return;
                 }
                 std::thread::sleep(Duration::from_millis(10));
@@ -454,7 +454,7 @@ mod tests {
         };
         send_request(dir.path(), &request).expect("send");
         let mut delivered = Vec::new();
-        let now = writ_core::instance::OPEN_REQUEST_FRESH_MS + 1;
+        let now = jotra_core::instance::OPEN_REQUEST_FRESH_MS + 1;
         assert_eq!(
             drain_requests(dir.path(), now, false, |r| delivered.push(r.paths)),
             0

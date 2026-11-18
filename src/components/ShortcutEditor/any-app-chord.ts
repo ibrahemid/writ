@@ -5,13 +5,13 @@ import { configStore } from "../../stores/global/config";
 import { captureHotkeyStore, SHIPPED_CAPTURE_CHORD } from "../../stores/global/hotkey";
 
 /** The window's chord, as its rows in Settings name it. */
-export const GLOBAL_ROW_LABEL = "Show and hide Writ";
+export const GLOBAL_ROW_LABEL = "Show and hide Jotra";
 
 /** The quick capture chord (ADR-055), as its row names it. */
 export const CAPTURE_ROW_LABEL = "Quick capture";
 
 /** What the window's chord cannot do on a Wayland desktop. */
-export const WAYLAND_LINE = "Wayland doesn't pass this shortcut to Writ from other apps.";
+export const WAYLAND_LINE = "Wayland doesn't pass this shortcut to Jotra from other apps.";
 
 /** The rule a chord for the window has to keep, as the row states it. */
 export function windowChordRule(platform: Platform): string {

@@ -14,7 +14,7 @@ interface InvokeOptions {
 }
 
 /** The request header a raw-body save names its note in (`NOTE_ID_HEADER` in Rust). */
-const NOTE_ID_HEADER = "writ-note-id";
+const NOTE_ID_HEADER = "jotra-note-id";
 
 /**
  * A command's arguments as the host reads them. A save sends the note's text

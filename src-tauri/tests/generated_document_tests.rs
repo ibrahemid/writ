@@ -1,5 +1,5 @@
 //! Acceptance coverage for `commands::file::open_generated_document`
-//! (ADR-028 §1): a document Writ writes rather than the user must never mint
+//! (ADR-028 §1): a document Jotra writes rather than the user must never mint
 //! a file in the notes folder, must land at a fixed, rewritable path under
 //! the data directory, and must refuse a save through the ordinary read-only
 //! mechanism. A plain user note is unaffected and still mints into the notes
@@ -8,63 +8,63 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
-use tempfile::TempDir;
-use writ_core::config::WritConfig;
-use writ_core::events::bus::EventBus;
-use writ_core::preview::ContentRendererRegistry;
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
-use writ_tauri_lib::commands::buffer::{
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::EventBus;
+use jotra_core::preview::ContentRendererRegistry;
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::notes_index::NotesIndexStore;
+use jotra_tauri_lib::commands::buffer::{
     close_buffer_inner, read_buffer_content_inner, save_buffer_content_inner,
 };
-use writ_tauri_lib::commands::file::open_generated_document;
-use writ_tauri_lib::preview::handler::RenderCache;
-use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::AuthorizedPaths;
-use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::create_ignore_set;
+use jotra_tauri_lib::commands::file::open_generated_document;
+use jotra_tauri_lib::preview::handler::RenderCache;
+use jotra_tauri_lib::quit::QuitState;
+use jotra_tauri_lib::security::AuthorizedPaths;
+use jotra_tauri_lib::state::AppState;
+use jotra_tauri_lib::watcher::handler::create_ignore_set;
+use tempfile::TempDir;
 
 const NOTICES_TITLE: &str = "Third-party licences";
 
 fn make_state(dir: &TempDir) -> AppState {
-    let writ_dir = dir.path().to_path_buf();
-    let buffers_dir = writ_dir.join("buffers");
+    let jotra_dir = dir.path().to_path_buf();
+    let buffers_dir = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
 
-    let notes_root = writ_dir.join("Writ");
+    let notes_root = jotra_dir.join("Jotra");
     std::fs::create_dir_all(&notes_root).expect("notes folder");
-    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+    let notes_root = jotra_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
     let store = BufferStore::new(conn, buffers_dir.clone());
 
-    let config_path = writ_dir.join("config.toml");
+    let config_path = jotra_dir.join("config.toml");
     let config_store = ConfigStore::new(config_path);
 
     let note_history = Arc::new(
-        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+        jotra_storage::note_history::NoteHistoryStore::open(&jotra_dir).expect("version store"),
     );
 
     AppState {
         store: Mutex::new(store),
         config_store,
-        config: Mutex::new(WritConfig::default()),
-        writ_dir,
+        config: Mutex::new(JotraConfig::default()),
+        jotra_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: std::sync::atomic::AtomicBool::new(false),
         menu_apps: std::sync::Mutex::new(None),
-        retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+        retitle_watch: std::sync::Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -90,7 +90,7 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
-        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+        command_usage: jotra_storage::command_usage::CommandUsageStore::new(
             open_database(&db_path).expect("usage db"),
         ),
         config_diagnostics: std::sync::Mutex::new(Vec::new()),
@@ -100,9 +100,9 @@ fn make_state(dir: &TempDir) -> AppState {
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
-        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(
-            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+            jotra_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
@@ -115,7 +115,7 @@ fn count_external_events(state: &AppState) -> Arc<Mutex<u32>> {
     let count = Arc::new(Mutex::new(0u32));
     let count_clone = count.clone();
     state.event_bus.subscribe(move |event| {
-        if let writ_core::events::bus::WritEvent::BufferExternal { .. } = event {
+        if let jotra_core::events::bus::JotraEvent::BufferExternal { .. } = event {
             *count_clone.lock().unwrap() += 1;
         }
     });
@@ -141,14 +141,14 @@ fn opening_a_generated_document_creates_no_file_in_the_notes_folder() {
         "a generated document must never mint into the notes folder"
     );
     let expected = state
-        .writ_dir
+        .jotra_dir
         .join("generated")
         .join(format!("{NOTICES_TITLE}.md"));
     assert_eq!(
         std::fs::read_to_string(&expected).unwrap(),
         "# Third-party notices\nMIT\n"
     );
-    let expected_canonical = writ_tauri_lib::security::canonicalize_for_authorization(&expected)
+    let expected_canonical = jotra_tauri_lib::security::canonicalize_for_authorization(&expected)
         .expect("canonicalize expected path");
     assert_eq!(
         result
@@ -179,7 +179,7 @@ fn a_second_open_rewrites_the_same_file_in_place() {
         second.doc.as_ref().expect("the file opened").id,
         "the same buffer is reused"
     );
-    let generated_dir = state.writ_dir.join("generated");
+    let generated_dir = state.jotra_dir.join("generated");
     let entries: Vec<_> = std::fs::read_dir(&generated_dir)
         .unwrap()
         .map(|e| e.unwrap().file_name())
@@ -198,7 +198,7 @@ fn a_second_open_rewrites_the_same_file_in_place() {
 
     let store = state.store.lock().unwrap();
     let active = store
-        .list_by_status(writ_core::buffer::document::BufferStatus::Active)
+        .list_by_status(jotra_core::buffer::document::BufferStatus::Active)
         .unwrap();
     assert_eq!(
         active.len(),
@@ -223,7 +223,7 @@ fn saving_a_generated_document_is_refused() {
     assert!(err.contains("read-only"), "unexpected error: {err}");
 
     let expected = state
-        .writ_dir
+        .jotra_dir
         .join("generated")
         .join(format!("{NOTICES_TITLE}.md"));
     assert_eq!(
@@ -240,7 +240,7 @@ fn a_plain_new_note_still_mints_a_dated_file_in_the_notes_folder() {
 
     let doc = {
         let store = state.store.lock().unwrap();
-        let mut mgr = writ_core::buffer::manager::BufferManager::new();
+        let mut mgr = jotra_core::buffer::manager::BufferManager::new();
         let doc = mgr.create_buffer(None).expect("mint");
         store.insert(&doc).expect("persist");
         doc
@@ -250,12 +250,12 @@ fn a_plain_new_note_still_mints_a_dated_file_in_the_notes_folder() {
 
     let expected = state.notes_root().join(format!(
         "{}.{}",
-        writ_core::notes::date_stem(doc.created_at),
+        jotra_core::notes::date_stem(doc.created_at),
         state.default_extension().as_str()
     ));
     assert_eq!(std::fs::read_to_string(&expected).unwrap(), "just notes");
     assert!(
-        is_empty_dir(&state.writ_dir.join("generated")),
+        is_empty_dir(&state.jotra_dir.join("generated")),
         "a user note has no business under the generated documents folder"
     );
 }
@@ -281,10 +281,10 @@ fn three_open_and_close_cycles_leave_one_row() {
 
     let store = state.store.lock().unwrap();
     let active = store
-        .list_by_status(writ_core::buffer::document::BufferStatus::Active)
+        .list_by_status(jotra_core::buffer::document::BufferStatus::Active)
         .unwrap();
     let history = store
-        .list_by_status(writ_core::buffer::document::BufferStatus::History)
+        .list_by_status(jotra_core::buffer::document::BufferStatus::History)
         .unwrap();
     assert!(active.is_empty(), "the last cycle left the tab closed");
     assert_eq!(history.len(), 1, "one row, not one per open: {history:?}");

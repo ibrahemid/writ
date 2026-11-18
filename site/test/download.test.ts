@@ -7,7 +7,7 @@ const DIST = join(fileURLToPath(new URL('..', import.meta.url)), 'dist');
 const PAGES = [join(DIST, 'index.html'), join(DIST, 'download', 'index.html')];
 
 const EXPECTED: { os: string; name: string; file: RegExp; command: string | null }[] = [
-  { os: 'mac', name: 'macOS', file: /\.pkg$/, command: 'brew trust ibrahemid/writ && brew install --cask ibrahemid/writ/writ' },
+  { os: 'mac', name: 'macOS', file: /\.pkg$/, command: 'brew trust ibrahemid/writ && brew install --cask ibrahemid/writ/jotra' },
   { os: 'win', name: 'Windows', file: /\.msi$/, command: 'winget install -e --id ibrahemid.Writ' },
   { os: 'linux', name: 'Linux', file: /\.AppImage$/, command: null },
 ];

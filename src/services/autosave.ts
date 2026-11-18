@@ -183,7 +183,7 @@ const inFlightContent = new Map<string, () => string>();
 // digest of the file it was read from ([`recordOpenedText`]). Only a snapshot
 // is kept: the change set a large-tier save sends is made against exactly
 // this document, and Rust applies it only while the file's text still has
-// this digest and its bytes are the ones Writ last read or wrote. A write that
+// this digest and its bytes are the ones Jotra last read or wrote. A write that
 // lands carrying anything else, or through a writer of its own, drops it.
 const landedTexts = new Map<string, LandedText>();
 
@@ -581,7 +581,7 @@ export function cancelAutosave(bufferId: string) {
 }
 
 // Drops every scheduled save, queued edit and write-rate record at once.
-// Autosave is a process-wide singleton (Writ is single-window), so a caller
+// Autosave is a process-wide singleton (Jotra is single-window), so a caller
 // that drives the module in isolation — a test case, or a teardown — has no
 // other way back to the start state; `cancelAutosave` is the per-note sibling.
 export function resetAutosave() {

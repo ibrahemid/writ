@@ -3,7 +3,7 @@ import Palette from "../Palette/Palette";
 import { createLanguageProvider } from "../../commands/providers/language-provider";
 import type { ResultProvider } from "../Palette/types";
 
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 const [isOpen, setIsOpen] = createSignal(false);
 
 /** Opens the language list for the file in front (Change Language). */

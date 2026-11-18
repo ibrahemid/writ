@@ -1,30 +1,30 @@
 //! IPC surface for the AI connection: Rewrite, the key row, consent, the model
 //! list and the connection check.
 //!
-//! The connection itself is [`writ_ai::connection`]: the key store, the HTTP
+//! The connection itself is [`jotra_ai::connection`]: the key store, the HTTP
 //! client, the stream, the model list and the probes. These commands read the
 //! config, hand it to the connection, and write back what the user decided or
 //! emit what the connection streamed. Nothing here sends a request itself.
 
-use tauri::{AppHandle, Manager, State};
-use tokio_util::sync::CancellationToken;
-use writ_ai::connection::{
+use jotra_ai::connection::{
     self, endpoint_state_from, needs_key_lookup, prepare_on_device, prepare_request,
     run_rewrite_stream, StreamEvent,
 };
-use writ_core::ai::models::{seed_model, ModelCatalog};
-use writ_core::ai::on_device;
-use writ_core::ai::providers::{self, ProviderInfo};
-use writ_core::config::AiConfig;
-use writ_core::polish::{self, PolishError};
+use jotra_core::ai::models::{seed_model, ModelCatalog};
+use jotra_core::ai::on_device;
+use jotra_core::ai::providers::{self, ProviderInfo};
+use jotra_core::config::AiConfig;
+use jotra_core::polish::{self, PolishError};
+use tauri::{AppHandle, Manager, State};
+use tokio_util::sync::CancellationToken;
 
-pub use writ_ai::connection::{
+pub use jotra_ai::connection::{
     build_client, build_client_for, build_client_with, is_consented, probe_local_at,
     AiConnectionStatus, AiEndpointState, AiState, LocalProbe, LocalProbeUrls,
 };
-pub use writ_ai::keys::{AiKeyState, KeyStore, MemoryKeyStore};
+pub use jotra_ai::keys::{AiKeyState, KeyStore, MemoryKeyStore};
 
-use crate::events::{emit_event, WritFrontendEvent};
+use crate::events::{emit_event, JotraFrontendEvent};
 use crate::poison::recover_poison;
 use crate::state::AppState;
 
@@ -145,7 +145,7 @@ pub fn ai_consent_host(app: AppHandle) -> Result<AiEndpointState, String> {
 /// that list holds, else the one model a local runtime lists, and nothing
 /// when no list has been read for it yet.
 ///
-/// The rule lives in `writ_core::ai::models::seed_model`; this reads the
+/// The rule lives in `jotra_core::ai::models::seed_model`; this reads the
 /// catalog held for the provider and applies it. Nothing is written that the
 /// account's own list does not hold, so the list arriving is what writes the
 /// first model ([`seed_from_catalog`]).
@@ -197,7 +197,7 @@ fn seed_from_catalog(app: &AppHandle, catalog: &ModelCatalog) {
 fn announce_ai_config(app: &AppHandle) {
     if let Err(error) = emit_event(
         app,
-        WritFrontendEvent::ConfigChanged {
+        JotraFrontendEvent::ConfigChanged {
             keys: vec!["ai".to_string()],
         },
     ) {
@@ -246,7 +246,7 @@ fn emit_stream_event(app: &AppHandle, request_id: &str, event: StreamEvent) {
 fn emit_ai(app: &AppHandle, request_id: &str, kind: &str, text: Option<String>) {
     if let Err(e) = emit_event(
         app,
-        WritFrontendEvent::AiRewrite {
+        JotraFrontendEvent::AiRewrite {
             request_id: request_id.to_string(),
             kind: kind.to_string(),
             text,
@@ -257,7 +257,7 @@ fn emit_ai(app: &AppHandle, request_id: &str, kind: &str, text: Option<String>) 
 }
 
 /// Starts a streaming rewrite of `text`. The frontend supplies `request_id` so
-/// it can match `writ://ai-rewrite` events (and cancel) with no window in which
+/// it can match `jotra://ai-rewrite` events (and cancel) with no window in which
 /// an early event — e.g. an immediate connection-refused error — could arrive
 /// unmatched. Validation runs synchronously; the network work is spawned.
 #[tauri::command]
@@ -370,16 +370,16 @@ pub async fn ai_probe_local() -> LocalProbe {
 }
 
 /// The words a rewrite changed, for the preview to mark in place
-/// ([`writ_core::diff::word_diff`]). Off the main thread: two texts of up to
+/// ([`jotra_core::diff::word_diff`]). Off the main thread: two texts of up to
 /// the diff's limit are compared here.
 #[tauri::command]
 pub async fn ai_word_diff(
     before: String,
     after: String,
-) -> Result<Vec<writ_core::diff::WordSpan>, String> {
+) -> Result<Vec<jotra_core::diff::WordSpan>, String> {
     crate::commands::offload::run_detached(
         crate::commands::offload::ERR_COMMAND_STOPPED,
-        move || writ_core::diff::word_diff(&before, &after).map_err(|error| error.to_string()),
+        move || jotra_core::diff::word_diff(&before, &after).map_err(|error| error.to_string()),
     )
     .await
 }

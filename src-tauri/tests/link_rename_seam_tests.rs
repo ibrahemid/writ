@@ -7,7 +7,7 @@
 //! note nobody was pointing at.
 //!
 //! The two surfaces are reached the way the app reaches them —
-//! `writ_core::notes::rename::rewrite_links` over the candidate list the
+//! `jotra_core::notes::rename::rewrite_links` over the candidate list the
 //! rename command builds, and `resolve_note_link_inner` against a real index —
 //! so this is a seam test rather than one function compared with itself.
 //!
@@ -17,12 +17,12 @@
 
 use std::path::Path;
 
+use jotra_core::notes::links;
+use jotra_core::notes::rename::{rewrite_links, Rewrite};
+use jotra_storage::note_ops;
+use jotra_storage::notes_index::{self, NotesIndexStore};
+use jotra_tauri_lib::commands::note_index::resolve_note_link_inner;
 use tempfile::TempDir;
-use writ_core::notes::links;
-use writ_core::notes::rename::{rewrite_links, Rewrite};
-use writ_storage::note_ops;
-use writ_storage::notes_index::{self, NotesIndexStore};
-use writ_tauri_lib::commands::note_index::resolve_note_link_inner;
 
 /// The links every case runs, as they are written inside `[[…]]`.
 /// The notes on disk, in the order a rename is tried over them.
@@ -56,9 +56,9 @@ fn write_note(notes: &Path, name: &str, body: &str) -> std::path::PathBuf {
 /// The folder both surfaces are asked about, walked once.
 fn folder() -> (TempDir, std::path::PathBuf, NotesIndexStore) {
     let dir = TempDir::new().expect("tempdir");
-    let db_path = dir.path().join("writ.db");
-    let conn = writ_storage::database::connection::open_database(&db_path).expect("open");
-    writ_storage::database::migrations::run_migrations(&conn).expect("migrations");
+    let db_path = dir.path().join("jotra.db");
+    let conn = jotra_storage::database::connection::open_database(&db_path).expect("open");
+    jotra_storage::database::migrations::run_migrations(&conn).expect("migrations");
     drop(conn);
 
     let root = dir.path().join("notes");

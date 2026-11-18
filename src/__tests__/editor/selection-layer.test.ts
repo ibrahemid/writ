@@ -5,9 +5,9 @@ import {
   SELECTION_LAYER_CLASS,
   SELECTION_PIECE_CLASS,
   selectionMarkers,
-  writSelection,
+  jotraSelection,
 } from "../../editor/selection-layer";
-import { writThemeLight } from "../../components/Editor/cm-theme";
+import { jotraThemeLight } from "../../components/Editor/cm-theme";
 
 // jsdom lays nothing out, so the stubs below give every line a 20px row, every
 // character 8px, and the line CodeMirror's own 6px left padding. With no canvas
@@ -43,7 +43,7 @@ function textOffset(line: HTMLElement, node: Node, offset: number): number {
 let views: EditorView[] = [];
 
 beforeEach(() => {
-  document.documentElement.style.setProperty("--writ-editor-font-size", `${FONT_SIZE}px`);
+  document.documentElement.style.setProperty("--jotra-editor-font-size", `${FONT_SIZE}px`);
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
     if (this.classList.contains("cm-line")) {
       const row = rowOf(this);
@@ -71,7 +71,7 @@ afterEach(() => {
   for (const view of views) view.destroy();
   views = [];
   vi.restoreAllMocks();
-  document.documentElement.style.removeProperty("--writ-editor-font-size");
+  document.documentElement.style.removeProperty("--jotra-editor-font-size");
 });
 
 function mount(doc: string, anchor: number, head: number, extra: Extension = []): EditorView {
@@ -82,7 +82,7 @@ function mount(doc: string, anchor: number, head: number, extra: Extension = [])
     state: EditorState.create({
       doc,
       selection: EditorSelection.single(anchor, head),
-      extensions: [EditorState.allowMultipleSelections.of(true), writSelection(), writThemeLight, extra],
+      extensions: [EditorState.allowMultipleSelections.of(true), jotraSelection(), jotraThemeLight, extra],
     }),
   });
   views.push(view);

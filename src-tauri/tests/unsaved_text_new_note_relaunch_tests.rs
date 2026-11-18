@@ -7,8 +7,8 @@
 //! deleted. A relaunch that cannot make the file either leaves the note and
 //! its text for the launch after.
 //!
-//! One test in its own binary, because `initialize` reads `WRIT_DATA_DIR` and
-//! `WRIT_NOTES_DIR` from the process environment and a second test in the same
+//! One test in its own binary, because `initialize` reads `JOTRA_DATA_DIR` and
+//! `JOTRA_NOTES_DIR` from the process environment and a second test in the same
 //! binary would race it.
 
 #![cfg(unix)]
@@ -16,11 +16,11 @@
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
+use jotra_core::buffer::document::{BufferDocument, BufferStatus};
+use jotra_tauri_lib::commands::buffer::save_buffer_content_inner;
+use jotra_tauri_lib::heartbeat;
+use jotra_tauri_lib::state::AppState;
 use tempfile::TempDir;
-use writ_core::buffer::document::{BufferDocument, BufferStatus};
-use writ_tauri_lib::commands::buffer::save_buffer_content_inner;
-use writ_tauri_lib::heartbeat;
-use writ_tauri_lib::state::AppState;
 
 const TYPED: &str = "the first words of a new note\n";
 
@@ -62,7 +62,7 @@ fn new_note() -> BufferDocument {
         closed_at: None,
         read_only: false,
         size_bytes: 0,
-        line_ending: writ_core::notes::line_ending::LineEnding::Lf,
+        line_ending: jotra_core::notes::line_ending::LineEnding::Lf,
         encoding: None,
     }
 }
@@ -71,8 +71,8 @@ fn new_note() -> BufferDocument {
 fn a_new_note_whose_first_file_was_never_made_gets_one_at_a_later_launch() {
     let data = TempDir::new().expect("data folder");
     let notes = TempDir::new().expect("notes folder");
-    std::env::set_var("WRIT_DATA_DIR", data.path());
-    std::env::set_var("WRIT_NOTES_DIR", notes.path());
+    std::env::set_var("JOTRA_DATA_DIR", data.path());
+    std::env::set_var("JOTRA_NOTES_DIR", notes.path());
 
     let session = AppState::initialize().expect("the first launch");
     let notes_root = session.notes_root();
@@ -119,8 +119,8 @@ fn a_new_note_whose_first_file_was_never_made_gets_one_at_a_later_launch() {
     drop(second);
 
     let third = AppState::initialize();
-    std::env::remove_var("WRIT_DATA_DIR");
-    std::env::remove_var("WRIT_NOTES_DIR");
+    std::env::remove_var("JOTRA_DATA_DIR");
+    std::env::remove_var("JOTRA_NOTES_DIR");
     let third = third.expect("the third launch");
 
     let offered = third

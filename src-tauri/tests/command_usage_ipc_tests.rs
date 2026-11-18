@@ -1,25 +1,25 @@
-//! The command usage IPC (ADR-048): runs add up in writ.db, a bad id refuses
+//! The command usage IPC (ADR-048): runs add up in jotra.db, a bad id refuses
 //! the whole batch, and clear and prune reach the table.
 
 use std::sync::Mutex as StdMutex;
 
-use tempfile::TempDir;
-use writ_core::command::usage::CommandUse;
-use writ_tauri_lib::commands::command_usage::{
+use jotra_core::command::usage::CommandUse;
+use jotra_tauri_lib::commands::command_usage::{
     clear_command_usage_inner, get_command_usage_inner, prune_command_usage_inner,
     record_command_uses_inner,
 };
-use writ_tauri_lib::state::AppState;
+use jotra_tauri_lib::state::AppState;
+use tempfile::TempDir;
 
 static ENV_LOCK: StdMutex<()> = StdMutex::new(());
 
 fn launch(data_dir: &std::path::Path, notes_dir: &std::path::Path) -> AppState {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("WRIT_DATA_DIR", data_dir);
-    std::env::set_var("WRIT_NOTES_DIR", notes_dir);
+    std::env::set_var("JOTRA_DATA_DIR", data_dir);
+    std::env::set_var("JOTRA_NOTES_DIR", notes_dir);
     let state = AppState::initialize().expect("app state");
-    std::env::remove_var("WRIT_DATA_DIR");
-    std::env::remove_var("WRIT_NOTES_DIR");
+    std::env::remove_var("JOTRA_DATA_DIR");
+    std::env::remove_var("JOTRA_NOTES_DIR");
     state
 }
 

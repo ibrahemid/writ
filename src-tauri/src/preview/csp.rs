@@ -15,15 +15,15 @@
 //! frame navigation's target before refusing it, `RTCPeerConnection`) is closed
 //! by the document rewrites or accepted in ADR-043.
 //!
-//! The document's own origin is `writ-preview://document` on macOS and Linux.
-//! On Windows WebView2 serves the same scheme as `http://writ-preview.<scope>`,
+//! The document's own origin is `jotra-preview://document` on macOS and Linux.
+//! On Windows WebView2 serves the same scheme as `http://jotra-preview.<scope>`,
 //! so the Windows policy names that origin; the macOS and Linux policies do
 //! not, because there it is an ordinary HTTP host a resolver would look up.
 
 /// The preview document's own origin under the Windows WebView2 custom-scheme
-/// workaround, where `writ-preview://document/…` is served as
-/// `http://writ-preview.document/…`.
-const WINDOWS_DOCUMENT_ORIGIN: &str = "http://writ-preview.document";
+/// workaround, where `jotra-preview://document/…` is served as
+/// `http://jotra-preview.document/…`.
+const WINDOWS_DOCUMENT_ORIGIN: &str = "http://jotra-preview.document";
 
 /// The Vite dev server, which is the app origin under `cargo tauri dev` on
 /// every platform.
@@ -44,15 +44,15 @@ pub fn build_chrome_csp() -> String {
 /// The local sources a document subresource may come from on one platform.
 fn document_sources(windows: bool) -> String {
     if windows {
-        format!("'self' writ-preview: {WINDOWS_DOCUMENT_ORIGIN}")
+        format!("'self' jotra-preview: {WINDOWS_DOCUMENT_ORIGIN}")
     } else {
-        "'self' writ-preview:".to_string()
+        "'self' jotra-preview:".to_string()
     }
 }
 
 /// `frame-ancestors` naming the app origins that embed the preview on one
 /// platform. `'self'` would refuse the app on Windows, where the app is
-/// `http://tauri.localhost` and the frame `http://writ-preview.document`, a
+/// `http://tauri.localhost` and the frame `http://jotra-preview.document`, a
 /// cross-origin embed Chromium enforces.
 fn app_frame_ancestors(windows: bool) -> String {
     if windows {
@@ -132,11 +132,11 @@ mod tests {
     // The locked document policies. Any change here is a security decision;
     // these assertions are the gate that makes it a conscious one.
     const DOCUMENT_CSP_SCRIPTS_ON: &str = "default-src 'none'; \
-script-src 'unsafe-inline' 'self' writ-preview:; \
-style-src 'unsafe-inline' 'self' writ-preview:; \
-img-src 'self' writ-preview: data:; \
-font-src 'self' writ-preview: data:; \
-media-src 'self' writ-preview: data:; \
+script-src 'unsafe-inline' 'self' jotra-preview:; \
+style-src 'unsafe-inline' 'self' jotra-preview:; \
+img-src 'self' jotra-preview: data:; \
+font-src 'self' jotra-preview: data:; \
+media-src 'self' jotra-preview: data:; \
 connect-src 'none'; \
 object-src 'none'; \
 frame-src 'none'; \
@@ -148,11 +148,11 @@ navigate-to 'none'; \
 sandbox allow-scripts allow-same-origin";
 
     const DOCUMENT_CSP_SCRIPTS_OFF: &str = "default-src 'none'; \
-script-src 'self' writ-preview:; \
-style-src 'unsafe-inline' 'self' writ-preview:; \
-img-src 'self' writ-preview: data:; \
-font-src 'self' writ-preview: data:; \
-media-src 'self' writ-preview: data:; \
+script-src 'self' jotra-preview:; \
+style-src 'unsafe-inline' 'self' jotra-preview:; \
+img-src 'self' jotra-preview: data:; \
+font-src 'self' jotra-preview: data:; \
+media-src 'self' jotra-preview: data:; \
 connect-src 'none'; \
 object-src 'none'; \
 frame-src 'none'; \
@@ -164,11 +164,11 @@ navigate-to 'none'; \
 sandbox allow-scripts allow-same-origin";
 
     const WINDOWS_DOCUMENT_CSP_SCRIPTS_ON: &str = "default-src 'none'; \
-script-src 'unsafe-inline' 'self' writ-preview: http://writ-preview.document; \
-style-src 'unsafe-inline' 'self' writ-preview: http://writ-preview.document; \
-img-src 'self' writ-preview: http://writ-preview.document data:; \
-font-src 'self' writ-preview: http://writ-preview.document data:; \
-media-src 'self' writ-preview: http://writ-preview.document data:; \
+script-src 'unsafe-inline' 'self' jotra-preview: http://jotra-preview.document; \
+style-src 'unsafe-inline' 'self' jotra-preview: http://jotra-preview.document; \
+img-src 'self' jotra-preview: http://jotra-preview.document data:; \
+font-src 'self' jotra-preview: http://jotra-preview.document data:; \
+media-src 'self' jotra-preview: http://jotra-preview.document data:; \
 connect-src 'none'; \
 object-src 'none'; \
 frame-src 'none'; \
@@ -180,11 +180,11 @@ navigate-to 'none'; \
 sandbox allow-scripts allow-same-origin";
 
     const WINDOWS_DOCUMENT_CSP_SCRIPTS_OFF: &str = "default-src 'none'; \
-script-src 'self' writ-preview: http://writ-preview.document; \
-style-src 'unsafe-inline' 'self' writ-preview: http://writ-preview.document; \
-img-src 'self' writ-preview: http://writ-preview.document data:; \
-font-src 'self' writ-preview: http://writ-preview.document data:; \
-media-src 'self' writ-preview: http://writ-preview.document data:; \
+script-src 'self' jotra-preview: http://jotra-preview.document; \
+style-src 'unsafe-inline' 'self' jotra-preview: http://jotra-preview.document; \
+img-src 'self' jotra-preview: http://jotra-preview.document data:; \
+font-src 'self' jotra-preview: http://jotra-preview.document data:; \
+media-src 'self' jotra-preview: http://jotra-preview.document data:; \
 connect-src 'none'; \
 object-src 'none'; \
 frame-src 'none'; \
@@ -252,13 +252,13 @@ sandbox allow-scripts allow-same-origin";
                     assert!(!clause.contains("https:"), "no https in {clause}");
                     assert!(!clause.contains("ws:"), "no websocket in {clause}");
                     assert!(
-                        !clause.contains("writ-workspace:"),
+                        !clause.contains("jotra-workspace:"),
                         "no workspace in {clause}"
                     );
                     for token in clause.split_whitespace().skip(1) {
                         if let Some(rest) = token.strip_prefix("http://") {
                             assert!(windows, "an http origin on macOS/Linux: {clause}");
-                            assert_eq!(rest, "writ-preview.document", "{clause}");
+                            assert_eq!(rest, "jotra-preview.document", "{clause}");
                         }
                     }
                 }

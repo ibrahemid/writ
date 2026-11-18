@@ -54,7 +54,7 @@ describe("Windows caption row", () => {
   it("is 32px with the documented 16px lead", () => {
     const bar = declarations(TITLEBAR, ':root[data-platform="win"] .titlebar');
     expect(bar.get("height")).toBe("32px");
-    expect(bar.get("padding-left")).toBe("var(--writ-space-5)");
+    expect(bar.get("padding-left")).toBe("var(--jotra-space-5)");
   });
 
   it("keeps a 46x32 caption button", () => {
@@ -71,8 +71,8 @@ describe("Windows caption row", () => {
 
   it("paints close hover from the close tokens, not a danger alias", () => {
     const close = declarations(TITLEBAR, ".winctrl-close:hover");
-    expect(close.get("background")).toBe("var(--writ-win-close-bg)");
-    expect(close.get("color")).toBe("var(--writ-win-close-fg)");
+    expect(close.get("background")).toBe("var(--jotra-win-close-bg)");
+    expect(close.get("color")).toBe("var(--jotra-win-close-fg)");
     expect(TITLEBAR).not.toContain("winctrl-danger");
   });
 
@@ -90,8 +90,8 @@ describe("Windows caption row", () => {
 
   it("strokes the content layer under the caption row", () => {
     const body = declarations(APP, ':root[data-platform="win"] .app-body');
-    expect(body.get("border-top-left-radius")).toBe("var(--writ-r-window)");
-    expect(body.get("box-shadow")).toBe("inset 1px 1px 0 var(--writ-win-layer-stroke)");
+    expect(body.get("border-top-left-radius")).toBe("var(--jotra-r-window)");
+    expect(body.get("box-shadow")).toBe("inset 1px 1px 0 var(--jotra-win-layer-stroke)");
   });
 });
 
@@ -100,14 +100,14 @@ describe("GNOME header bar", () => {
     const bar = declarations(TITLEBAR, ':root[data-platform="linux"] .headerbar');
     expect(bar.get("height")).toBe("47px");
     expect(bar.get("grid-template-columns")).toBe("1fr auto 1fr");
-    expect(bar.get("padding")).toBe("var(--writ-space-2-5) 7px 7px");
-    expect(bar.get("background")).toBe("var(--writ-lin-headerbar-bg)");
+    expect(bar.get("padding")).toBe("var(--jotra-space-2-5) 7px 7px");
+    expect(bar.get("background")).toBe("var(--jotra-lin-headerbar-bg)");
   });
 
   it("centres the title at the GNOME metric, and follows the interface text size", () => {
     const title = declarations(TITLEBAR, ".headerbar-title");
-    expect(title.get("font-size")).toBe("var(--writ-ui-md)");
-    expect(title.get("line-height")).toBe("var(--writ-ui-md-lh)");
+    expect(title.get("font-size")).toBe("var(--jotra-ui-md)");
+    expect(title.get("line-height")).toBe("var(--jotra-ui-md-lh)");
     expect(title.get("font-weight")).toBe("700");
   });
 
@@ -115,7 +115,7 @@ describe("GNOME header bar", () => {
     expect(declarations(TITLEBAR, ".gnomectrl").get("width")).toBe("34px");
     const disc = declarations(TITLEBAR, ".gnomectrl::before");
     expect(disc.get("width")).toBe("24px");
-    expect(disc.get("border-radius")).toBe("var(--writ-r-pill)");
+    expect(disc.get("border-radius")).toBe("var(--jotra-r-pill)");
     expect(disc.get("background")).toBe("color-mix(in srgb, currentColor 10%, transparent)");
     expect(declarations(TITLEBAR, ".gnomectrl:hover::before").get("background")).toBe(
       "color-mix(in srgb, currentColor 15%, transparent)",
@@ -124,7 +124,7 @@ describe("GNOME header bar", () => {
 
   it("paints the client-side-decoration shadow the compositor will not", () => {
     expect(declarations(APP, ':root[data-platform="linux"] .app-container').get("box-shadow")).toBe(
-      "var(--writ-shadow-csd)",
+      "var(--jotra-shadow-csd)",
     );
   });
 
@@ -132,8 +132,8 @@ describe("GNOME header bar", () => {
   // the frame the shadow paints past the webview edge and is clipped away.
   it("insets the frame far enough for the shadow to land", () => {
     const frame = declarations(APP, ':root[data-platform="linux"] .app-container');
-    expect(frame.get("margin")).toBe("var(--writ-frame-shadow-inset)");
-    expect(THEME).toContain("--writ-frame-shadow-inset: 19px;");
+    expect(frame.get("margin")).toBe("var(--jotra-frame-shadow-inset)");
+    expect(THEME).toContain("--jotra-frame-shadow-inset: 19px;");
   });
 
   // A maximized window meets the screen edge: no shadow to make room for, and
@@ -161,10 +161,10 @@ describe("GNOME header bar", () => {
     for (const rule of rules) {
       if (rule.selector.includes('data-platform="linux"')) continue;
       expect(rule.body, rule.selector).not.toMatch(/(^|;)\s*margin\s*:/);
-      expect(rule.body, rule.selector).not.toContain("--writ-frame-shadow-inset");
+      expect(rule.body, rule.selector).not.toContain("--jotra-frame-shadow-inset");
     }
     // Declared for the one shell that needs it, so the other two cannot read it.
-    expect(THEME.match(/--writ-frame-shadow-inset:/g)).toHaveLength(1);
+    expect(THEME.match(/--jotra-frame-shadow-inset:/g)).toHaveLength(1);
   });
 });
 
@@ -176,7 +176,7 @@ describe("macOS lights", () => {
   });
 
   it("spaces the 12px lights by 8px", () => {
-    expect(declarations(TITLEBAR, ".window-lights").get("gap")).toBe("var(--writ-space-3)");
+    expect(declarations(TITLEBAR, ".window-lights").get("gap")).toBe("var(--jotra-space-3)");
     expect(declarations(TITLEBAR, ".maclight").get("width")).toBe("12px");
   });
 
@@ -190,7 +190,7 @@ describe("macOS lights", () => {
     expect(layer.get("left")).toBe("0");
     expect(layer.get("height")).toBe(declarations(SIDEBAR, ".sidebar-head").get("height"));
     expect(layer.get("padding-left")).toBe("20px");
-    expect(layer.get("z-index")).toBe("var(--writ-z-window-lights)");
+    expect(layer.get("z-index")).toBe("var(--jotra-z-window-lights)");
     expect(layer.get("pointer-events")).toBe("none");
     expect(declarations(TITLEBAR, ".window-lights").get("pointer-events")).toBe("auto");
   });
@@ -198,15 +198,15 @@ describe("macOS lights", () => {
   // Reserved on the same motion token as the sidebar width, so the leading
   // control tracks the sidebar instead of crossing under the pinned lights.
   it("eases the toolbar's reservation on the sidebar's own motion token", () => {
-    const bar = declarations(TOOLBAR, ':root[data-platform="mac"] .writ-toolbar');
-    expect(bar.get("transition")).toBe("padding-left var(--writ-motion)");
-    expect(declarations(SIDEBAR, ".sidebar").get("transition")).toBe("width var(--writ-motion)");
-    const lead = declarations(TOOLBAR, ':root[data-platform="mac"] .writ-toolbar.leads-lights');
-    expect(lead.get("padding-left")).toBe("var(--writ-window-lights-lead, 84px)");
+    const bar = declarations(TOOLBAR, ':root[data-platform="mac"] .jotra-toolbar');
+    expect(bar.get("transition")).toBe("padding-left var(--jotra-motion)");
+    expect(declarations(SIDEBAR, ".sidebar").get("transition")).toBe("width var(--jotra-motion)");
+    const lead = declarations(TOOLBAR, ':root[data-platform="mac"] .jotra-toolbar.leads-lights');
+    expect(lead.get("padding-left")).toBe("var(--jotra-window-lights-lead, 84px)");
   });
 
   it("takes the amber from the baseline value the host paints", () => {
-    expect(THEME).toContain("--writ-traffic-minimize: #FEBC2E;");
+    expect(THEME).toContain("--jotra-traffic-minimize: #FEBC2E;");
   });
 });
 
@@ -215,8 +215,8 @@ describe("focus rings follow the host", () => {
   // CodeMirror's own `outline: none` and stroke the editor's scroller.
   it("draws every ring from one unscoped rule", () => {
     const ring = declarations(FOCUS, ":focus-visible");
-    expect(ring.get("outline")).toBe("var(--writ-focus-outline, 2px solid var(--writ-accent))");
-    expect(ring.get("outline-offset")).toBe("var(--writ-focus-offset, 2px)");
+    expect(ring.get("outline")).toBe("var(--jotra-focus-outline, 2px solid var(--jotra-accent))");
+    expect(ring.get("outline-offset")).toBe("var(--jotra-focus-offset, 2px)");
     expect(FOCUS).not.toMatch(/data-platform="[a-z]+"\] :focus-visible/);
   });
 
@@ -225,19 +225,19 @@ describe("focus rings follow the host", () => {
   // `outline`. Fluent's second ring lives on `.winctrl:focus-visible`.
   it("draws the ring through outline alone", () => {
     expect(declarations(FOCUS, ":focus-visible").has("box-shadow")).toBe(false);
-    expect(FOCUS).not.toContain("--writ-focus-shadow");
+    expect(FOCUS).not.toContain("--jotra-focus-shadow");
   });
 
   it("keeps the offset accent ring as the default", () => {
     const base = declarations(FOCUS, ":root");
-    expect(base.get("--writ-focus-outline")).toBe("2px solid var(--writ-accent)");
-    expect(base.get("--writ-focus-offset")).toBe("2px");
+    expect(base.get("--jotra-focus-outline")).toBe("2px solid var(--jotra-accent)");
+    expect(base.get("--jotra-focus-offset")).toBe("2px");
   });
 
   it("gives Windows the tighter Fluent ring", () => {
     const ring = declarations(FOCUS, ':root[data-platform="win"]');
-    expect(ring.get("--writ-focus-outline")).toBe("2px solid var(--writ-win-focus-outer)");
-    expect(ring.get("--writ-focus-offset")).toBe("1px");
+    expect(ring.get("--jotra-focus-outline")).toBe("2px solid var(--jotra-win-focus-outer)");
+    expect(ring.get("--jotra-focus-offset")).toBe("1px");
   });
 
   // A caption control runs to the window edge, so the ring is drawn inward, but
@@ -246,8 +246,8 @@ describe("focus rings follow the host", () => {
   // them the other way round hides whichever one carries the contrast.
   it("stacks the caption ring contrast-outermost", () => {
     const ring = declarations(TITLEBAR, ".winctrl:focus-visible");
-    const stroke = ring.get("outline")!.match(/^(\d+)px solid var\((--writ-win-focus-\w+)\)$/);
-    const band = ring.get("box-shadow")!.match(/^inset 0 0 0 (\d+)px var\((--writ-win-focus-\w+)\)$/);
+    const stroke = ring.get("outline")!.match(/^(\d+)px solid var\((--jotra-win-focus-\w+)\)$/);
+    const band = ring.get("box-shadow")!.match(/^inset 0 0 0 (\d+)px var\((--jotra-win-focus-\w+)\)$/);
     expect(stroke, ring.get("outline")).not.toBeNull();
     expect(band, ring.get("box-shadow")).not.toBeNull();
 
@@ -260,25 +260,25 @@ describe("focus rings follow the host", () => {
     // the edge to `spread` and is painted under the outline.
     expect([depth - width, depth]).toEqual([0, 2]);
     expect([depth, spread]).toEqual([2, 3]);
-    expect(stroke![2]).toBe("--writ-win-focus-outer");
-    expect(band![2]).toBe("--writ-win-focus-inner");
+    expect(stroke![2]).toBe("--jotra-win-focus-outer");
+    expect(band![2]).toBe("--jotra-win-focus-inner");
   });
 
   it("draws the GNOME ring inside the control at half the accent", () => {
     const ring = declarations(FOCUS, ':root[data-platform="linux"]');
-    expect(ring.get("--writ-focus-outline")).toBe(
-      "2px solid color-mix(in srgb, var(--writ-accent) 50%, transparent)",
+    expect(ring.get("--jotra-focus-outline")).toBe(
+      "2px solid color-mix(in srgb, var(--jotra-accent) 50%, transparent)",
     );
-    expect(ring.get("--writ-focus-offset")).toBe("-2px");
+    expect(ring.get("--jotra-focus-offset")).toBe("-2px");
   });
 });
 
 describe("window frame", () => {
   it("takes its radius from the platform token", () => {
-    expect(declarations(APP, ".app-container").get("border-radius")).toBe("var(--writ-r-window)");
-    expect(THEME).toContain("--writ-r-window: 10px;");
-    expect(THEME).toContain("--writ-r-window: 8px;");
-    expect(THEME).toContain("--writ-r-window: 15px;");
+    expect(declarations(APP, ".app-container").get("border-radius")).toBe("var(--jotra-r-window)");
+    expect(THEME).toContain("--jotra-r-window: 10px;");
+    expect(THEME).toContain("--jotra-r-window: 8px;");
+    expect(THEME).toContain("--jotra-r-window: 15px;");
   });
 
   it("meets the screen edge square once maximized", () => {
@@ -291,7 +291,7 @@ describe("window frame", () => {
 
   it("draws its own border only on macOS", () => {
     expect(declarations(APP, ':root[data-platform="mac"] .app-container').get("border")).toBe(
-      "1px solid var(--writ-border-soft)",
+      "1px solid var(--jotra-border-soft)",
     );
     expect(declarations(APP, ".app-container").has("border")).toBe(false);
   });
@@ -323,13 +323,13 @@ describe("scrollbars", () => {
   it("size their own rail and thumb radius per platform", () => {
     for (const [selector, rail, radius] of RAILS) {
       const decls = declarations(THEME, selector);
-      expect(decls.get("--writ-scrollbar-rail"), selector).toBe(rail);
-      expect(decls.get("--writ-scrollbar-thumb-radius"), selector).toBe(radius);
+      expect(decls.get("--jotra-scrollbar-rail"), selector).toBe(rail);
+      expect(decls.get("--jotra-scrollbar-thumb-radius"), selector).toBe(radius);
     }
   });
 
   it("leave macOS to its own overlay bar", () => {
-    expect(declarations(THEME, ":root").has("--writ-scrollbar-rail")).toBe(false);
+    expect(declarations(THEME, ":root").has("--jotra-scrollbar-rail")).toBe(false);
     const scoped = [...GLOBAL.matchAll(/([^{}]+)\{/g)]
       .map((m) => m[1].trim())
       .filter((selector) => selector.includes("::-webkit-scrollbar"));
@@ -344,17 +344,17 @@ describe("scrollbars", () => {
     for (const platform of ["win", "linux"]) {
       const decls = declarations(THEME, `:root[data-platform="${platform}"]`);
       expect(
-        Number.parseFloat(decls.get("--writ-scrollbar-thumb-hover")!),
+        Number.parseFloat(decls.get("--jotra-scrollbar-thumb-hover")!),
         platform,
-      ).toBeGreaterThan(Number.parseFloat(decls.get("--writ-scrollbar-thumb")!));
-      expect(decls.get("--writ-scrollbar-motion"), platform).toMatch(/^\d+ms$/);
+      ).toBeGreaterThan(Number.parseFloat(decls.get("--jotra-scrollbar-thumb")!));
+      expect(decls.get("--jotra-scrollbar-motion"), platform).toMatch(/^\d+ms$/);
     }
   });
 
   it("are drawn once per platform root in the global sheet", () => {
     for (const platform of ["win", "linux"]) {
       const rail = declarations(GLOBAL, `:root[data-platform="${platform}"] ::-webkit-scrollbar`);
-      expect(rail.get("width"), platform).toBe("var(--writ-scrollbar-rail)");
+      expect(rail.get("width"), platform).toBe("var(--jotra-scrollbar-rail)");
       const thumb = declarations(
         GLOBAL,
         `:root[data-platform="${platform}"] ::-webkit-scrollbar-thumb`,
@@ -362,19 +362,19 @@ describe("scrollbars", () => {
       // The fill is clipped to the content box, whose corner radius is the
       // declared one less the border that insets it. The declared radius adds
       // that inset back, so the thumb curves at the token, not at zero.
-      const inset = "(var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb)) / 2";
+      const inset = "(var(--jotra-scrollbar-rail) - var(--jotra-scrollbar-thumb)) / 2";
       expect(thumb.get("border"), platform).toBe(`calc(${inset}) solid transparent`);
       expect(thumb.get("border-radius"), platform).toBe(
-        `calc(var(--writ-scrollbar-thumb-radius) + ${inset})`,
+        `calc(var(--jotra-scrollbar-thumb-radius) + ${inset})`,
       );
       const hover = declarations(
         GLOBAL,
         `:root[data-platform="${platform}"] ::-webkit-scrollbar-thumb:hover`,
       );
-      const hoverInset = "(var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb-hover)) / 2";
+      const hoverInset = "(var(--jotra-scrollbar-rail) - var(--jotra-scrollbar-thumb-hover)) / 2";
       expect(hover.get("border-width"), platform).toBe(`calc(${hoverInset})`);
       expect(hover.get("border-radius"), platform).toBe(
-        `calc(var(--writ-scrollbar-thumb-radius) + ${hoverInset})`,
+        `calc(var(--jotra-scrollbar-thumb-radius) + ${hoverInset})`,
       );
       // The minimum is a length, so it constrains a different axis on each
       // orientation: min-height on a horizontal thumb is its thickness.
@@ -385,14 +385,14 @@ describe("scrollbars", () => {
           `:root[data-platform="${platform}"] ::-webkit-scrollbar-thumb:vertical`,
         ).get("min-height"),
         platform,
-      ).toBe("var(--writ-scrollbar-thumb-min)");
+      ).toBe("var(--jotra-scrollbar-thumb-min)");
       expect(
         declarations(
           GLOBAL,
           `:root[data-platform="${platform}"] ::-webkit-scrollbar-thumb:horizontal`,
         ).get("min-width"),
         platform,
-      ).toBe("var(--writ-scrollbar-thumb-min)");
+      ).toBe("var(--jotra-scrollbar-thumb-min)");
     }
   });
 

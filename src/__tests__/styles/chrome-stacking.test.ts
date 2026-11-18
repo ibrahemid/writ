@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-// The find panel must outrank the word count (--writ-z-chrome) so its close
+// The find panel must outrank the word count (--jotra-z-chrome) so its close
 // button stays clickable, and the compose label must never wrap at a narrow
 // window width.
 
@@ -29,13 +29,13 @@ const SPELLING_CSS = readFileSync(
 const THEME_CSS = readFileSync(resolve(process.cwd(), "src/styles/generated/theme.css"), "utf8");
 
 const layer = (name: string): number => {
-  const m = THEME_CSS.match(new RegExp(`--writ-z-${name}:\\s*(\\d+)`));
-  expect(m, `--writ-z-${name} is declared`).toBeTruthy();
+  const m = THEME_CSS.match(new RegExp(`--jotra-z-${name}:\\s*(\\d+)`));
+  expect(m, `--jotra-z-${name} is declared`).toBeTruthy();
   return Number(m![1]);
 };
 
 const zToken = (css: string, selector: string): string => {
-  const m = block(css, selector).match(/z-index:\s*var\((--writ-z-[a-z-]+)\)/);
+  const m = block(css, selector).match(/z-index:\s*var\((--jotra-z-[a-z-]+)\)/);
   expect(m, `${selector} spends a z-index token`).toBeTruthy();
   return m![1]!;
 };
@@ -48,11 +48,11 @@ const block = (css: string, selector: string): string => {
 
 describe("find panel stacking", () => {
   it("reads the popover z-index token, not a raw number", () => {
-    expect(block(FIND_CSS, ".find-overlay")).toMatch(/z-index:\s*var\(--writ-z-popover\)/);
+    expect(block(FIND_CSS, ".find-overlay")).toMatch(/z-index:\s*var\(--jotra-z-popover\)/);
   });
 
   it("keeps the tickmap on the same popover layer", () => {
-    expect(block(FIND_CSS, ".find-tickmap")).toMatch(/z-index:\s*var\(--writ-z-popover\)/);
+    expect(block(FIND_CSS, ".find-tickmap")).toMatch(/z-index:\s*var\(--jotra-z-popover\)/);
   });
 });
 
@@ -61,7 +61,7 @@ describe("find panel stacking", () => {
 // panel, the toolbar and the toasts.
 describe("link picker stacking", () => {
   it("sits on the modal layer, above every chrome layer", () => {
-    expect(zToken(PICKER_CSS, ".link-picker-scrim")).toBe("--writ-z-modal");
+    expect(zToken(PICKER_CSS, ".link-picker-scrim")).toBe("--jotra-z-modal");
     expect(layer("modal")).toBeGreaterThan(layer("popover"));
   });
 });
@@ -70,7 +70,7 @@ describe("link picker stacking", () => {
 // layer and mounts after the editor, so it still paints over the panel.
 describe("spelling panel stacking", () => {
   it("sits on the popover layer, by name", () => {
-    expect(zToken(SPELLING_CSS, ".spelling-preview")).toBe("--writ-z-popover");
+    expect(zToken(SPELLING_CSS, ".spelling-preview")).toBe("--jotra-z-popover");
   });
 });
 
@@ -79,9 +79,9 @@ describe("spelling panel stacking", () => {
 describe("window lights stacking", () => {
   it("puts the lights layer on a named layer above the toolbar's", () => {
     const lights = zToken(TITLEBAR_CSS, ".window-lights-layer");
-    const toolbar = zToken(TOOLBAR_CSS, ".writ-toolbar");
-    expect(lights).toBe("--writ-z-window-lights");
-    expect(toolbar).toBe("--writ-z-chrome");
+    const toolbar = zToken(TOOLBAR_CSS, ".jotra-toolbar");
+    expect(lights).toBe("--jotra-z-window-lights");
+    expect(toolbar).toBe("--jotra-z-chrome");
     expect(layer("window-lights")).toBeGreaterThan(layer("chrome"));
   });
 
@@ -92,13 +92,13 @@ describe("window lights stacking", () => {
 
 describe("toolbar compose label", () => {
   it("never wraps to a second line", () => {
-    const compose = block(TOOLBAR_CSS, ".writ-toolbar-compose");
+    const compose = block(TOOLBAR_CSS, ".jotra-toolbar-compose");
     expect(compose).toMatch(/white-space:\s*nowrap/);
     expect(compose).toMatch(/flex:\s*none/);
   });
 
   it("lets the search field shrink before the compose label does", () => {
-    const searchBlock = block(TOOLBAR_CSS, ".writ-toolbar .search-bar");
+    const searchBlock = block(TOOLBAR_CSS, ".jotra-toolbar .search-bar");
     expect(searchBlock).toMatch(/flex:\s*0 1 180px/);
     expect(searchBlock).toMatch(/min-width:\s*120px/);
   });

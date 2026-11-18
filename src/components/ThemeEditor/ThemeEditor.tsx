@@ -18,7 +18,7 @@ import Tooltip from "../Tooltip/Tooltip";
 import { showToast } from "../../stores/global/notifications";
 import "./ThemeEditor.css";
 
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 const [isOpen, setIsOpen] = createSignal(false);
 // The appearance rides along: picking a preset pins its polarity, so closing
 // without saving has to put the polarity back as well as the preset.
@@ -68,7 +68,7 @@ export default function ThemeEditor() {
     }
     const outcome = await requestChoice({
       title: "Discard your changes?",
-      message: "Writ will put the colors back the way they were.",
+      message: "Jotra will put the colors back the way they were.",
       confirmLabel: "Discard",
       defaultAction: "cancel",
     });

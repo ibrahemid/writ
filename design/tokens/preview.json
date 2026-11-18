@@ -1,6 +1,6 @@
 {
   "preview": {
-    "$description": "The preview iframe is a separate document and cannot read the app root, so it carries its own resolved --writ-preview-* layer. Sourced from ADR-030's neutrals, pine and reading measure: --writ-preview-bg and -fg are the canvas and ink of the matching polarity, so the rendered note and the editor read as one surface.",
+    "$description": "The preview iframe is a separate document and cannot read the app root, so it carries its own resolved --jotra-preview-* layer. Sourced from ADR-030's neutrals, pine and reading measure: --jotra-preview-bg and -fg are the canvas and ink of the matching polarity, so the rendered note and the editor read as one surface.",
     "light": {
       "$type": "color",
       "bg": {

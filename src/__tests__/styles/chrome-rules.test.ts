@@ -27,7 +27,7 @@ const ALL = stylesheets(resolve(REPO_ROOT, "src")).map(
 const COMPONENTS = ALL.filter(([rel]) => rel.startsWith("src/components/"));
 
 /** A ring built from the accent by hand instead of the focus properties. */
-export const ACCENT_RING = /(?<![\w-])outline:\s*\d+px solid var\(--writ-accent\)/;
+export const ACCENT_RING = /(?<![\w-])outline:\s*\d+px solid var\(--jotra-accent\)/;
 
 /** A stacking order written as a number rather than spent from the scale. */
 export const BARE_Z_INDEX = /(?<![\w-])z-index:\s*-?\d/;
@@ -39,13 +39,13 @@ export const PX_FONT_SIZE = /font-size:\s*[\d.]+px/;
 export const OUTLINE_NONE = /outline:\s*none/;
 
 // Stacking inside one overlay, not a layer of the chrome: the scale starts at
-// --writ-z-chrome (100) and has no name for "above the drawing it sits on".
+// --jotra-z-chrome (100) and has no name for "above the drawing it sits on".
 // Whether these become a token or stay numbers is still open.
 export const BARE_Z_INDEX_ALLOWLIST: readonly string[] = [
   "src/components/Graph/FolderGraphView.css",
 ];
 
-// focus.css makes data-writ-focus-silent the one opt-out, so a rule that
+// focus.css makes data-jotra-focus-silent the one opt-out, so a rule that
 // cancels the ring in CSS cancels it for every shell at once. A selector may
 // sit here only with the reason it cannot carry the attribute.
 export const OUTLINE_NONE_ALLOWLIST: readonly { file: string; selector: string; reason: string }[] =
@@ -99,7 +99,7 @@ describe("the focus ring across the interface", () => {
 
   it("is silenced on the element wherever a control is deliberately quiet", () => {
     const focus = readFileSync(resolve(REPO_ROOT, "src/styles/focus.css"), "utf8");
-    expect(focus).toMatch(/\[data-writ-focus-silent\]/);
+    expect(focus).toMatch(/\[data-jotra-focus-silent\]/);
   });
 });
 

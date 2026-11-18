@@ -88,7 +88,7 @@ vi.mock("../../stores/global/notifications", () => ({ showToast: vi.fn() }));
 import TabBar from "../../components/Editor/TabBar";
 
 const AWAY: PendingDownload = {
-  path: "/home/user/Writ/away.md",
+  path: "/home/user/Jotra/away.md",
   title: "away.md",
   provider: "iCloud Drive",
   state: "downloading",

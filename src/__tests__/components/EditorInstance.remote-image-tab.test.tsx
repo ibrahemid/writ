@@ -8,7 +8,7 @@ import WindowProvider, { useWindow } from "../../components/WindowProvider/Windo
 const mocks = vi.hoisted(() => ({
   bufferContent: new Map<string, string>(),
   heldReads: new Map<string, Promise<string>>(),
-  previewRemoteImage: vi.fn(async () => ({ src: "writ-preview://held" })),
+  previewRemoteImage: vi.fn(async () => ({ src: "jotra-preview://held" })),
 }));
 
 vi.mock("../../services/tauri", () => ({

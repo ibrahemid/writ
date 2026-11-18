@@ -1,7 +1,7 @@
 import { batch, createRoot, createSignal } from "solid-js";
 
 /**
- * A file over the size Writ opens without asking, from the question to the
+ * A file over the size Jotra opens without asking, from the question to the
  * moment the editor shows it.
  *
  * `asking` states the size before anything reads the file. `opening` covers
@@ -33,7 +33,7 @@ interface Question {
 }
 
 function createLargeFileOpen() {
-  // Singleton state — Writ is single-window
+  // Singleton state — Jotra is single-window
   const [state, setState] = createSignal<LargeFileOpenState | null>(null);
   // The question on screen answers through `answer`. One asked while a
   // question or its progress is up waits here, in the order it was asked.

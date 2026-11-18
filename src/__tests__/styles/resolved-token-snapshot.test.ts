@@ -95,64 +95,64 @@ const DARK = rootWith({ "data-theme": "dark" });
 /**
  * Names the visual flip repaints, each for a stated reason:
  *
- * - `--writ-accent-hover`, `--writ-border-soft`, `--writ-font-mono`,
- *   `--writ-shadow-chip`, `--writ-shadow-modal`, `--writ-shadow-popover`,
- *   `--writ-sidebar-width`: the legacy layer froze the ADR-030 name at its
+ * - `--jotra-accent-hover`, `--jotra-border-soft`, `--jotra-font-mono`,
+ *   `--jotra-shadow-chip`, `--jotra-shadow-modal`, `--jotra-shadow-popover`,
+ *   `--jotra-sidebar-width`: the legacy layer froze the ADR-030 name at its
  *   pre-030 value. The flip lets the generated value through.
- * - `--writ-editor-font-size`: no longer a frozen alias. It is a token in the
+ * - `--jotra-editor-font-size`: no longer a frozen alias. It is a token in the
  *   new vocabulary, resolving to the prose size, and editorZoom still writes
  *   the live value onto the root.
- * - `--writ-selection`: same, derived from `--writ-accent` rather than the
- *   retired `--writ-accent-default`.
- * - `--writ-status-*` and `--writ-syntax-*`: light-first defaults, with the
+ * - `--jotra-selection`: same, derived from `--jotra-accent` rather than the
+ *   retired `--jotra-accent-default`.
+ * - `--jotra-status-*` and `--jotra-syntax-*`: light-first defaults, with the
  *   syntax set sourced from the neutrals (ADR-030 decision 3). A preset still
  *   overwrites both groups at runtime.
- * - `--writ-traffic-minimize`: the lights mirror their host, and the baseline
+ * - `--jotra-traffic-minimize`: the lights mirror their host, and the baseline
  *   reads the system amber as #FEBC2E.
  */
 const REPAINTED = [
-  "--writ-accent-hover",
-  "--writ-border-soft",
-  "--writ-editor-font-size",
-  "--writ-font-mono",
-  "--writ-selection",
-  "--writ-shadow-chip",
-  "--writ-shadow-modal",
-  "--writ-shadow-popover",
-  "--writ-sidebar-width",
-  "--writ-status-error",
-  "--writ-status-foreground",
-  "--writ-status-success",
-  "--writ-status-warning",
-  "--writ-syntax-comment",
-  "--writ-syntax-function",
-  "--writ-syntax-keyword",
-  "--writ-syntax-number",
-  "--writ-syntax-string",
-  "--writ-syntax-type",
-  "--writ-syntax-variable",
-  "--writ-traffic-minimize",
+  "--jotra-accent-hover",
+  "--jotra-border-soft",
+  "--jotra-editor-font-size",
+  "--jotra-font-mono",
+  "--jotra-selection",
+  "--jotra-shadow-chip",
+  "--jotra-shadow-modal",
+  "--jotra-shadow-popover",
+  "--jotra-sidebar-width",
+  "--jotra-status-error",
+  "--jotra-status-foreground",
+  "--jotra-status-success",
+  "--jotra-status-warning",
+  "--jotra-syntax-comment",
+  "--jotra-syntax-function",
+  "--jotra-syntax-keyword",
+  "--jotra-syntax-number",
+  "--jotra-syntax-string",
+  "--jotra-syntax-type",
+  "--jotra-syntax-variable",
+  "--jotra-traffic-minimize",
 ];
 
 // Every other property the old sheet declared that the generated sheet still
-// declares, resolving to what origin/main painted. `--writ-statusbar-height`
+// declares, resolving to what origin/main painted. `--jotra-statusbar-height`
 // is here rather than in RETIRED because the status bar and the update banner
 // both read it: it moved from the alias layer into design/tokens at 28px.
 const FROZEN = [
-  "--writ-overlay-scrim",
-  "--writ-space-1",
-  "--writ-space-2",
-  "--writ-space-3",
-  "--writ-space-4",
-  "--writ-space-5",
-  "--writ-space-6",
-  "--writ-statusbar-height",
-  "--writ-traffic-blurred",
-  "--writ-traffic-close",
-  "--writ-traffic-close-glyph",
-  "--writ-traffic-maximize",
-  "--writ-traffic-maximize-glyph",
-  "--writ-traffic-minimize-glyph",
+  "--jotra-overlay-scrim",
+  "--jotra-space-1",
+  "--jotra-space-2",
+  "--jotra-space-3",
+  "--jotra-space-4",
+  "--jotra-space-5",
+  "--jotra-space-6",
+  "--jotra-statusbar-height",
+  "--jotra-traffic-blurred",
+  "--jotra-traffic-close",
+  "--jotra-traffic-close-glyph",
+  "--jotra-traffic-maximize",
+  "--jotra-traffic-maximize-glyph",
+  "--jotra-traffic-minimize-glyph",
 ];
 
 /**
@@ -162,50 +162,50 @@ const FROZEN = [
  * shadows went with the menus and dialogs pass: both surfaces read the ADR-030
  * shadows. The three window names went with the platform chrome pass: the
  * caption row is 32px on Windows and 47px on GNOME rather than one height, the
- * close button reads `--writ-win-close-*`, and the frame radius is
- * `--writ-r-window`. The rest are the alias layer itself, deleted once the last
+ * close button reads `--jotra-win-close-*`, and the frame radius is
+ * `--jotra-r-window`. The rest are the alias layer itself, deleted once the last
  * stylesheet reading one was retokenised; the replacements are listed in
  * `src/__tests__/architecture/legacy-aliases.test.ts`.
  */
 const RETIRED = [
-  "--writ-accent-default",
-  "--writ-accent-foreground",
-  "--writ-bg-tab-pill",
-  "--writ-border-default",
-  "--writ-border-focus",
-  "--writ-border-pill",
-  "--writ-font-sans",
-  "--writ-font-size",
-  "--writ-font-size-sm",
-  "--writ-font-size-xs",
-  "--writ-foreground-default",
-  "--writ-foreground-muted",
-  "--writ-foreground-subtle",
-  "--writ-line-height",
-  "--writ-overlay-hover",
-  "--writ-overlay-subtle",
-  "--writ-radius-1",
-  "--writ-radius-2",
-  "--writ-radius-3",
-  "--writ-shadow-banner",
-  "--writ-shadow-dialog",
-  "--writ-shadow-overlay",
-  "--writ-shadow-sidebar",
-  "--writ-shadow-toast",
-  "--writ-shadow-xs",
-  "--writ-surface-background",
-  "--writ-surface-elevated",
-  "--writ-surface-hover",
-  "--writ-surface-input",
-  "--writ-surface-raised",
-  "--writ-surface-sunken",
-  "--writ-tab-pill-height",
-  "--writ-tabbar-height",
-  "--writ-titlebar-height",
-  "--writ-warning-foreground",
-  "--writ-winctrl-danger-bg",
-  "--writ-winctrl-danger-fg",
-  "--writ-window-radius",
+  "--jotra-accent-default",
+  "--jotra-accent-foreground",
+  "--jotra-bg-tab-pill",
+  "--jotra-border-default",
+  "--jotra-border-focus",
+  "--jotra-border-pill",
+  "--jotra-font-sans",
+  "--jotra-font-size",
+  "--jotra-font-size-sm",
+  "--jotra-font-size-xs",
+  "--jotra-foreground-default",
+  "--jotra-foreground-muted",
+  "--jotra-foreground-subtle",
+  "--jotra-line-height",
+  "--jotra-overlay-hover",
+  "--jotra-overlay-subtle",
+  "--jotra-radius-1",
+  "--jotra-radius-2",
+  "--jotra-radius-3",
+  "--jotra-shadow-banner",
+  "--jotra-shadow-dialog",
+  "--jotra-shadow-overlay",
+  "--jotra-shadow-sidebar",
+  "--jotra-shadow-toast",
+  "--jotra-shadow-xs",
+  "--jotra-surface-background",
+  "--jotra-surface-elevated",
+  "--jotra-surface-hover",
+  "--jotra-surface-input",
+  "--jotra-surface-raised",
+  "--jotra-surface-sunken",
+  "--jotra-tab-pill-height",
+  "--jotra-tabbar-height",
+  "--jotra-titlebar-height",
+  "--jotra-warning-foreground",
+  "--jotra-winctrl-danger-bg",
+  "--jotra-winctrl-danger-fg",
+  "--jotra-window-radius",
 ];
 
 describe("token pipeline acceptance", () => {
@@ -216,7 +216,7 @@ describe("token pipeline acceptance", () => {
     themeStore.setAppearance({ polarity: "dark", accent: "pine", prose_face: "system", interface_text_size: null });
     themeStore.setPreset("warp-dark");
     themeStore.applyToRoot(document.createElement("div"));
-    const snapshot = JSON.parse(localStorage.getItem("writ-theme-vars-v3") as string) as {
+    const snapshot = JSON.parse(localStorage.getItem("jotra-theme-vars-v3") as string) as {
       vars: Record<string, string>;
       attrs: Record<string, string>;
     };
@@ -225,9 +225,9 @@ describe("token pipeline acceptance", () => {
     const pine = ACCENTS.pine.dark;
     const expected = {
       ...RESOLVED_FIXTURE,
-      "--writ-accent": pine.base,
-      "--writ-accent-hover": pine.hover,
-      "--writ-accent-fg": pine.foreground,
+      "--jotra-accent": pine.base,
+      "--jotra-accent-hover": pine.hover,
+      "--jotra-accent-fg": pine.foreground,
     };
     expect(Object.keys(snapshot.vars).sort()).toEqual(Object.keys(expected).sort());
     expect(snapshot.vars).toEqual(expected);

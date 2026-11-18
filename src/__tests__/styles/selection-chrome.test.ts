@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { writThemeSpec } from "../../components/Editor/cm-theme";
+import { jotraThemeSpec } from "../../components/Editor/cm-theme";
 
 // WKWebView reads only the prefixed property and the production build adds it,
 // but a development build serves the source as written, so every rule here
@@ -50,7 +50,7 @@ describe("chrome never selects", () => {
   });
 
   it("keeps the note selectable, a read-only one included", () => {
-    const content = writThemeSpec[".cm-content"] as Record<string, string>;
+    const content = jotraThemeSpec[".cm-content"] as Record<string, string>;
     expect(content.WebkitUserSelect).toBe("text");
     expect(content.userSelect).toBe("text");
   });
@@ -98,6 +98,6 @@ describe("chrome never selects", () => {
   });
 
   it("selects a field and the note in one colour", () => {
-    expect(declarations(GLOBAL, "::selection").get("background")).toBe("var(--writ-selection)");
+    expect(declarations(GLOBAL, "::selection").get("background")).toBe("var(--jotra-selection)");
   });
 });

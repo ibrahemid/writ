@@ -26,8 +26,8 @@
         "default": {
           "$value": "#333029",
           "$extensions": {
-            "writ": {
-              "cssName": "--writ-border"
+            "jotra": {
+              "cssName": "--jotra-border"
             }
           }
         },
@@ -39,8 +39,8 @@
         "default": {
           "$value": "#EDEAE3",
           "$extensions": {
-            "writ": {
-              "cssName": "--writ-fg"
+            "jotra": {
+              "cssName": "--jotra-fg"
             }
           }
         },

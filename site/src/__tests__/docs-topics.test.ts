@@ -89,7 +89,7 @@ describe('the docs topics', () => {
 describe('getDocsTopicHref', () => {
   it('links a topic to its page under the base, or to its guide', () => {
     expect(getDocsTopicHref(topicById('files'), '')).toBe('/docs/files/');
-    expect(getDocsTopicHref(topicById('files'), '/writ')).toBe('/writ/docs/files/');
+    expect(getDocsTopicHref(topicById('files'), '/jotra')).toBe('/jotra/docs/files/');
     expect(getDocsTopicHref(topicById('obsidian'), '')).toBe('/guides/obsidian-vault-files/');
   });
 
@@ -102,7 +102,7 @@ describe('getDocsPage', () => {
   it('gives a page its title, description and path', () => {
     expect(getDocsPage('inbox')).toEqual({
       title: 'Watched folder',
-      description: 'A folder whose new files open in Writ as they arrive.',
+      description: 'A folder whose new files open in Jotra as they arrive.',
       path: '/docs/watched-folder/',
     });
   });

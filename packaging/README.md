@@ -1,12 +1,12 @@
-# Writ Distribution Channels
+# Jotra Distribution Channels
 
-This directory documents Writ's package-manager release channels and holds their manifests.
+This directory documents Jotra's package-manager release channels and holds their manifests.
 
 ## Install paths
 
 | Platform | Install |
 |---|---|
-| macOS | `brew install --cask ibrahemid/writ/writ` |
+| macOS | `brew install --cask ibrahemid/writ/jotra` |
 | Windows | `winget install -e --id ibrahemid.Writ` |
 | Any Linux | `curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh \| sh` |
 | Arch Linux | `yay -S writ-bin` (or any AUR helper) |
@@ -16,7 +16,7 @@ This directory documents Writ's package-manager release channels and holds their
 ```
 packaging/
   homebrew/                   # Homebrew cask (self-hosted tap)
-    Casks/writ.rb
+    Casks/jotra.rb
     README.md
   winget/                     # winget manifests for microsoft/winget-pkgs
     manifests/i/ibrahemid/Writ/<version>/
@@ -46,15 +46,15 @@ The post-release workflow expects these artifact names on GitHub Releases. They 
 
 | Artifact | Name |
 |---|---|
-| macOS Universal PKG | `Writ_<version>_universal.pkg` |
-| macOS Universal DMG | `Writ_<version>_universal.dmg` |
-| Windows x64 MSI | `Writ_<version>_x64_en-US.msi` (and `.sig`) |
-| Linux AppImage | `Writ_<version>_amd64.AppImage` (and `.sig`) |
-| Linux deb | `Writ_<version>_amd64.deb` (and `.sig`) |
-| macOS updater bundle | `Writ_<version>_universal.app.tar.gz` (and `.sig`) |
+| macOS Universal PKG | `Jotra_<version>_universal.pkg` |
+| macOS Universal DMG | `Jotra_<version>_universal.dmg` |
+| Windows x64 MSI | `Jotra_<version>_x64_en-US.msi` (and `.sig`) |
+| Linux AppImage | `Jotra_<version>_amd64.AppImage` (and `.sig`) |
+| Linux deb | `Jotra_<version>_amd64.deb` (and `.sig`) |
+| macOS updater bundle | `Jotra_<version>_universal.app.tar.gz` (and `.sig`) |
 | Checksums | `SHA256SUMS.txt` |
 | Checksum signature (updater key) | `SHA256SUMS.txt.minisig` |
-| SBOMs (CycloneDX) | `writ-tauri_<version>_<target>.cdx.json`, `writ-cli_<version>_<target>.cdx.json`, `writ-frontend_<version>.cdx.json` |
+| SBOMs (CycloneDX) | `jotra-tauri_<version>_<target>.cdx.json`, `jotra-cli_<version>_<target>.cdx.json`, `jotra-frontend_<version>.cdx.json` |
 | Tauri updater manifest | `latest.json` |
 | macOS signing outcomes | `release-meta.json` |
 
@@ -66,13 +66,13 @@ Tauri v2 signs the platform installer directly instead of wrapping it, so the
 Windows and Linux updater payloads are the `.msi` and `.AppImage` themselves,
 with the `.sig` beside them. There is no `.msi.zip` and no `.AppImage.tar.gz`.
 
-The `.pkg` is the recommended *first-install* path: it ships pre-install and post-install scripts so the installer quits a running Writ, swaps the bundle, and relaunches the new version. No manual quit needed. The Homebrew cask consumes the `.pkg`.
+The `.pkg` is the recommended *first-install* path: it ships pre-install and post-install scripts so the installer quits a running Jotra, swaps the bundle, and relaunches the new version. No manual quit needed. The Homebrew cask consumes the `.pkg`.
 
-The in-app updater does **not** consume the `.pkg`. It consumes the signed `Writ_<version>_universal.app.tar.gz` (the "macOS updater bundle" row above), verifies its `.sig` against the embedded minisign public key, and swaps the `.app` in place. The `.pkg` and the `.app.tar.gz` are produced by separate steps in `release.yml` and are not interchangeable.
+The in-app updater does **not** consume the `.pkg`. It consumes the signed `Jotra_<version>_universal.app.tar.gz` (the "macOS updater bundle" row above), verifies its `.sig` against the embedded minisign public key, and swaps the `.app` in place. The `.pkg` and the `.app.tar.gz` are produced by separate steps in `release.yml` and are not interchangeable.
 
-On Linux the updater consumes the artifact matching how Writ was installed: `Writ_<version>_amd64.AppImage` for AppImage installs, `Writ_<version>_amd64.deb` for deb installs. `latest.json` carries both, under `linux-x86_64` and `linux-x86_64-deb`.
+On Linux the updater consumes the artifact matching how Jotra was installed: `Jotra_<version>_amd64.AppImage` for AppImage installs, `Jotra_<version>_amd64.deb` for deb installs. `latest.json` carries both, under `linux-x86_64` and `linux-x86_64-deb`.
 
-The `.dmg` is offered alongside for users who prefer drag-to-Applications. It contains the same `Writ.app` bundle as the `.pkg`. Replacing a running `Writ.app` from a mounted dmg requires the user to quit Writ first; that is why the `.pkg` remains the default recommendation.
+The `.dmg` is offered alongside for users who prefer drag-to-Applications. It contains the same `Jotra.app` bundle as the `.pkg`. Replacing a running `Jotra.app` from a mounted dmg requires the user to quit Jotra first; that is why the `.pkg` remains the default recommendation.
 
 If these filenames change, update `.github/workflows/packages.yml` and the three bump scripts in `scripts/`.
 
@@ -83,7 +83,7 @@ If these filenames change, update `.github/workflows/packages.yml` and the three
 1. Downloads the release artifacts from GitHub Releases using `gh release download`.
 2. Computes `sha256sum` for each artifact that a manifest needs.
 3. Rewrites versions and SHAs in:
-   - `packaging/homebrew/Casks/writ.rb`
+   - `packaging/homebrew/Casks/jotra.rb`
    - `packaging/winget/manifests/i/ibrahemid/Writ/<new-version>/` (copied from the previous version folder)
    - `packaging/aur/writ-bin/PKGBUILD` and regenerates `.SRCINFO`
 4. Opens a PR titled `chore(packaging): bump distribution manifests to v<version>` on the `packages/bump-<version>` branch.
@@ -116,7 +116,7 @@ Each manifest ships with placeholders rather than real SHAs so the files are rea
 
 | File | Placeholder | Replaced by |
 |---|---|---|
-| `packaging/homebrew/Casks/writ.rb` | `__SHA256_UNIVERSAL__` | `packages.yml` |
+| `packaging/homebrew/Casks/jotra.rb` | `__SHA256_UNIVERSAL__` | `packages.yml` |
 | `packaging/winget/.../installer.yaml` | `__SHA256_MSI__` | `packages.yml` |
 | `packaging/aur/writ-bin/PKGBUILD` | `__SHA256_APPIMAGE__` | `packages.yml` |
 

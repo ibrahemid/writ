@@ -51,7 +51,7 @@ describe("open at login", () => {
     await login.set(true);
 
     expect(login.enabled()).toBe(false);
-    expect(h.showToast).toHaveBeenCalledWith("Couldn't add Writ to your login items", "error");
+    expect(h.showToast).toHaveBeenCalledWith("Couldn't add Jotra to your login items", "error");
     expect(login.busy()).toBe(false);
   });
 });

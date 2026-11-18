@@ -3,11 +3,11 @@ import { clipboardStore } from "../stores/global/clipboard";
 import { IS_MAC } from "./platform";
 
 /**
- * Replaces the webview's native context menu with Writ's own, app-wide.
+ * Replaces the webview's native context menu with Jotra's own, app-wide.
  *
  * The native menu belongs to the browser engine, not to this app: it offers
  * Reload, Look Up, Services and Speech, none of which mean anything here. It is
- * suppressed everywhere and each surface opens a Writ menu instead.
+ * suppressed everywhere and each surface opens a Jotra menu instead.
  *
  * Only `preventDefault` is called, never `stopPropagation`: Solid delegates
  * `contextmenu` at the document, so stopping propagation would kill the tab bar

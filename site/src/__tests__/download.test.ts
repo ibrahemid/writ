@@ -85,7 +85,7 @@ function fakeGroup(os: string, command: string | null): FakeGroup {
 }
 
 function setup(options: { nav?: NavigatorLike; writeText?: (text: string) => Promise<void>; noClipboard?: boolean } = {}) {
-  const children = [fakeGroup('mac', 'brew trust ibrahemid/writ && brew install --cask ibrahemid/writ/writ'), fakeGroup('win', 'winget install -e --id ibrahemid.Writ'), fakeGroup('linux', null)];
+  const children = [fakeGroup('mac', 'brew trust ibrahemid/writ && brew install --cask ibrahemid/writ/jotra'), fakeGroup('win', 'winget install -e --id ibrahemid.Writ'), fakeGroup('linux', null)];
   const container = {
     get firstElementChild() {
       return children[0] ?? null;
@@ -162,7 +162,7 @@ describe('startDownloadGroups', () => {
     const { group, written, timers, selected } = setup();
     group('mac').button.click();
     await settle();
-    expect(written).toEqual(['brew trust ibrahemid/writ && brew install --cask ibrahemid/writ/writ']);
+    expect(written).toEqual(['brew trust ibrahemid/writ && brew install --cask ibrahemid/writ/jotra']);
     expect(group('mac').status.textContent).toBe('Copied');
     expect(selected).toEqual([]);
     expect([...timers.values()].map((timer) => timer.ms)).toEqual([COPY_STATUS_MS]);
@@ -249,6 +249,6 @@ describe('the download groups', () => {
   });
 
   it('keep brew trust and brew install in one command', () => {
-    expect(COMPONENT).toContain("command: 'brew trust ibrahemid/writ && brew install --cask ibrahemid/writ/writ'");
+    expect(COMPONENT).toContain("command: 'brew trust ibrahemid/writ && brew install --cask ibrahemid/writ/jotra'");
   });
 });

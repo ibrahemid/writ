@@ -20,7 +20,7 @@ export const BASE_URL_RULE =
 /** How the consent sheet for an address on a private network describes the
  * connection check. */
 export const PRIVATE_CHECK =
-  "Writ also checks the address is reachable. The check sends no text.";
+  "Jotra also checks the address is reachable. The check sends no text.";
 
 /**
  * Resolves everything that would block a rewrite, in one pass, before any text
@@ -79,8 +79,8 @@ async function clearBlockersBeforeSending(wholeDocument: number | null): Promise
           ? `The text you rewrite is sent to this address on your local network. ${PRIVATE_CHECK}`
           : `No text is selected, so the whole document (${wholeDocument} characters) is sent to this address on your local network. ${PRIVATE_CHECK}`
         : wholeDocument === null
-          ? "The text you rewrite is sent with your API key. Writ also sends the key on its own to check the host is reachable. The check sends no text."
-          : `No text is selected, so the whole document (${wholeDocument} characters) is sent with your API key. Writ also sends the key on its own to check the host is reachable. The check sends no text.`,
+          ? "The text you rewrite is sent with your API key. Jotra also sends the key on its own to check the host is reachable. The check sends no text."
+          : `No text is selected, so the whole document (${wholeDocument} characters) is sent with your API key. Jotra also sends the key on its own to check the host is reachable. The check sends no text.`,
       confirmLabel: "Send",
       defaultAction: "cancel",
     });

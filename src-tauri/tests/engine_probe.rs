@@ -63,9 +63,9 @@
 //! covers the mouse.
 //!
 //! It needs a display and the main thread, so the harness is off
-//! (`harness = false`) and the probe runs only under `WRIT_ENGINE_PROBE=1`.
-//! Unset, it exits 0 without opening a window. `WRIT_ENGINE_PROBE_DNS_DOMAIN`
-//! and `WRIT_ENGINE_PROBE_DNS_ADDR` turn on the DNS sink for a run whose
+//! (`harness = false`) and the probe runs only under `JOTRA_ENGINE_PROBE=1`.
+//! Unset, it exits 0 without opening a window. `JOTRA_ENGINE_PROBE_DNS_DOMAIN`
+//! and `JOTRA_ENGINE_PROBE_DNS_ADDR` turn on the DNS sink for a run whose
 //! resolver sends that domain to that address; the probe then resolves a
 //! control name itself first and fails if the sink does not see it, the
 //! scripts-off corpus adds two hints, an image, an anchor and a frame by name,
@@ -82,9 +82,9 @@ use std::net::{SocketAddr, TcpListener, ToSocketAddrs, UdpSocket};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use writ_core::preview::{ContentRenderer, RenderRequest};
-use writ_tauri_lib::preview::handler::{resolve_cached, RenderCache, RenderedDoc};
-use writ_tauri_lib::preview::renderers::HtmlRenderer;
+use jotra_core::preview::{ContentRenderer, RenderRequest};
+use jotra_tauri_lib::preview::handler::{resolve_cached, RenderCache, RenderedDoc};
+use jotra_tauri_lib::preview::renderers::HtmlRenderer;
 
 /// The longest the scripts-off document may take to report ready.
 const LOAD_TIMEOUT: Duration = Duration::from_secs(20);
@@ -223,9 +223,9 @@ const CONTROL_VECTORS: &[&str] = &[
 const CONTROL_DOCUMENT: &str = "control";
 
 fn main() {
-    if std::env::var("WRIT_ENGINE_PROBE").ok().as_deref() != Some("1") {
+    if std::env::var("JOTRA_ENGINE_PROBE").ok().as_deref() != Some("1") {
         println!(
-            "engine_probe: skipped (set WRIT_ENGINE_PROBE=1 with a display to run the real probe)"
+            "engine_probe: skipped (set JOTRA_ENGINE_PROBE=1 with a display to run the real probe)"
         );
         return;
     }
@@ -351,14 +351,14 @@ fn open_dns_sink() -> Result<Option<DnsSink>, String> {
             .filter(|value| !value.trim().is_empty())
     };
     let (Some(domain), Some(addr)) = (
-        setting("WRIT_ENGINE_PROBE_DNS_DOMAIN"),
-        setting("WRIT_ENGINE_PROBE_DNS_ADDR"),
+        setting("JOTRA_ENGINE_PROBE_DNS_DOMAIN"),
+        setting("JOTRA_ENGINE_PROBE_DNS_ADDR"),
     ) else {
         return Ok(None);
     };
     let addr: SocketAddr = addr
         .parse()
-        .map_err(|e| format!("WRIT_ENGINE_PROBE_DNS_ADDR {addr}: {e}"))?;
+        .map_err(|e| format!("JOTRA_ENGINE_PROBE_DNS_ADDR {addr}: {e}"))?;
     let socket = UdpSocket::bind(addr).map_err(|e| format!("bind the DNS sink on {addr}: {e}"))?;
     let names = Arc::new(Mutex::new(Vec::new()));
     {
@@ -763,7 +763,7 @@ fn parent_script(on_src: &str, control_src: &str) -> String {
     }});
   }});
   function frame() {{ return document.getElementById("preview"); }}
-  window.__writProbe = {{
+  window.__jotraProbe = {{
     scriptsOn: function (load) {{
       phase = "on";
       frame().src = "{on_src}&load=" + load;
@@ -954,7 +954,7 @@ fn run() -> Result<String, String> {
         }
     }
 
-    let prefix = writ_tauri_lib::commands::preview::preview_url_prefix();
+    let prefix = jotra_tauri_lib::commands::preview::preview_url_prefix();
     let off_src = format!("{prefix}document/off?v=1");
     let on_src = format!("{prefix}document/on?v=1");
     let control_src = format!("{prefix}document/{CONTROL_DOCUMENT}?v=1");
@@ -995,7 +995,7 @@ fn run() -> Result<String, String> {
     }
     let window = WindowBuilder::new()
         .with_visible(false)
-        .with_title("writ engine probe")
+        .with_title("jotra engine probe")
         .build(&event_loop)
         .map_err(|e| e.to_string())?;
 
@@ -1028,7 +1028,7 @@ fn run() -> Result<String, String> {
                 .body(Cow::<'static, [u8]>::Owned(body))
                 .expect("a well-formed app response")
         })
-        .with_custom_protocol("writ-preview".to_string(), move |_id, request| {
+        .with_custom_protocol("jotra-preview".to_string(), move |_id, request| {
             let url = request.uri().to_string();
             if request.uri().path() == format!("/{CONTROL_DOCUMENT}") {
                 return wry::http::Response::builder()
@@ -1050,7 +1050,7 @@ fn run() -> Result<String, String> {
         })
         .with_ipc_handler(move |request| record_report(&ipc_reports, request.body()))
         .with_navigation_handler(move |url| {
-            let allowed = writ_tauri_lib::navigation::is_allowed_navigation(&url, None);
+            let allowed = jotra_tauri_lib::navigation::is_allowed_navigation(&url, None);
             if !allowed {
                 let moment = nav_moment.lock().expect("moment").clone();
                 nav_refused.lock().expect("refused").push((moment, url));
@@ -1116,7 +1116,7 @@ fn run() -> Result<String, String> {
             Stage::OffSettle { until } if now >= until => {
                 set_moment("scripts on, load 0".to_string());
                 script(
-                    "window.__writProbe.scriptsOn(0)",
+                    "window.__jotraProbe.scriptsOn(0)",
                     "load the scripts-on document",
                 );
                 Some(Stage::AwaitLoad {
@@ -1140,7 +1140,7 @@ fn run() -> Result<String, String> {
             Stage::Attempt { load, step, at } if now >= at => {
                 script(
                     &format!(
-                        "window.__writProbe.step({})",
+                        "window.__jotraProbe.step({})",
                         serde_json::Value::from(ON_LOADS[load][step])
                     ),
                     "send the frame its next attempt",
@@ -1153,7 +1153,7 @@ fn run() -> Result<String, String> {
             }
             Stage::LoadSettle { load, until } if now >= until => {
                 script(
-                    "window.__writProbe.ping()",
+                    "window.__jotraProbe.ping()",
                     "ask the frame whether the document is still in it",
                 );
                 Some(Stage::AwaitPong {
@@ -1166,7 +1166,7 @@ fn run() -> Result<String, String> {
                 if next_load < ON_LOADS.len() {
                     set_moment(format!("scripts on, load {next_load}"));
                     script(
-                        &format!("window.__writProbe.scriptsOn({next_load})"),
+                        &format!("window.__jotraProbe.scriptsOn({next_load})"),
                         "load the scripts-on document again",
                     );
                     Some(Stage::AwaitLoad {
@@ -1176,7 +1176,7 @@ fn run() -> Result<String, String> {
                 } else {
                     set_moment("the in-frame control".to_string());
                     script(
-                        "window.__writProbe.control()",
+                        "window.__jotraProbe.control()",
                         "move the frame to the control",
                     );
                     Some(Stage::AwaitControl {
@@ -1191,7 +1191,7 @@ fn run() -> Result<String, String> {
             }
             Stage::ControlSettle { until } if now >= until => {
                 script(
-                    "window.__writProbe.report()",
+                    "window.__jotraProbe.report()",
                     "ask the app page where it is",
                 );
                 Some(Stage::Report {
@@ -1407,7 +1407,7 @@ fn evaluate(
         None => {
             blocks.push(Block::new(
                 "dns",
-                "not routed on this run (set WRIT_ENGINE_PROBE_DNS_DOMAIN and _ADDR)",
+                "not routed on this run (set JOTRA_ENGINE_PROBE_DNS_DOMAIN and _ADDR)",
             ));
             (None, None)
         }
@@ -1559,7 +1559,7 @@ fn evaluate(
     // The app page stayed where it was through every phase.
     let mut app = Block::new("app page", "the top-level page and the navigation guard");
     match &reports.final_href {
-        Some(href) if writ_tauri_lib::navigation::is_allowed_navigation(href, None) => {
+        Some(href) if jotra_tauri_lib::navigation::is_allowed_navigation(href, None) => {
             app.row(
                 Mark::Ok,
                 "location",

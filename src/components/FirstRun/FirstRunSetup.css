@@ -4,11 +4,11 @@
 .first-run-setup {
   position: fixed;
   inset: 0;
-  z-index: var(--writ-z-modal);
+  z-index: var(--jotra-z-modal);
   display: flex;
-  padding: var(--writ-space-7);
-  background: var(--writ-bg-canvas);
-  font-family: var(--writ-font-ui);
+  padding: var(--jotra-space-7);
+  background: var(--jotra-bg-canvas);
+  font-family: var(--jotra-font-ui);
   overflow-y: auto;
 }
 
@@ -17,45 +17,45 @@
   margin: auto;
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-6);
+  gap: var(--jotra-space-6);
 }
 
 .first-run-setup-head {
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-1);
+  gap: var(--jotra-space-1);
 }
 
 .first-run-setup-step {
   margin: 0;
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
   font-variant-numeric: tabular-nums;
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
 }
 
 .first-run-setup-heading {
   margin: 0;
-  font-size: var(--writ-ui-lg);
-  line-height: var(--writ-ui-lg-lh);
-  letter-spacing: var(--writ-ui-tracking);
+  font-size: var(--jotra-ui-lg);
+  line-height: var(--jotra-ui-lg-lh);
+  letter-spacing: var(--jotra-ui-tracking);
   font-weight: 600;
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
 }
 
 .first-run-setup-lead {
   max-width: 64ch;
-  margin: var(--writ-space-1) 0 0;
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  color: var(--writ-fg-muted);
+  margin: var(--jotra-space-1) 0 0;
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  color: var(--jotra-fg-muted);
 }
 
 .first-run-formats,
 .first-run-apps {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
 }
 
 .first-run-apps {
@@ -70,7 +70,7 @@
 
 @media (max-width: 600px) {
   .first-run-setup {
-    padding: var(--writ-space-5);
+    padding: var(--jotra-space-5);
   }
 
   .first-run-formats,
@@ -84,55 +84,55 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  padding: var(--writ-space-4-5);
-  border: 1px solid var(--writ-border);
-  border-radius: var(--writ-r-card);
-  background: var(--writ-bg-raised);
+  padding: var(--jotra-space-4-5);
+  border: 1px solid var(--jotra-border);
+  border-radius: var(--jotra-r-card);
+  background: var(--jotra-bg-raised);
   cursor: pointer;
 }
 
 .first-run-format {
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
 }
 
 .first-run-app {
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
 }
 
 /* The edge answers the pointer, not the fill: a tint over the card would take
    it back down to the background it is raised off. */
 .first-run-format:hover:not(.is-selected),
 .first-run-app:hover:not(.is-on) {
-  border-color: var(--writ-fg-faint);
+  border-color: var(--jotra-fg-faint);
 }
 
 /* The accent draws the whole edge rather than a dot beside the label: the card
    is the control, so the card is what reads as chosen. */
 .first-run-format.is-selected,
 .first-run-app.is-on {
-  border-color: var(--writ-accent);
-  box-shadow: inset 0 0 0 1px var(--writ-accent);
+  border-color: var(--jotra-accent);
+  box-shadow: inset 0 0 0 1px var(--jotra-accent);
 }
 
 .first-run-format-label,
 .first-run-app-label {
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
   font-weight: 500;
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
 }
 
 .first-run-format-detail,
 .first-run-app-detail {
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-fg-muted);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-fg-muted);
 }
 
 .first-run-app-head {
   display: flex;
   align-items: center;
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
 }
 
 .first-run-app-tile {
@@ -142,9 +142,9 @@
   justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: var(--writ-r-control);
-  background: color-mix(in srgb, var(--writ-accent) 14%, transparent);
-  color: var(--writ-accent);
+  border-radius: var(--jotra-r-control);
+  background: color-mix(in srgb, var(--jotra-accent) 14%, transparent);
+  color: var(--jotra-accent);
 }
 
 .first-run-app-tile .first-run-app-icon {
@@ -162,14 +162,14 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
 }
 
 /* Pushed to the card's foot, so the rows of a grid line up across it. */
 .first-run-app-text .first-run-app-where {
   margin-top: auto;
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
 }
 
 /* The Settings switch, drawn here so the screen does not lean on the settings
@@ -181,7 +181,7 @@
   min-height: 24px;
   padding: 0;
   border: none;
-  border-radius: var(--writ-r-pill);
+  border-radius: var(--jotra-r-pill);
   background: transparent;
   cursor: pointer;
 }
@@ -194,26 +194,26 @@
   width: 32px;
   height: 18px;
   margin-top: -9px;
-  border-radius: var(--writ-r-pill);
-  background: var(--writ-switch-off);
-  transition: background var(--writ-motion);
+  border-radius: var(--jotra-r-pill);
+  background: var(--jotra-switch-off);
+  transition: background var(--jotra-motion);
 }
 
 .first-run-app-switch.is-on::before {
-  background: var(--writ-accent);
+  background: var(--jotra-accent);
 }
 
 .first-run-app-knob {
   position: absolute;
   top: 50%;
-  left: var(--writ-space-1);
+  left: var(--jotra-space-1);
   width: 14px;
   height: 14px;
   margin-top: -7px;
-  border-radius: var(--writ-r-pill);
-  background: var(--writ-switch-knob);
-  box-shadow: var(--writ-shadow-chip);
-  transition: transform var(--writ-motion);
+  border-radius: var(--jotra-r-pill);
+  background: var(--jotra-switch-knob);
+  box-shadow: var(--jotra-shadow-chip);
+  transition: transform var(--jotra-motion);
 }
 
 .first-run-app-switch.is-on .first-run-app-knob {
@@ -230,19 +230,19 @@
 .first-run-setup-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
 }
 
 .first-run-setup-foot {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
 }
 
 .first-run-setup-failure {
   margin: 0;
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  color: var(--writ-status-error);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  color: var(--jotra-status-error);
 }

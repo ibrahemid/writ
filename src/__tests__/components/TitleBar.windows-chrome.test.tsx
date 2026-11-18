@@ -179,12 +179,12 @@ afterEach(() => {
 });
 
 describe("titlebar menu affordance carries the platforms with no menu bar", () => {
-  it.each(["win", "linux"] as const)("renders the Writ menu button on %s", (platform) => {
+  it.each(["win", "linux"] as const)("renders the Jotra menu button on %s", (platform) => {
     const { container } = renderOn(platform);
     const button = container.querySelector<HTMLButtonElement>(".titlebar-appmenu");
     expect(button).not.toBeNull();
     expect(button!.tagName).toBe("BUTTON");
-    expect(button!.getAttribute("aria-label")).toBe("Writ menu");
+    expect(button!.getAttribute("aria-label")).toBe("Jotra menu");
     expect(button!.getAttribute("aria-haspopup")).toBe("menu");
   });
 
@@ -215,7 +215,7 @@ describe("titlebar menu affordance carries the platforms with no menu bar", () =
 
   it("centres the window title in the GNOME header bar", () => {
     const { container } = renderOn("linux");
-    expect(container.querySelector(".headerbar-title")!.textContent).toBe("Writ");
+    expect(container.querySelector(".headerbar-title")!.textContent).toBe("Jotra");
   });
 
   it("moves New file into the GNOME header bar, ahead of the menu", () => {
@@ -282,7 +282,7 @@ describe("Windows window controls", () => {
   it("explains the hotkey chip through the tooltip, not a native title", () => {
     const { container } = renderOn("win");
     const chip = container.querySelector(".titlebar-right")!;
-    const anchor = chip.closest(".writ-tooltip-anchor");
+    const anchor = chip.closest(".jotra-tooltip-anchor");
     expect(anchor, "the chip is wrapped in the house tooltip").not.toBeNull();
     expect(chip.getAttribute("title")).toBeNull();
 
@@ -291,7 +291,7 @@ describe("Windows window controls", () => {
       fireEvent.pointerEnter(anchor!);
       vi.advanceTimersByTime(1000);
       expect(container.querySelector('[role="tooltip"]')!.textContent).toBe(
-        "Toggle Writ from anywhere",
+        "Toggle Jotra from anywhere",
       );
     } finally {
       vi.useRealTimers();
@@ -458,7 +458,7 @@ describe("snap-layout overlay geometry", () => {
   });
 });
 
-describe("Writ menu contents", () => {
+describe("Jotra menu contents", () => {
   it("lists the shared menu commands, in the list's order", () => {
     const { container } = renderOn("win");
     fireEvent.click(container.querySelector(".titlebar-appmenu")!);

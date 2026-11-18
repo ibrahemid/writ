@@ -124,7 +124,7 @@ describe("PreviewPane size gate", () => {
 
     await waitFor(() =>
       expect(document.querySelector(".preview-chip-live")!.textContent).toContain(
-        "Writ could not draw the preview.",
+        "Jotra could not draw the preview.",
       ),
     );
     expect(document.querySelector(".preview-chip-live")!.textContent).not.toContain("buffer");

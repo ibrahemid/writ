@@ -22,7 +22,7 @@ export interface NoticesBuffer {
  */
 export async function openThirdPartyNoticesBuffer(): Promise<NoticesBuffer> {
   const result = await openThirdPartyNotices();
-  // Writ writes this file itself, so it is always here: the placeholder mode
+  // Jotra writes this file itself, so it is always here: the placeholder mode
   // belongs to notes a sync provider has not downloaded.
   const doc = result.doc;
   if (!doc) throw new Error("the notices document opened no note");

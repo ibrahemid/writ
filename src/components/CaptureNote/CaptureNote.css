@@ -2,9 +2,9 @@
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--writ-bg-raised);
-  border: 1px solid var(--writ-border-soft);
-  border-radius: var(--writ-r-window);
+  background: var(--jotra-bg-raised);
+  border: 1px solid var(--jotra-border-soft);
+  border-radius: var(--jotra-r-window);
   overflow: hidden;
 }
 
@@ -14,32 +14,32 @@
   resize: none;
   border: 0;
   background: transparent;
-  color: var(--writ-fg);
-  font-family: var(--writ-font-prose);
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  padding: var(--writ-space-4) var(--writ-space-5);
+  color: var(--jotra-fg);
+  font-family: var(--jotra-font-prose);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  padding: var(--jotra-space-4) var(--jotra-space-5);
 }
 
 .capture-note-footer {
   display: flex;
   align-items: center;
   min-height: 32px;
-  padding: var(--writ-space-2) var(--writ-space-5);
-  border-top: 1px solid var(--writ-border-soft);
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
-  color: var(--writ-fg-muted);
+  padding: var(--jotra-space-2) var(--jotra-space-5);
+  border-top: 1px solid var(--jotra-border-soft);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
+  color: var(--jotra-fg-muted);
 }
 
 .capture-note-key {
-  font-family: var(--writ-font-ui);
-  font-size: var(--writ-ui-xs);
-  padding: 0 var(--writ-space-1);
-  border: 1px solid var(--writ-border);
-  border-radius: var(--writ-r-control);
+  font-family: var(--jotra-font-ui);
+  font-size: var(--jotra-ui-xs);
+  padding: 0 var(--jotra-space-1);
+  border: 1px solid var(--jotra-border);
+  border-radius: var(--jotra-r-control);
 }
 
 .capture-note-problem {
-  color: var(--writ-status-error);
+  color: var(--jotra-status-error);
 }

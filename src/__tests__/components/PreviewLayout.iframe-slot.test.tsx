@@ -8,7 +8,7 @@ import { defaultSplit, type LayoutMode } from "../../lib/preview-layout";
 import type { BufferDocument } from "../../types/buffer";
 
 // Pins the invariant that survives the layout modes: div.preview-pane-slot is
-// outside every Show, so the writ-preview:// iframe is navigated and never
+// outside every Show, so the jotra-preview:// iframe is navigated and never
 // removed (removing a loaded one freezes the macOS webview, #124).
 
 const mocks = vi.hoisted(() => ({

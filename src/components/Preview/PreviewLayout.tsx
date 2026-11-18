@@ -158,7 +158,7 @@ export default function PreviewLayout(props: Props) {
       </Show>
 
       {/* The preview pane slot is ALWAYS in the DOM so its iframe is never torn
-          down (writ-preview:// teardown freezes the macOS webview, #124). It is
+          down (jotra-preview:// teardown freezes the macOS webview, #124). It is
           hidden when no preview shows, and again while the folder graph covers
           the note; the pane parks the iframe on a blank doc. */}
       <div

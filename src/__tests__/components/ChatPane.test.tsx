@@ -4,7 +4,7 @@ import { createRoot, createSignal } from "solid-js";
 import { configStore } from "../../stores/global/config";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import type { BufferDocument } from "../../types/buffer";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 import type { ChatConversation } from "../../services/tauri";
 
 // The chat column: what it says the model can read, what a reply may offer,
@@ -68,7 +68,7 @@ const [chatColumnOpen, setChatColumnOpen] = createRoot(() => createSignal(false)
 vi.spyOn(configStore, "loaded").mockImplementation(() => true);
 vi.spyOn(configStore, "setChatPanelOpen").mockImplementation((open) => setChatColumnOpen(open));
 vi.spyOn(configStore, "config").mockImplementation(() => {
-  const config = mocks.config() as WritConfig;
+  const config = mocks.config() as JotraConfig;
   return { ...config, chat_panel: { ...config.chat_panel, open: chatColumnOpen() } };
 });
 vi.spyOn(bufferRegistry, "activeTabs").mockImplementation(() => mocks.activeTabs());
@@ -113,15 +113,15 @@ function note(id: string, path: string): BufferDocument {
   };
 }
 
-function config(chatEnabled: boolean): WritConfig {
-  const base = JSON.parse(JSON.stringify(DEFAULTS)) as WritConfig;
+function config(chatEnabled: boolean): JotraConfig {
+  const base = JSON.parse(JSON.stringify(DEFAULTS)) as JotraConfig;
   base.ai.chat.enabled = chatEnabled;
   return base;
 }
 
 // A whole config the pane can read, kept here rather than reached for through
 // the store the test has already replaced.
-const DEFAULTS: WritConfig = {
+const DEFAULTS: JotraConfig = {
   hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
   sidebar: {
     toggle: "CmdOrCtrl+\\",

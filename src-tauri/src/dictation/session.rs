@@ -13,19 +13,19 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::sync::mpsc;
-use tokio::time::Instant;
-use tokio_util::sync::CancellationToken;
-use writ_ai::connection::{build_client_for, OnDeviceRequest, PreparedRequest, StreamEvent};
-use writ_ai::transcription::{
+use jotra_ai::connection::{build_client_for, OnDeviceRequest, PreparedRequest, StreamEvent};
+use jotra_ai::transcription::{
     prepare_clean_up, run_clean_up, CleanUpRequest, PreparedTranscription,
 };
-use writ_audio::{AudioFrame, CaptureError, Recorder};
-use writ_core::config::AiConfig;
-use writ_core::dictation::{
+use jotra_audio::{AudioFrame, CaptureError, Recorder};
+use jotra_core::config::AiConfig;
+use jotra_core::dictation::{
     clean_transcript, encode_wav_16k_mono, error_from_bridge, is_digital_silence, prompt_tail,
     samples_for_ms, DictationError, DictationEvent, Segment, Segmenter, SessionLimits,
 };
+use tokio::sync::mpsc;
+use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 
 use super::bridge::{BridgeEvent, Recognition};
 use crate::poison::recover_poison;
@@ -792,7 +792,7 @@ impl Transcribe for ApiTranscriber {
         let client = self.client.clone();
         let prepared = Arc::clone(&self.prepared);
         Box::pin(async move {
-            writ_ai::transcription::transcribe(&client, &prepared, wav, Some(&prompt), &cancel)
+            jotra_ai::transcription::transcribe(&client, &prepared, wav, Some(&prompt), &cancel)
                 .await
         })
     }
@@ -890,10 +890,10 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
 
-    use writ_ai::transcription::prepare_transcription;
-    use writ_core::config::{DictationConfig, DictationEngine, DictationProvider};
-    use writ_core::dictation::on_device::BRIDGE_ASSETS_FAILED;
-    use writ_core::dictation::{
+    use jotra_ai::transcription::prepare_transcription;
+    use jotra_core::config::{DictationConfig, DictationEngine, DictationProvider};
+    use jotra_core::dictation::on_device::BRIDGE_ASSETS_FAILED;
+    use jotra_core::dictation::{
         DictationErrorCode, SegmenterParams, QUEUE_LIMIT_MS, QUIET_STOP_MS,
     };
 

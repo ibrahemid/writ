@@ -53,7 +53,7 @@ mod tests {
 
     #[test]
     fn recover_poison_returns_inner_data_after_a_poisoned_write_lock() {
-        let lock = Arc::new(RwLock::new(String::from("~/Writ")));
+        let lock = Arc::new(RwLock::new(String::from("~/Jotra")));
         let clone = lock.clone();
         let join = std::thread::spawn(move || {
             let _guard = clone.write().unwrap();

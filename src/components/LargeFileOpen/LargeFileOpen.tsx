@@ -8,7 +8,7 @@ import { useWindow } from "../WindowProvider/WindowProvider";
 import "./LargeFileOpen.css";
 
 /**
- * The question asked before Writ reads a file over the size it opens without
+ * The question asked before Jotra reads a file over the size it opens without
  * asking, and the progress after Open.
  *
  * The question states the size before anything reads the file. Open keeps the
@@ -57,7 +57,7 @@ export default function LargeFileOpen() {
   });
 
   // The progress ends when the editor shows the file, when its read failed
-  // and the editor says so instead (a file that grew past the size Writ opens
+  // and the editor says so instead (a file that grew past the size Jotra opens
   // leaves its tab refused), or when the tab it was opened into is no longer
   // the one in front.
   let shownInTab = false;
@@ -94,7 +94,7 @@ export default function LargeFileOpen() {
             ref={panelRef}
             class="large-file-dialog"
             tabIndex={-1}
-            data-writ-focus-silent
+            data-jotra-focus-silent
             role={asking() ? "alertdialog" : "dialog"}
             aria-modal="true"
             aria-labelledby="large-file-title"
@@ -125,7 +125,7 @@ export default function LargeFileOpen() {
                     Open {question().name}?
                   </div>
                   <div id="large-file-message" class="large-file-message">
-                    It is {formatBytes(question().sizeBytes)}. Writ shows it as plain text with no
+                    It is {formatBytes(question().sizeBytes)}. Jotra shows it as plain text with no
                     wrapping, and leaves it out of search and crash recovery.
                   </div>
                   <div class="large-file-actions">

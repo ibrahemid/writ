@@ -6,9 +6,9 @@
 .folder-graph {
   position: absolute;
   inset: 0;
-  z-index: var(--writ-z-chrome);
-  background: var(--writ-bg-canvas);
-  animation: folder-graph-in var(--writ-motion-fast);
+  z-index: var(--jotra-z-chrome);
+  background: var(--jotra-bg-canvas);
+  animation: folder-graph-in var(--jotra-motion-fast);
 }
 
 @keyframes folder-graph-in {
@@ -28,21 +28,21 @@
    less a gutter, and its own scroll past the height. */
 .folder-graph-chrome {
   position: absolute;
-  top: var(--writ-space-4);
-  left: var(--writ-space-4);
+  top: var(--jotra-space-4);
+  left: var(--jotra-space-4);
   z-index: 1;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-3);
-  width: min(296px, calc(50% - var(--writ-space-6)));
-  max-height: calc(100% - var(--writ-space-4) * 2);
-  padding: var(--writ-space-4);
+  gap: var(--jotra-space-3);
+  width: min(296px, calc(50% - var(--jotra-space-6)));
+  max-height: calc(100% - var(--jotra-space-4) * 2);
+  padding: var(--jotra-space-4);
   overflow-y: auto;
-  border: 1px solid var(--writ-border-soft);
-  border-radius: var(--writ-r-card);
-  background: var(--writ-bg-raised);
-  box-shadow: var(--writ-shadow-popover);
+  border: 1px solid var(--jotra-border-soft);
+  border-radius: var(--jotra-r-card);
+  background: var(--jotra-bg-raised);
+  box-shadow: var(--jotra-shadow-popover);
 }
 
 .folder-graph-head {
@@ -50,7 +50,7 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--writ-space-2) var(--writ-space-3);
+  gap: var(--jotra-space-2) var(--jotra-space-3);
 }
 
 .folder-graph-title {
@@ -58,10 +58,10 @@
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  color: var(--writ-fg);
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  letter-spacing: var(--writ-ui-tracking);
+  color: var(--jotra-fg);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  letter-spacing: var(--jotra-ui-tracking);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -70,22 +70,22 @@
 .folder-graph-search {
   display: flex;
   align-items: center;
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
   box-sizing: border-box;
   width: 100%;
   min-height: 32px;
-  padding: 0 var(--writ-space-3);
-  border: 1px solid var(--writ-border-soft);
-  border-radius: var(--writ-r-control);
-  background: var(--writ-bg-canvas);
-  color: var(--writ-icon-color);
-  opacity: var(--writ-icon-opacity);
-  transition: border-color var(--writ-motion-fast);
+  padding: 0 var(--jotra-space-3);
+  border: 1px solid var(--jotra-border-soft);
+  border-radius: var(--jotra-r-control);
+  background: var(--jotra-bg-canvas);
+  color: var(--jotra-icon-color);
+  opacity: var(--jotra-icon-opacity);
+  transition: border-color var(--jotra-motion-fast);
 }
 
 .folder-graph-search:hover,
 .folder-graph-search:focus-within {
-  border-color: var(--writ-border);
+  border-color: var(--jotra-border);
   opacity: 1;
 }
 
@@ -95,15 +95,15 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--writ-fg);
-  font-family: var(--writ-font-ui);
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  letter-spacing: var(--writ-ui-tracking);
+  color: var(--jotra-fg);
+  font-family: var(--jotra-font-ui);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  letter-spacing: var(--jotra-ui-tracking);
 }
 
 .folder-graph-input::placeholder {
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
 }
 
 /* The count, and beside it the control that leaves unlinked files off. */
@@ -112,37 +112,37 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--writ-space-2) var(--writ-space-3);
+  gap: var(--jotra-space-2) var(--jotra-space-3);
 }
 
 .folder-graph-count {
   margin: 0;
-  color: var(--writ-fg-muted);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
+  color: var(--jotra-fg-muted);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
   font-variant-numeric: tabular-nums;
 }
 
 .folder-graph-unlinked {
   display: inline-flex;
   align-items: center;
-  gap: var(--writ-space-2);
-  padding: var(--writ-space-1) var(--writ-space-2);
-  margin-right: calc(var(--writ-space-2) * -1);
+  gap: var(--jotra-space-2);
+  padding: var(--jotra-space-1) var(--jotra-space-2);
+  margin-right: calc(var(--jotra-space-2) * -1);
   border: 0;
-  border-radius: var(--writ-r-control);
+  border-radius: var(--jotra-r-control);
   background: transparent;
-  color: var(--writ-fg-muted);
-  font-family: var(--writ-font-ui);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
+  color: var(--jotra-fg-muted);
+  font-family: var(--jotra-font-ui);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
   white-space: nowrap;
   cursor: pointer;
 }
 
 .folder-graph-unlinked:hover {
-  background: var(--writ-bg-hover);
-  color: var(--writ-fg);
+  background: var(--jotra-bg-hover);
+  color: var(--jotra-fg);
 }
 
 .folder-graph-unlinked-box {
@@ -152,15 +152,15 @@
   box-sizing: border-box;
   width: 12px;
   height: 12px;
-  border: 1px solid var(--writ-border);
-  border-radius: var(--writ-r-indicator);
-  background: var(--writ-bg-canvas);
+  border: 1px solid var(--jotra-border);
+  border-radius: var(--jotra-r-indicator);
+  background: var(--jotra-bg-canvas);
 }
 
 .folder-graph-unlinked[aria-pressed="true"] .folder-graph-unlinked-box {
-  border-color: var(--writ-accent);
-  background: var(--writ-accent);
-  color: var(--writ-accent-fg);
+  border-color: var(--jotra-accent);
+  background: var(--jotra-accent);
+  color: var(--jotra-accent-fg);
 }
 
 /* What the drawing is of. Two options in one control, the pressed one on the
@@ -168,40 +168,40 @@
 .folder-graph-scope {
   display: inline-flex;
   flex: none;
-  padding: var(--writ-space-1);
-  border: 1px solid var(--writ-border-soft);
-  border-radius: var(--writ-r-control);
-  background: var(--writ-bg-canvas);
+  padding: var(--jotra-space-1);
+  border: 1px solid var(--jotra-border-soft);
+  border-radius: var(--jotra-r-control);
+  background: var(--jotra-bg-canvas);
 }
 
 .folder-graph-scope-option {
-  padding: var(--writ-space-1) var(--writ-space-3);
+  padding: var(--jotra-space-1) var(--jotra-space-3);
   border: 0;
-  border-radius: var(--writ-r-control);
+  border-radius: var(--jotra-r-control);
   background: transparent;
-  color: var(--writ-fg-muted);
-  font-family: var(--writ-font-ui);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
+  color: var(--jotra-fg-muted);
+  font-family: var(--jotra-font-ui);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
   white-space: nowrap;
   cursor: pointer;
 }
 
 .folder-graph-scope-option[aria-pressed="true"] {
-  background: var(--writ-bg-raised);
-  color: var(--writ-fg);
-  box-shadow: var(--writ-shadow-chip);
+  background: var(--jotra-bg-raised);
+  color: var(--jotra-fg);
+  box-shadow: var(--jotra-shadow-chip);
 }
 
 /* The chosen note's name, read out as it changes. Empty until a note is
    chosen, and it keeps its line so the legend under it does not jump. */
 .folder-graph-chosen {
   margin: 0;
-  min-height: var(--writ-ui-sm-lh);
+  min-height: var(--jotra-ui-sm-lh);
   overflow: hidden;
-  color: var(--writ-fg);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
+  color: var(--jotra-fg);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -211,47 +211,47 @@
 .folder-graph-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
   max-height: 120px;
   margin: 0;
-  padding: var(--writ-space-3) 0 0;
+  padding: var(--jotra-space-3) 0 0;
   overflow-y: auto;
-  border-top: 1px solid var(--writ-border-soft);
+  border-top: 1px solid var(--jotra-border-soft);
   list-style: none;
 }
 
 .folder-graph-chip {
   display: inline-flex;
   align-items: center;
-  gap: var(--writ-space-2);
-  padding: var(--writ-space-1) var(--writ-space-3);
-  border: 1px solid var(--writ-border-soft);
-  border-radius: var(--writ-r-pill);
-  background: var(--writ-bg-canvas);
-  color: var(--writ-fg-muted);
-  font-family: var(--writ-font-ui);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
+  gap: var(--jotra-space-2);
+  padding: var(--jotra-space-1) var(--jotra-space-3);
+  border: 1px solid var(--jotra-border-soft);
+  border-radius: var(--jotra-r-pill);
+  background: var(--jotra-bg-canvas);
+  color: var(--jotra-fg-muted);
+  font-family: var(--jotra-font-ui);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
   cursor: pointer;
 }
 
 .folder-graph-chip-count {
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
   font-variant-numeric: tabular-nums;
 }
 
 .folder-graph-chip:hover {
-  border-color: var(--writ-border);
-  color: var(--writ-fg);
+  border-color: var(--jotra-border);
+  color: var(--jotra-fg);
 }
 
 .folder-graph-chip[aria-pressed="true"] {
-  border-color: var(--writ-border);
-  color: var(--writ-fg);
+  border-color: var(--jotra-border);
+  color: var(--jotra-fg);
 }
 
 .folder-graph-chip[aria-pressed="true"] .folder-graph-chip-count {
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
 }
 
 .folder-graph-swatch {
@@ -263,16 +263,16 @@
 /* Zoom out, zoom in, fit and close, in the corner opposite the card. */
 .folder-graph-tools {
   position: absolute;
-  top: var(--writ-space-4);
-  right: var(--writ-space-4);
+  top: var(--jotra-space-4);
+  right: var(--jotra-space-4);
   z-index: 1;
   display: flex;
-  gap: var(--writ-space-1);
-  padding: var(--writ-space-1);
-  border: 1px solid var(--writ-border-soft);
-  border-radius: var(--writ-r-card);
-  background: var(--writ-bg-raised);
-  box-shadow: var(--writ-shadow-chip);
+  gap: var(--jotra-space-1);
+  padding: var(--jotra-space-1);
+  border: 1px solid var(--jotra-border-soft);
+  border-radius: var(--jotra-r-card);
+  background: var(--jotra-bg-raised);
+  box-shadow: var(--jotra-shadow-chip);
 }
 
 /* A folder whose files link to nothing yet: one line over the middle of the
@@ -283,15 +283,15 @@
   left: 50%;
   z-index: 1;
   box-sizing: border-box;
-  max-width: min(420px, calc(100% - var(--writ-space-7) * 2));
+  max-width: min(420px, calc(100% - var(--jotra-space-7) * 2));
   margin: 0;
-  padding: var(--writ-space-3) var(--writ-space-4);
-  border: 1px solid var(--writ-border-soft);
-  border-radius: var(--writ-r-card);
-  background: var(--writ-bg-raised);
-  color: var(--writ-fg-muted);
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
+  padding: var(--jotra-space-3) var(--jotra-space-4);
+  border: 1px solid var(--jotra-border-soft);
+  border-radius: var(--jotra-r-card);
+  background: var(--jotra-bg-raised);
+  color: var(--jotra-fg-muted);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
   text-align: center;
   transform: translate(-50%, -50%);
   pointer-events: none;

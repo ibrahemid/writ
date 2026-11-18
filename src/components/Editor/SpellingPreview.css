@@ -1,19 +1,19 @@
 .spelling-preview {
   position: fixed;
-  top: var(--writ-space-4);
-  right: var(--writ-space-4);
-  z-index: var(--writ-z-popover);
+  top: var(--jotra-space-4);
+  right: var(--jotra-space-4);
+  z-index: var(--jotra-z-popover);
   width: 320px;
-  max-width: calc(100vw - 2 * var(--writ-space-4));
+  max-width: calc(100vw - 2 * var(--jotra-space-4));
   max-height: 60vh;
   display: flex;
   flex-direction: column;
-  background: var(--writ-bg-raised);
-  border: 1px solid var(--writ-border);
-  border-radius: var(--writ-r-popover);
-  box-shadow: var(--writ-shadow-popover);
-  font-size: var(--writ-ui-sm);
-  color: var(--writ-fg);
+  background: var(--jotra-bg-raised);
+  border: 1px solid var(--jotra-border);
+  border-radius: var(--jotra-r-popover);
+  box-shadow: var(--jotra-shadow-popover);
+  font-size: var(--jotra-ui-sm);
+  color: var(--jotra-fg);
   overflow: hidden;
 }
 
@@ -21,46 +21,46 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--writ-space-3);
-  padding: var(--writ-space-3) var(--writ-space-4);
-  border-bottom: 1px solid var(--writ-border-soft);
+  gap: var(--jotra-space-3);
+  padding: var(--jotra-space-3) var(--jotra-space-4);
+  border-bottom: 1px solid var(--jotra-border-soft);
 }
 
 .spelling-preview-all {
   display: inline-flex;
   align-items: center;
-  gap: var(--writ-space-3);
-  color: var(--writ-fg-muted);
+  gap: var(--jotra-space-3);
+  color: var(--jotra-fg-muted);
   cursor: pointer;
 }
 
 .spelling-preview-actions {
   display: inline-flex;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
 }
 
 .spelling-preview-list {
   list-style: none;
   margin: 0;
-  padding: var(--writ-space-2) 0;
+  padding: var(--jotra-space-2) 0;
   overflow-y: auto;
 }
 
 .spelling-preview-row {
   display: flex;
   align-items: center;
-  gap: var(--writ-space-3);
-  padding: var(--writ-space-2) var(--writ-space-4);
+  gap: var(--jotra-space-3);
+  padding: var(--jotra-space-2) var(--jotra-space-4);
 }
 
 .spelling-preview-row:hover {
-  background: var(--writ-bg-hover);
+  background: var(--jotra-bg-hover);
 }
 
 .spelling-preview-reveal {
   display: flex;
   align-items: center;
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
   flex: 1;
   min-width: 0;
   padding: 0;
@@ -72,26 +72,26 @@
 }
 
 .spelling-preview-reveal:focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
-  outline-offset: var(--writ-focus-offset, 2px);
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
+  outline-offset: var(--jotra-focus-offset, 2px);
 }
 
 .spelling-preview-check {
-  accent-color: var(--writ-accent);
+  accent-color: var(--jotra-accent);
   flex-shrink: 0;
 }
 
 .spelling-preview-word {
-  color: var(--writ-status-error);
+  color: var(--jotra-status-error);
   white-space: nowrap;
 }
 
 .spelling-preview-arrow {
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
 }
 
 .spelling-preview-fix {
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -99,22 +99,22 @@
 
 .spelling-preview-ignore {
   flex-shrink: 0;
-  padding: var(--writ-space-1) var(--writ-space-3);
-  border-radius: var(--writ-r-action);
+  padding: var(--jotra-space-1) var(--jotra-space-3);
+  border-radius: var(--jotra-r-action);
   border: none;
   background: none;
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
   cursor: pointer;
-  font-size: var(--writ-ui-xs);
+  font-size: var(--jotra-ui-xs);
 }
 
 .spelling-preview-ignore:hover {
-  background: var(--writ-bg-hover);
-  color: var(--writ-fg);
+  background: var(--jotra-bg-hover);
+  color: var(--jotra-fg);
 }
 
 .spelling-preview-empty {
-  padding: var(--writ-space-4);
-  color: var(--writ-fg-faint);
+  padding: var(--jotra-space-4);
+  color: var(--jotra-fg-faint);
   text-align: center;
 }

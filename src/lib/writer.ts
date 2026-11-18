@@ -7,7 +7,7 @@ export type { VersionWriter };
 export function readWriter(value: unknown): VersionWriter | null {
   if (typeof value !== "object" || value === null) return null;
   const kind = (value as { kind?: unknown }).kind;
-  if (kind === "writ" || kind === "chat" || kind === "command") return { kind };
+  if (kind === "jotra" || kind === "chat" || kind === "command") return { kind };
   if (kind === "program") {
     const name = (value as { name?: unknown }).name;
     if (typeof name === "string" && name.trim() !== "") return { kind, name };
@@ -18,14 +18,14 @@ export function readWriter(value: unknown): VersionWriter | null {
 /** The name a person reads for a writer. */
 export function writerName(writer: VersionWriter): string {
   switch (writer.kind) {
-    case "writ":
-      return "Writ";
+    case "jotra":
+      return "Jotra";
     case "program":
       return displayProgramName(writer.name);
     case "chat":
       return "Chat";
     case "command":
-      return "writ command";
+      return "jotra command";
   }
 }
 

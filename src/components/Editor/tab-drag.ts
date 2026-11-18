@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js";
 import type { PaneId } from "../../lib/pane-layout";
 
-// Singleton state — Writ is single-window. The tab strips a dragged tab can
+// Singleton state — Jotra is single-window. The tab strips a dragged tab can
 // land on, by pane, and the drag under way. Each strip is a TabBar of its
 // own; this is what lets one see a tab dragged out of the other (ADR-056).
 

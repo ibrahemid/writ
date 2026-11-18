@@ -3,8 +3,8 @@
 
 use std::cell::RefCell;
 
-use writ_core::title_bar::{DoubleClickPreference, TitleBarEffect};
-use writ_tauri_lib::commands::window::{
+use jotra_core::title_bar::{DoubleClickPreference, TitleBarEffect};
+use jotra_tauri_lib::commands::window::{
     title_bar_double_click_inner, TitleBarError, TitleBarWindow,
 };
 
@@ -174,9 +174,9 @@ fn defaults_read_global(key: &str) -> Option<String> {
 #[cfg(target_os = "macos")]
 #[test]
 fn the_setting_is_read_from_the_global_domain() {
-    use writ_core::title_bar::{ACTION_ON_DOUBLE_CLICK_KEY, MINIATURIZE_ON_DOUBLE_CLICK_KEY};
+    use jotra_core::title_bar::{ACTION_ON_DOUBLE_CLICK_KEY, MINIATURIZE_ON_DOUBLE_CLICK_KEY};
 
-    let read = writ_tauri_lib::title_bar::read_double_click_preference();
+    let read = jotra_tauri_lib::title_bar::read_double_click_preference();
     assert_eq!(
         read.action,
         defaults_read_global(ACTION_ON_DOUBLE_CLICK_KEY)
@@ -190,7 +190,7 @@ fn the_setting_is_read_from_the_global_domain() {
 #[test]
 fn there_is_no_setting_to_read_off_macos() {
     assert_eq!(
-        writ_tauri_lib::title_bar::read_double_click_preference(),
+        jotra_tauri_lib::title_bar::read_double_click_preference(),
         DoubleClickPreference::default()
     );
 }

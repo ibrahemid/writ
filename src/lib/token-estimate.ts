@@ -1,5 +1,5 @@
-// writ_core::prompt::estimate_tokens, from the counts the status bar already
-// holds rather than from the text. crates/writ-core/tests/fixtures/token-estimates.json
+// jotra_core::prompt::estimate_tokens, from the counts the status bar already
+// holds rather than from the text. crates/jotra-core/tests/fixtures/token-estimates.json
 // holds the two to the same answers.
 const CHAR_RULE_WEIGHT = 0.6;
 const WORD_RULE_WEIGHT = 0.4;

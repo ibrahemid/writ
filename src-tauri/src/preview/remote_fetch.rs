@@ -22,19 +22,19 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use reqwest::dns::{Addrs, Name, Resolve, Resolving};
-use reqwest::redirect::{Attempt, Policy};
-use tracing::warn;
-use url::{Host, Url};
-use writ_core::preview::remote_image::{
+use jotra_core::preview::remote_image::{
     check_remote_image_bytes, check_remote_image_size, is_allowed_redirect_scheme,
     is_followable_redirect, local_address_scope, local_host_name_scope, local_host_scope,
     remote_image_target, HeldImage, LocalScope, RemoteImageLoad, RemoteImageRefusal,
     REMOTE_IMAGE_MAX_REDIRECTS, REMOTE_IMAGE_TIMEOUT,
 };
+use reqwest::dns::{Addrs, Name, Resolve, Resolving};
+use reqwest::redirect::{Attempt, Policy};
+use tracing::warn;
+use url::{Host, Url};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-const USER_AGENT: &str = concat!("Writ/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("Jotra/", env!("CARGO_PKG_VERSION"));
 
 /// Why a request ended before a hop was dialed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -213,7 +213,7 @@ impl Resolve for CheckedResolver {
 /// A client for one request. A click goes through any system proxy, which
 /// resolves the names it is sent; a load nobody asked for goes direct.
 fn remote_image_client(load: RemoteImageLoad) -> Result<reqwest::Client, RemoteImageRefusal> {
-    writ_ai::connection::ensure_crypto_provider();
+    jotra_ai::connection::ensure_crypto_provider();
     let redirect_hosts = Arc::new(RedirectHosts::default());
     let builder = reqwest::Client::builder()
         .redirect(redirect_policy(load, Arc::clone(&redirect_hosts)))
@@ -335,7 +335,7 @@ mod tests {
     use std::net::TcpListener;
     use std::thread::JoinHandle;
 
-    use writ_core::preview::remote_image::REMOTE_IMAGE_MAX_BYTES;
+    use jotra_core::preview::remote_image::REMOTE_IMAGE_MAX_BYTES;
 
     use super::*;
 
@@ -427,7 +427,7 @@ mod tests {
         let requests = server.join().unwrap();
         assert!(requests[0].starts_with("GET /a.png "));
         let lower = requests[0].to_ascii_lowercase();
-        assert!(lower.contains("user-agent: writ/"));
+        assert!(lower.contains("user-agent: jotra/"));
         assert!(!lower.contains("cookie:"));
         assert!(!lower.contains("referer:"));
     }

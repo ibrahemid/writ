@@ -58,7 +58,7 @@ vi.mock("../../stores/global/buffer-registry", () => ({
   bufferRegistry: { activeTabs: h.active, historyList: h.history, deleteFromHistory: vi.fn() },
 }));
 vi.mock("../../stores/global/notes", () => ({
-  notesStore: { root: () => "/Users/me/Writ" },
+  notesStore: { root: () => "/Users/me/Jotra" },
 }));
 vi.mock("../../components/ContextMenu/ContextMenu", () => ({ showContextMenu: vi.fn() }));
 
@@ -115,7 +115,7 @@ describe("SearchResults", () => {
     h.setQuery("plan");
     h.setStatus("done");
     const { container } = render(() => <SearchResults />);
-    expect(container.querySelector(".search-group-heading")!.textContent).toBe("Writ");
+    expect(container.querySelector(".search-group-heading")!.textContent).toBe("Jotra");
   });
 
   it("opens an active hit and reveals its line", () => {
@@ -215,7 +215,7 @@ describe("SearchResults", () => {
     const headings = Array.from(container.querySelectorAll(".search-group-heading")).map(
       (el) => el.textContent,
     );
-    expect(headings).toEqual(["Writ", "app"]);
+    expect(headings).toEqual(["Jotra", "app"]);
     const row = container.querySelector<HTMLElement>(".search-result")!;
     expect(row.querySelector(".search-result-file")!.textContent).toBe("src/main.rs");
     expect(container.querySelectorAll(".search-footer")[0].textContent).toBe("1 of 3 results");

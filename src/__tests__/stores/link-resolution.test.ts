@@ -97,9 +97,9 @@ describe("linkStore resolution cache", () => {
     expect(mockedApi.resolveNoteLink).toHaveBeenCalledTimes(2);
   });
 
-  // A file Writ created, renamed or deleted itself never reaches the watcher,
+  // A file Jotra created, renamed or deleted itself never reaches the watcher,
   // so its index event is what makes a link to it resolve differently.
-  it("drops what it holds when Writ writes the index itself", async () => {
+  it("drops what it holds when Jotra writes the index itself", async () => {
     mockedApi.resolveNoteLink.mockResolvedValue({
       status: "missing",
       path: null,
@@ -212,8 +212,8 @@ describe("linkStore noteNameCandidates", () => {
 // unparseable. The scheme says what the frame wants; the notes folder decides
 // what it gets.
 describe("linkStore notePathFromPreview", () => {
-  const ROOT = "/Users/x/Writ";
-  const FROM_NOTE = "/Users/x/Writ/From.md";
+  const ROOT = "/Users/x/Jotra";
+  const FROM_NOTE = "/Users/x/Jotra/From.md";
 
   /** The index knows one note, whatever target it is asked about. */
   function indexKnows(path: string | null) {
@@ -225,29 +225,29 @@ describe("linkStore notePathFromPreview", () => {
   }
 
   it("answers with the note the preview link names", async () => {
-    indexKnows("/Users/x/Writ/Note.md");
-    expect(await linkStore.notePathFromPreview("writ-note:Note.md", ROOT, FROM_NOTE)).toBe(
-      "/Users/x/Writ/Note.md",
+    indexKnows("/Users/x/Jotra/Note.md");
+    expect(await linkStore.notePathFromPreview("jotra-note:Note.md", ROOT, FROM_NOTE)).toBe(
+      "/Users/x/Jotra/Note.md",
     );
-    indexKnows("/Users/x/Writ/folder/Deep.md");
+    indexKnows("/Users/x/Jotra/folder/Deep.md");
     expect(
-      await linkStore.notePathFromPreview("writ-note:folder/Deep.md", ROOT, FROM_NOTE),
-    ).toBe("/Users/x/Writ/folder/Deep.md");
+      await linkStore.notePathFromPreview("jotra-note:folder/Deep.md", ROOT, FROM_NOTE),
+    ).toBe("/Users/x/Jotra/folder/Deep.md");
   });
 
   // The fragment names a heading in the note, not part of its file name.
   it("opens the note a link to a heading names", async () => {
-    indexKnows("/Users/x/Writ/Note.md");
+    indexKnows("/Users/x/Jotra/Note.md");
     expect(
-      await linkStore.notePathFromPreview("writ-note:Note.md#some-heading", ROOT, FROM_NOTE),
-    ).toBe("/Users/x/Writ/Note.md");
+      await linkStore.notePathFromPreview("jotra-note:Note.md#some-heading", ROOT, FROM_NOTE),
+    ).toBe("/Users/x/Jotra/Note.md");
     expect(mockedApi.resolveNoteLink).toHaveBeenCalledWith(FROM_NOTE, "Note.md");
   });
 
   it("decodes a name written with a character the href escaped", async () => {
-    indexKnows("/Users/x/Writ/a#b.md");
-    expect(await linkStore.notePathFromPreview("writ-note:a%23b.md", ROOT, FROM_NOTE)).toBe(
-      "/Users/x/Writ/a#b.md",
+    indexKnows("/Users/x/Jotra/a#b.md");
+    expect(await linkStore.notePathFromPreview("jotra-note:a%23b.md", ROOT, FROM_NOTE)).toBe(
+      "/Users/x/Jotra/a#b.md",
     );
     expect(mockedApi.resolveNoteLink).toHaveBeenCalledWith(FROM_NOTE, "a#b.md");
   });
@@ -255,15 +255,15 @@ describe("linkStore notePathFromPreview", () => {
   // Anything in the rendered document can post an href, so the scheme is a
   // claim and not a permission.
   it("refuses a path that lands outside the notes folder", async () => {
-    indexKnows("/Users/x/Writ/Note.md");
+    indexKnows("/Users/x/Jotra/Note.md");
     for (const href of [
-      "writ-note:../../.ssh/id_rsa",
-      "writ-note:/etc/passwd",
-      "writ-note:folder/../../secrets.md",
-      "writ-note:%2e%2e/%2e%2e/passwd",
-      "writ-note:..%2f..%2fsecrets.md",
-      "writ-note:",
-      "writ-note:#some-heading",
+      "jotra-note:../../.ssh/id_rsa",
+      "jotra-note:/etc/passwd",
+      "jotra-note:folder/../../secrets.md",
+      "jotra-note:%2e%2e/%2e%2e/passwd",
+      "jotra-note:..%2f..%2fsecrets.md",
+      "jotra-note:",
+      "jotra-note:#some-heading",
     ]) {
       expect(await linkStore.notePathFromPreview(href, ROOT, FROM_NOTE), href).toBeNull();
     }
@@ -275,13 +275,13 @@ describe("linkStore notePathFromPreview", () => {
   it("refuses a path inside the folder that names no note the index holds", async () => {
     indexKnows(null);
     expect(
-      await linkStore.notePathFromPreview("writ-note:.obsidian/workspace.json", ROOT, FROM_NOTE),
+      await linkStore.notePathFromPreview("jotra-note:.obsidian/workspace.json", ROOT, FROM_NOTE),
     ).toBeNull();
-    expect(await linkStore.notePathFromPreview("writ-note:Note.md", ROOT, FROM_NOTE)).toBeNull();
+    expect(await linkStore.notePathFromPreview("jotra-note:Note.md", ROOT, FROM_NOTE)).toBeNull();
   });
 
   it("leaves every other href to the external-link policy", async () => {
-    indexKnows("/Users/x/Writ/Note.md");
+    indexKnows("/Users/x/Jotra/Note.md");
     expect(await linkStore.notePathFromPreview("https://example.com/x", ROOT, FROM_NOTE)).toBeNull();
     expect(await linkStore.notePathFromPreview("Note.md", ROOT, FROM_NOTE)).toBeNull();
     expect(await linkStore.notePathFromPreview("javascript:alert(1)", ROOT, FROM_NOTE)).toBeNull();
@@ -289,17 +289,17 @@ describe("linkStore notePathFromPreview", () => {
   });
 
   it("answers with nothing when there is no notes folder", async () => {
-    indexKnows("/Users/x/Writ/Note.md");
-    expect(await linkStore.notePathFromPreview("writ-note:Note.md", null, FROM_NOTE)).toBeNull();
-    expect(await linkStore.notePathFromPreview("writ-note:Note.md", "", FROM_NOTE)).toBeNull();
+    indexKnows("/Users/x/Jotra/Note.md");
+    expect(await linkStore.notePathFromPreview("jotra-note:Note.md", null, FROM_NOTE)).toBeNull();
+    expect(await linkStore.notePathFromPreview("jotra-note:Note.md", "", FROM_NOTE)).toBeNull();
   });
 
   // A preview of something with no file has nothing to resolve against, and a
   // guess would be a file opened from a claim nothing checked.
   it("answers with nothing when the previewed buffer has no file", async () => {
-    indexKnows("/Users/x/Writ/Note.md");
-    expect(await linkStore.notePathFromPreview("writ-note:Note.md", ROOT, null)).toBeNull();
-    expect(await linkStore.notePathFromPreview("writ-note:Note.md", ROOT, "")).toBeNull();
+    indexKnows("/Users/x/Jotra/Note.md");
+    expect(await linkStore.notePathFromPreview("jotra-note:Note.md", ROOT, null)).toBeNull();
+    expect(await linkStore.notePathFromPreview("jotra-note:Note.md", ROOT, "")).toBeNull();
     expect(mockedApi.resolveNoteLink).not.toHaveBeenCalled();
   });
 });
@@ -307,9 +307,9 @@ describe("linkStore notePathFromPreview", () => {
 // The editor lands on the heading a `[[Note#Section]]` names, and the preview
 // carries that heading as the href's fragment.
 describe("linkStore noteOpenFromPreview", () => {
-  const ROOT = "/Users/x/Writ";
-  const FROM_NOTE = "/Users/x/Writ/From.md";
-  const NOTE = "/Users/x/Writ/Note.md";
+  const ROOT = "/Users/x/Jotra";
+  const FROM_NOTE = "/Users/x/Jotra/From.md";
+  const NOTE = "/Users/x/Jotra/Note.md";
 
   beforeEach(() => {
     mockedApi.resolveNoteLink.mockImplementation(async () => resolved(NOTE));
@@ -317,19 +317,19 @@ describe("linkStore noteOpenFromPreview", () => {
 
   it("answers with the line the heading sits on", async () => {
     mockedApi.noteHeadingLine.mockResolvedValue(12);
-    expect(await linkStore.noteOpenFromPreview("writ-note:Note.md#later-part", ROOT, FROM_NOTE))
+    expect(await linkStore.noteOpenFromPreview("jotra-note:Note.md#later-part", ROOT, FROM_NOTE))
       .toEqual({ path: NOTE, headingLine: 12 });
     expect(mockedApi.noteHeadingLine).toHaveBeenCalledWith(NOTE, "later-part");
   });
 
   it("unescapes an anchor the href escaped", async () => {
     mockedApi.noteHeadingLine.mockResolvedValue(3);
-    await linkStore.noteOpenFromPreview("writ-note:Note.md#caf%C3%A9", ROOT, FROM_NOTE);
+    await linkStore.noteOpenFromPreview("jotra-note:Note.md#caf%C3%A9", ROOT, FROM_NOTE);
     expect(mockedApi.noteHeadingLine).toHaveBeenCalledWith(NOTE, "café");
   });
 
   it("opens at the top when the href names no heading", async () => {
-    expect(await linkStore.noteOpenFromPreview("writ-note:Note.md", ROOT, FROM_NOTE)).toEqual({
+    expect(await linkStore.noteOpenFromPreview("jotra-note:Note.md", ROOT, FROM_NOTE)).toEqual({
       path: NOTE,
       headingLine: null,
     });
@@ -338,7 +338,7 @@ describe("linkStore noteOpenFromPreview", () => {
 
   it("opens at the top when the note has no such heading", async () => {
     mockedApi.noteHeadingLine.mockResolvedValue(null);
-    expect(await linkStore.noteOpenFromPreview("writ-note:Note.md#gone", ROOT, FROM_NOTE)).toEqual({
+    expect(await linkStore.noteOpenFromPreview("jotra-note:Note.md#gone", ROOT, FROM_NOTE)).toEqual({
       path: NOTE,
       headingLine: null,
     });
@@ -346,7 +346,7 @@ describe("linkStore noteOpenFromPreview", () => {
 
   it("opens at the top when the line cannot be read", async () => {
     mockedApi.noteHeadingLine.mockRejectedValue("no index");
-    expect(await linkStore.noteOpenFromPreview("writ-note:Note.md#h", ROOT, FROM_NOTE)).toEqual({
+    expect(await linkStore.noteOpenFromPreview("jotra-note:Note.md#h", ROOT, FROM_NOTE)).toEqual({
       path: NOTE,
       headingLine: null,
     });
@@ -356,9 +356,9 @@ describe("linkStore noteOpenFromPreview", () => {
   // widen it and nothing is asked about a href that opens nothing.
   it("answers with nothing for a href that opens no note", async () => {
     for (const href of [
-      "writ-note:../../.ssh/id_rsa#h",
+      "jotra-note:../../.ssh/id_rsa#h",
       "https://example.com/x#h",
-      "writ-note:#h",
+      "jotra-note:#h",
     ]) {
       expect(await linkStore.noteOpenFromPreview(href, ROOT, FROM_NOTE), href).toBeNull();
     }

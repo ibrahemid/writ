@@ -3,7 +3,7 @@ import "./Icon.css";
 
 interface IconProps {
   name: IconName;
-  /** Overrides the platform default (--writ-icon-size). */
+  /** Overrides the platform default (--jotra-icon-size). */
   size?: number;
   /** Accessible name; omit for a decorative icon (the default). */
   label?: string;
@@ -13,7 +13,7 @@ interface IconProps {
 export default function Icon(props: IconProps) {
   return (
     <svg
-      class={`writ-icon ${props.class ?? ""}`.trim()}
+      class={`jotra-icon ${props.class ?? ""}`.trim()}
       style={
         props.size === undefined
           ? undefined

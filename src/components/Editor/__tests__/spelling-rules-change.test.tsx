@@ -3,7 +3,7 @@ import { render, cleanup } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { EditorView } from "@codemirror/view";
 import type { BufferDocument } from "../../../types/buffer";
-import type { SpellingConfig, WritConfig } from "../../../types/config";
+import type { SpellingConfig, JotraConfig } from "../../../types/config";
 import type { SpellingLint } from "../../../types/spelling";
 import WindowProvider from "../../WindowProvider/WindowProvider";
 
@@ -141,7 +141,7 @@ describe("a change to what the spell checker reads, with a note open", () => {
     expect(h.sent).toEqual([NOTE]);
 
     const current = configStore.config();
-    const larger: WritConfig = { ...current, editor: { ...current.editor, font_size: current.editor.font_size + 1 } };
+    const larger: JotraConfig = { ...current, editor: { ...current.editor, font_size: current.editor.font_size + 1 } };
     await configStore.save(larger);
     await saveSpelling({ ignored_words: [] });
     await settle();

@@ -46,7 +46,7 @@ describe("recheckOpenNotes", () => {
     expect(diskStateOf.mock.calls).toEqual([["open"]]);
   });
 
-  it("says nothing about a note whose file still holds what Writ recorded", async () => {
+  it("says nothing about a note whose file still holds what Jotra recorded", async () => {
     const onChanged = vi.fn();
     await recheckOpenNotes(makeDeps({ onChanged }));
 
@@ -70,7 +70,7 @@ describe("recheckOpenNotes", () => {
     });
   });
 
-  it("does not ask after a note Writ has not read this launch", async () => {
+  it("does not ask after a note Jotra has not read this launch", async () => {
     // No recorded hash, so there is nothing to compare against, and the
     // question is a whole-file read and hash in Rust for nothing.
     const onChanged = vi.fn();

@@ -8,63 +8,63 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
-use tempfile::TempDir;
-use writ_core::config::WritConfig;
-use writ_core::events::bus::EventBus;
-use writ_core::preview::ContentRendererRegistry;
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::EventBus;
+use jotra_core::preview::ContentRendererRegistry;
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::notes_index::NotesIndexStore;
 #[cfg(unix)]
-use writ_tauri_lib::commands::file::open_file_confirmed_from_path;
-use writ_tauri_lib::commands::file::{
+use jotra_tauri_lib::commands::file::open_file_confirmed_from_path;
+use jotra_tauri_lib::commands::file::{
     authorize_download, clear_dataless_for_test, mark_dataless_for_test, open_file_from_path,
 };
-use writ_tauri_lib::commands::materialise::{cancel_download, MaterialiseState};
-use writ_tauri_lib::preview::handler::RenderCache;
-use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
-use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::create_ignore_set;
+use jotra_tauri_lib::commands::materialise::{cancel_download, MaterialiseState};
+use jotra_tauri_lib::preview::handler::RenderCache;
+use jotra_tauri_lib::quit::QuitState;
+use jotra_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
+use jotra_tauri_lib::state::AppState;
+use jotra_tauri_lib::watcher::handler::create_ignore_set;
+use tempfile::TempDir;
 
 fn make_state(dir: &TempDir) -> AppState {
-    let writ_dir = dir.path().to_path_buf();
-    let buffers_dir = writ_dir.join("buffers");
+    let jotra_dir = dir.path().to_path_buf();
+    let buffers_dir = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
 
-    let notes_root = writ_dir.join("Writ");
+    let notes_root = jotra_dir.join("Jotra");
     std::fs::create_dir_all(&notes_root).expect("notes folder");
-    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+    let notes_root = jotra_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
     let store = BufferStore::new(conn, buffers_dir.clone());
 
-    let config_path = writ_dir.join("config.toml");
+    let config_path = jotra_dir.join("config.toml");
     let config_store = ConfigStore::new(config_path);
 
     let note_history = Arc::new(
-        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+        jotra_storage::note_history::NoteHistoryStore::open(&jotra_dir).expect("version store"),
     );
 
     AppState {
         store: Mutex::new(store),
         config_store,
-        config: Mutex::new(WritConfig::default()),
-        writ_dir,
+        config: Mutex::new(JotraConfig::default()),
+        jotra_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: std::sync::atomic::AtomicBool::new(false),
         menu_apps: std::sync::Mutex::new(None),
-        retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+        retitle_watch: std::sync::Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -90,7 +90,7 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
-        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+        command_usage: jotra_storage::command_usage::CommandUsageStore::new(
             open_database(&db_path).expect("usage db"),
         ),
         config_diagnostics: std::sync::Mutex::new(Vec::new()),
@@ -100,9 +100,9 @@ fn make_state(dir: &TempDir) -> AppState {
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
-        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(
-            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+            jotra_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
@@ -143,7 +143,7 @@ fn opening_a_note_that_is_not_downloaded_reads_nothing_and_names_the_state() {
         result.doc.is_none(),
         "nothing is registered for a placeholder"
     );
-    let writ_core::file_ops::FileOpenMode::NotDownloaded { path, .. } = &result.mode else {
+    let jotra_core::file_ops::FileOpenMode::NotDownloaded { path, .. } = &result.mode else {
         panic!("expected the not-downloaded mode, got {:?}", result.mode);
     };
     assert_eq!(path, &canonical);
@@ -290,7 +290,7 @@ fn a_downloaded_note_opens_the_way_it_always_did() {
     let canonical = canonicalize_for_authorization(&note).unwrap();
 
     let result = open_file_from_path(&state, &canonical).expect("open");
-    assert_eq!(result.mode, writ_core::file_ops::FileOpenMode::Normal);
+    assert_eq!(result.mode, jotra_core::file_ops::FileOpenMode::Normal);
     assert!(result.doc.is_some());
 }
 
@@ -434,7 +434,7 @@ fn the_not_downloaded_result_names_the_provider_the_note_syncs_through() {
     let _marked = mark(&canonical);
 
     let result = open_file_from_path(&state, &canonical).expect("open");
-    let writ_core::file_ops::FileOpenMode::NotDownloaded { provider, .. } = &result.mode else {
+    let jotra_core::file_ops::FileOpenMode::NotDownloaded { provider, .. } = &result.mode else {
         panic!("expected the not-downloaded mode, got {:?}", result.mode);
     };
     assert_eq!(provider.as_deref(), Some("Syncthing"));
@@ -451,7 +451,7 @@ fn a_note_in_no_sync_folder_names_no_provider() {
     let _marked = mark(&canonical);
 
     let result = open_file_from_path(&state, &canonical).expect("open");
-    let writ_core::file_ops::FileOpenMode::NotDownloaded { provider, .. } = &result.mode else {
+    let jotra_core::file_ops::FileOpenMode::NotDownloaded { provider, .. } = &result.mode else {
         panic!("expected the not-downloaded mode, got {:?}", result.mode);
     };
     assert_eq!(*provider, None);
@@ -462,7 +462,7 @@ fn a_note_in_no_sync_folder_names_no_provider() {
 /// The discriminator for the ordering below: a marked file that reads fine
 /// answers `NotDownloaded` whichever side of `classify_path` the gate sits on,
 /// so it proves nothing. `classify_path` opens the file to sniff its first
-/// bytes (`crates/writ-core/src/file_ops.rs`), and on a file with no
+/// bytes (`crates/jotra-core/src/file_ops.rs`), and on a file with no
 /// permissions that open fails, so a gate placed after it returns the io error
 /// instead of the download state.
 #[cfg(unix)]
@@ -490,7 +490,7 @@ fn an_open_answers_the_download_state_before_anything_sniffs_the_file() {
     assert!(
         matches!(
             result.mode,
-            writ_core::file_ops::FileOpenMode::NotDownloaded { .. }
+            jotra_core::file_ops::FileOpenMode::NotDownloaded { .. }
         ),
         "expected the not-downloaded mode, got {:?}",
         result.mode
@@ -515,7 +515,7 @@ fn a_confirmed_open_answers_the_download_state_before_anything_sniffs_the_file()
     assert!(
         matches!(
             result.mode,
-            writ_core::file_ops::FileOpenMode::NotDownloaded { .. }
+            jotra_core::file_ops::FileOpenMode::NotDownloaded { .. }
         ),
         "expected the not-downloaded mode, got {:?}",
         result.mode

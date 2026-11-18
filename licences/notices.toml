@@ -148,8 +148,8 @@ name = "Harper a/an rule and word list (harper-core 2.11.0)"
 licence = "Apache-2.0"
 file = "harper.txt"
 files = [
-    "crates/writ-lint/dictionaries/harper-words.txt",
-    "crates/writ-lint/src/an_a.rs",
+    "crates/jotra-lint/dictionaries/harper-words.txt",
+    "crates/jotra-lint/src/an_a.rs",
 ]
 sources = [
     "https://raw.githubusercontent.com/Automattic/harper/c821f511f83c24401993e207f7e5cdb51ae872e6/LICENSE",
@@ -162,14 +162,14 @@ name = "SCOWL English Hunspell dictionaries 2026.02.25"
 licence = "LicenseRef-SCOWL"
 file = "scowl.txt"
 files = [
-    "crates/writ-lint/dictionaries/en_AU.aff",
-    "crates/writ-lint/dictionaries/en_AU.dic",
-    "crates/writ-lint/dictionaries/en_CA.aff",
-    "crates/writ-lint/dictionaries/en_CA.dic",
-    "crates/writ-lint/dictionaries/en_GB-ise.aff",
-    "crates/writ-lint/dictionaries/en_GB-ise.dic",
-    "crates/writ-lint/dictionaries/en_US.aff",
-    "crates/writ-lint/dictionaries/en_US.dic",
+    "crates/jotra-lint/dictionaries/en_AU.aff",
+    "crates/jotra-lint/dictionaries/en_AU.dic",
+    "crates/jotra-lint/dictionaries/en_CA.aff",
+    "crates/jotra-lint/dictionaries/en_CA.dic",
+    "crates/jotra-lint/dictionaries/en_GB-ise.aff",
+    "crates/jotra-lint/dictionaries/en_GB-ise.dic",
+    "crates/jotra-lint/dictionaries/en_US.aff",
+    "crates/jotra-lint/dictionaries/en_US.dic",
 ]
 sources = [
     "https://github.com/en-wl/wordlist/releases/download/rel-2026.02.25/hunspell-en_AU-2026.02.25.zip",

@@ -7,12 +7,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use writ_core::mcp_clients::{Connection, McpClient};
-use writ_tauri_lib::commands::mcp_connect::{
+use jotra_core::mcp_clients::{Connection, McpClient};
+use jotra_tauri_lib::commands::mcp_connect::{
     client_cards_inner, off_call_event, test_server_inner, write_bundle_inner, ConnectError,
     ProgramSearch,
 };
-use writ_tauri_lib::events::emitter::WritFrontendEvent;
+use jotra_tauri_lib::events::emitter::JotraFrontendEvent;
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
 
@@ -24,7 +24,7 @@ const COMMANDS: &[&str] = &[
     "commands::mcp_connect::mcp_off_call",
 ];
 
-const SERVER: &str = "/Applications/Writ.app/Contents/MacOS/writ";
+const SERVER: &str = "/Applications/Jotra.app/Contents/MacOS/jotra";
 
 /// A search with no folders, so no program on this machine is found.
 fn nowhere() -> ProgramSearch {
@@ -34,11 +34,11 @@ fn nowhere() -> ProgramSearch {
     }
 }
 
-/// The `writ` command this test run built, beside the test binary's folder.
-fn built_writ() -> PathBuf {
+/// The `jotra` command this test run built, beside the test binary's folder.
+fn built_jotra() -> PathBuf {
     let exe = std::env::current_exe().expect("the test binary");
     let debug = exe.parent().and_then(Path::parent).expect("target/debug");
-    debug.join(if cfg!(windows) { "writ.exe" } else { "writ" })
+    debug.join(if cfg!(windows) { "jotra.exe" } else { "jotra" })
 }
 
 #[test]
@@ -68,7 +68,7 @@ fn a_command_card_copies_the_clients_own_add_line() {
     assert_eq!(claude.connection, Connection::Command);
     assert_eq!(
         claude.copy_text.as_deref(),
-        Some("claude mcp add --scope user writ -- \"/Applications/Writ.app/Contents/MacOS/writ\" mcp")
+        Some("claude mcp add --scope user jotra -- \"/Applications/Jotra.app/Contents/MacOS/jotra\" mcp")
     );
     assert!(!claude.runs_command, "no folder was searched");
 }
@@ -81,7 +81,7 @@ fn the_other_card_copies_the_json_and_the_link_cards_copy_nothing() {
             Connection::Json => {
                 let json: serde_json::Value =
                     serde_json::from_str(card.copy_text.as_deref().expect("json")).expect("parse");
-                assert_eq!(json["mcpServers"]["writ"]["command"], SERVER);
+                assert_eq!(json["mcpServers"]["jotra"]["command"], SERVER);
             }
             Connection::Link | Connection::Bundle => assert!(card.copy_text.is_none()),
             Connection::Command => assert!(card.copy_text.is_some()),
@@ -102,7 +102,7 @@ fn a_command_that_is_not_ready_is_handed_to_no_card() {
 #[cfg(unix)]
 #[test]
 fn the_search_tries_the_login_shell_then_the_app_then_the_usual_folders() {
-    use writ_tauri_lib::commands::mcp_connect::program_search;
+    use jotra_tauri_lib::commands::mcp_connect::program_search;
 
     let search = program_search(
         Some("/opt/homebrew/bin:/usr/bin"),
@@ -143,7 +143,7 @@ fn the_search_tries_the_login_shell_then_the_app_then_the_usual_folders() {
 #[cfg(unix)]
 #[test]
 fn a_relative_folder_in_a_path_is_never_searched() {
-    use writ_tauri_lib::commands::mcp_connect::program_search;
+    use jotra_tauri_lib::commands::mcp_connect::program_search;
 
     let search = program_search(Some("bin:/usr/bin"), None, None);
     assert!(search.folders.iter().all(|folder| folder.is_absolute()));
@@ -158,7 +158,7 @@ fn the_bundle_is_written_into_the_data_folder_and_names_the_command() {
     assert!(bundle.starts_with(dir.path()));
     let bytes = std::fs::read(&bundle).expect("read");
     let text = String::from_utf8_lossy(&bytes);
-    assert!(text.contains("\"WRIT_COMMAND\": \"/Applications/Writ.app/Contents/MacOS/writ\""));
+    assert!(text.contains("\"JOTRA_COMMAND\": \"/Applications/Jotra.app/Contents/MacOS/jotra\""));
     assert!(text.contains(concat!("\"version\": \"", env!("CARGO_PKG_VERSION"), "\"")));
 }
 
@@ -167,19 +167,19 @@ fn a_recorded_call_while_off_becomes_the_offer_event() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     assert!(off_call_event(dir.path()).is_none());
 
-    writ_storage::off_calls::note(
+    jotra_storage::off_calls::note(
         dir.path(),
-        &writ_core::activity::ClientId::named("claude-code"),
+        &jotra_core::activity::ClientId::named("claude-code"),
     )
     .expect("written");
 
     match off_call_event(dir.path()) {
-        Some(WritFrontendEvent::McpOffCall { call }) => assert_eq!(call.name, "claude-code"),
+        Some(JotraFrontendEvent::McpOffCall { call }) => assert_eq!(call.name, "claude-code"),
         other => panic!("expected the offer event, got {other:?}"),
     }
 }
 
-/// A data folder and a notes folder for a `writ mcp` started by a test.
+/// A data folder and a notes folder for a `jotra mcp` started by a test.
 fn server_folders() -> (tempfile::TempDir, Command) {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let data = dir.path().join("data");
@@ -187,11 +187,11 @@ fn server_folders() -> (tempfile::TempDir, Command) {
     std::fs::create_dir_all(&data).expect("data folder");
     std::fs::create_dir_all(&notes).expect("notes folder");
     std::fs::write(notes.join("Plan.md"), "# Plan\n").expect("a file");
-    let mut command = Command::new(built_writ());
+    let mut command = Command::new(built_jotra());
     command
         .arg("mcp")
-        .env("WRIT_DATA_DIR", &data)
-        .env("WRIT_NOTES_DIR", &notes);
+        .env("JOTRA_DATA_DIR", &data)
+        .env("JOTRA_NOTES_DIR", &notes);
     (dir, command)
 }
 
@@ -201,22 +201,22 @@ fn the_test_counts_the_tools_the_built_server_lists() {
 
     let answer = test_server_inner(command, Duration::from_secs(20)).expect("an answer");
 
-    let expected = writ_core::tools::tool_names().len();
+    let expected = jotra_core::tools::tool_names().len();
     assert_eq!(answer.tools, expected);
     let data = dir.path().join("data");
     assert!(
-        !writ_storage::pending_clients::path(&data).exists(),
+        !jotra_storage::pending_clients::path(&data).exists(),
         "the test is never waiting for approval"
     );
     assert!(
-        writ_storage::activity_log::read_recent(&data, 10).is_empty(),
+        jotra_storage::activity_log::read_recent(&data, 10).is_empty(),
         "the test leaves no line in the log"
     );
 }
 
 #[test]
 fn a_server_that_cannot_be_started_says_so() {
-    let command = Command::new("/nonexistent/writ");
+    let command = Command::new("/nonexistent/jotra");
     let error = test_server_inner(command, Duration::from_secs(2)).expect_err("no server");
     assert!(matches!(error, ConnectError::ServerNotStarted(_)));
 }
@@ -253,7 +253,7 @@ mod a_clients_own_command {
     use std::os::unix::fs::PermissionsExt;
 
     use super::*;
-    use writ_tauri_lib::commands::mcp_connect::{add_with_client_inner, find_program};
+    use jotra_tauri_lib::commands::mcp_connect::{add_with_client_inner, find_program};
 
     /// A folder holding an executable `name` that runs `body`.
     fn program(folder: &Path, name: &str, body: &str) -> PathBuf {
@@ -311,7 +311,7 @@ mod a_clients_own_command {
             bin.path(),
             "claude",
             &format!(
-                "printf '%s\\n' \"$@\" > '{}'; pwd >> '{}'; echo 'Added stdio MCP server writ'",
+                "printf '%s\\n' \"$@\" > '{}'; pwd >> '{}'; echo 'Added stdio MCP server jotra'",
                 record.display(),
                 record.display()
             ),
@@ -326,12 +326,12 @@ mod a_clients_own_command {
         )
         .expect("added");
 
-        assert_eq!(added.said, "Added stdio MCP server writ");
+        assert_eq!(added.said, "Added stdio MCP server jotra");
         let recorded = std::fs::read_to_string(&record).expect("record");
         let lines: Vec<&str> = recorded.lines().collect();
         assert_eq!(
             &lines[..8],
-            ["mcp", "add", "--scope", "user", "writ", "--", SERVER, "mcp"]
+            ["mcp", "add", "--scope", "user", "jotra", "--", SERVER, "mcp"]
         );
         let ran_in = std::fs::canonicalize(lines[8]).expect("cwd");
         assert_eq!(ran_in, std::fs::canonicalize(home.path()).expect("home"));
@@ -344,7 +344,7 @@ mod a_clients_own_command {
         program(
             bin.path(),
             "gemini",
-            "echo 'MCP server writ already exists in user settings.' >&2; exit 1",
+            "echo 'MCP server jotra already exists in user settings.' >&2; exit 1",
         );
 
         let error = add_with_client_inner(
@@ -360,12 +360,12 @@ mod a_clients_own_command {
             error,
             ConnectError::ProgramFailed {
                 program: "gemini".to_string(),
-                said: "MCP server writ already exists in user settings".to_string(),
+                said: "MCP server jotra already exists in user settings".to_string(),
             }
         );
         assert_eq!(
             error.to_string(),
-            "The gemini command could not add Writ: MCP server writ already exists in user settings."
+            "The gemini command could not add Jotra: MCP server jotra already exists in user settings."
         );
     }
 
@@ -457,12 +457,12 @@ fn the_bundle_launcher_starts_the_command_it_is_given() {
     }
     let dir = tempfile::TempDir::new().expect("temp dir");
     let launcher = dir.path().join("index.js");
-    std::fs::write(&launcher, writ_core::mcp_clients::BUNDLE_LAUNCHER).expect("launcher");
+    std::fs::write(&launcher, jotra_core::mcp_clients::bundle_launcher()).expect("launcher");
     let (folders, server) = server_folders();
     let mut command = Command::new("node");
     command
         .arg(&launcher)
-        .env("WRIT_COMMAND", server.get_program());
+        .env("JOTRA_COMMAND", server.get_program());
     for (key, value) in server.get_envs() {
         if let Some(value) = value {
             command.env(key, value);

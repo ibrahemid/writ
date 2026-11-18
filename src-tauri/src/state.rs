@@ -1,32 +1,35 @@
+use jotra_core::buffer::document::BufferDocument;
+use jotra_core::config::{ConfigDiagnostic, JotraConfig};
+use jotra_core::data_folder::{DataFolder, DataFolderError, DataFolderSources};
+use jotra_core::events::bus::EventBus;
+use jotra_core::notes::identity::{identity_to_keep, observe_file, FileIdentity, SourceState};
+use jotra_core::notes::DataFolderGuard;
+use jotra_core::preview::ContentRendererRegistry;
+use jotra_core::recovery::RecoveredBuffer;
+use jotra_core::serial::KeyedQueue;
+use jotra_core::update::UpdatePhase;
+use jotra_core::user_variables::{read_user_variable, UserVariable};
+use jotra_core::watcher::pending::RemovalHolds;
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::builtins::register_builtins;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::command_usage::CommandUsageStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::consistency::ConsistencyChecker;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex, RwLock};
 use tracing::{info, warn};
-use writ_core::buffer::document::BufferDocument;
-use writ_core::config::{ConfigDiagnostic, WritConfig};
-use writ_core::events::bus::EventBus;
-use writ_core::notes::identity::{identity_to_keep, observe_file, FileIdentity, SourceState};
-use writ_core::preview::ContentRendererRegistry;
-use writ_core::recovery::RecoveredBuffer;
-use writ_core::serial::KeyedQueue;
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::pending::RemovalHolds;
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::builtins::register_builtins;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::command_usage::CommandUsageStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::consistency::ConsistencyChecker;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
 
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::note_history::NoteHistoryStore;
-use writ_storage::notes_index::NotesIndexStore;
-use writ_storage::paths::file_name_only;
-use writ_storage::write_lock::WriteLock;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::note_history::NoteHistoryStore;
+use jotra_storage::notes_index::NotesIndexStore;
+use jotra_storage::paths::file_name_only;
+use jotra_storage::write_lock::WriteLock;
 
 use crate::fts_scheduler::FtsScheduler;
 use crate::poison::recover_poison;
@@ -37,15 +40,15 @@ use crate::watcher::handler::{IgnoreSet, WatcherHandle};
 use crate::watcher::moves::FileTracking;
 use crate::watcher::open_files::{NoOpenNotes, OpenFileWatcher, OpenNotes};
 
-/// What Writ last saw on disk for one note.
+/// What Jotra last saw on disk for one note.
 ///
-/// The record is the policy's ([`writ_core::notes::guard`]); the map below is
+/// The record is the policy's ([`jotra_core::notes::guard`]); the map below is
 /// where this process keeps one per open tab.
-pub use writ_core::notes::guard::DiskState;
+pub use jotra_core::notes::guard::DiskState;
 
 /// Reads `path`'s metadata to complete a record around an already computed
 /// digest, falling back to `size` when the metadata is gone.
-fn disk_state_of(path: &Path, hash: writ_core::hash::Sha256Digest, size: u64) -> DiskState {
+fn disk_state_of(path: &Path, hash: jotra_core::hash::Sha256Digest, size: u64) -> DiskState {
     let metadata = std::fs::metadata(path).ok();
     DiskState {
         hash,
@@ -54,7 +57,7 @@ fn disk_state_of(path: &Path, hash: writ_core::hash::Sha256Digest, size: u64) ->
     }
 }
 
-/// What Writ knows about the file behind one note, beyond its bytes.
+/// What Jotra knows about the file behind one note, beyond its bytes.
 ///
 /// The bytes are [`DiskState`]'s half; this is the file itself — what the
 /// filesystem calls it, and whether it is still there.
@@ -76,10 +79,10 @@ pub enum NotesRootFallbackReason {
     /// mounted, a path the OS denies, or one written relative to a working
     /// directory a launched app does not have.
     Unusable,
-    /// The folder is Writ's own data folder, holds it, or sits inside it, so
+    /// The folder is Jotra's own data folder, holds it, or sits inside it, so
     /// the notes and the database would share a folder
-    /// ([`writ_core::notes::refuse_notes_root`]).
-    HoldsWritData,
+    /// ([`jotra_core::notes::refuse_notes_root`]).
+    HoldsJotraData,
 }
 
 /// The notes folder startup was asked for and did not keep.
@@ -94,9 +97,9 @@ pub struct NotesRootFallback {
 pub struct AppState {
     pub store: Mutex<BufferStore>,
     pub config_store: ConfigStore,
-    pub config: Mutex<WritConfig>,
+    pub config: Mutex<JotraConfig>,
     /// The values in config.toml the launch's read could not use
-    /// ([`WritConfig::parse_lenient`], ADR-048). While any are held, nothing
+    /// ([`JotraConfig::parse_lenient`], ADR-048). While any are held, nothing
     /// writes config.toml ([`crate::commands::config::persist_config`]): the
     /// running copy carries a default in place of each, and writing it would
     /// put those defaults over the person's file. Cleared by a reload that
@@ -105,18 +108,18 @@ pub struct AppState {
     /// How often each palette command ran, which ranks the palette (ADR-048).
     /// Holds its own connection, so a command run never waits on a save.
     pub command_usage: CommandUsageStore,
-    pub writ_dir: PathBuf,
+    pub jotra_dir: PathBuf,
     pub buffers_dir: PathBuf,
     /// Canonical root of the notes folder. Always exists; created at startup.
     ///
     /// Replaced in place when the user moves the folder from Settings, which
-    /// is the one thing that changes it while Writ runs. Read it through
+    /// is the one thing that changes it while Jotra runs. Read it through
     /// [`AppState::notes_root`] rather than holding the guard: every write
     /// gate and every note command asks for it, and a held read guard would
     /// block the move for as long as the caller lives.
     pub notes_root: RwLock<PathBuf>,
     /// Whether this launch found no config file
-    /// ([`writ_core::startup::is_first_run`]). Read once at startup and never
+    /// ([`jotra_core::startup::is_first_run`]). Read once at startup and never
     /// written: a launch is a first one or it is not, and the config file it
     /// goes on to write must not change the answer mid-session.
     pub first_run: bool,
@@ -132,7 +135,7 @@ pub struct AppState {
     /// The plan (apps that are on, saved chords) the macOS menu bar was last
     /// drawn with, `None` before the first draw ([`crate::app_menu::sync`]).
     pub menu_apps: Mutex<Option<crate::menu::MenuPlan>>,
-    /// What has happened to each note Writ minted and has not yet retitled
+    /// What has happened to each note Jotra minted and has not yet retitled
     /// from its first line.
     pub retitle_watch: Arc<crate::first_run::RetitleWatch>,
     /// The configured notes folder startup could not use, when it fell back to
@@ -142,7 +145,7 @@ pub struct AppState {
     ///
     /// Behind a lock beside [`AppState::notes_root`] and cleared by
     /// [`AppState::set_notes_root`], because it describes the folder the
-    /// settings name: once the user has moved the notes somewhere Writ kept,
+    /// settings name: once the user has moved the notes somewhere Jotra kept,
     /// the settings name that folder and there is nothing left to say. Read it
     /// through [`AppState::notes_root_fallback`].
     pub notes_root_fallback: RwLock<Option<NotesRootFallback>>,
@@ -167,15 +170,15 @@ pub struct AppState {
     /// A save waits here before it writes: inside a hold nobody knows yet
     /// whether the note still has a file, and a write in that window recreates
     /// a deleted file or leaves a renamed one behind
-    /// ([`writ_core::watcher::pending::RemovalHolds`], ADR-033 §14).
+    /// ([`jotra_core::watcher::pending::RemovalHolds`], ADR-033 §14).
     pub removal_holds: Arc<RemovalHolds>,
     pub pending_opens: Mutex<Vec<String>>,
     /// The line to show for a parked open, keyed by the path as
-    /// `pending_opens` holds it, for a `writ` request that named one.
+    /// `pending_opens` holds it, for a `jotra` request that named one.
     pub pending_lines: Mutex<std::collections::BTreeMap<String, u32>>,
-    /// The `writ --wait` commands owed an answer when their tabs close
+    /// The `jotra --wait` commands owed an answer when their tabs close
     /// ([`crate::instance::tabs_closed`]).
-    pub cli_waits: Mutex<writ_core::instance::WaitSet>,
+    pub cli_waits: Mutex<jotra_core::instance::WaitSet>,
     pub frontend_ready: AtomicBool,
     /// Claimed by whichever caller brings the main window up at startup.
     ///
@@ -216,10 +219,10 @@ pub struct AppState {
     /// back is the one it cannot cover.
     pub notes_reconcile: Arc<ReconcileGate>,
     /// How far the shutdown path has got, and whether the frontend has
-    /// answered [`writ_core::events::bus::WritEvent::FlushBeforeQuit`] by
+    /// answered [`jotra_core::events::bus::JotraEvent::FlushBeforeQuit`] by
     /// writing everything it was holding inside the autosave debounce window.
     /// The shutdown path waits on that answer, but only as far as
-    /// [`writ_core::recovery::QUIT_FLUSH_TIMEOUT`].
+    /// [`jotra_core::recovery::QUIT_FLUSH_TIMEOUT`].
     pub quit: Arc<QuitState>,
     /// Notes whose text this launch took from the unsaved-text journal
     /// (ADR-044). Consumed by the `get_recovered_buffers` command and cleared.
@@ -245,7 +248,7 @@ pub struct AppState {
     /// call bumps it and captures its value; the walker's cancel closure
     /// compares against this so a newer query stops the older one (ADR-026).
     pub search_generation: Arc<AtomicU64>,
-    /// What a buffer's file held at the moment Writ last read or wrote it,
+    /// What a buffer's file held at the moment Jotra last read or wrote it,
     /// keyed by buffer id.
     ///
     /// Kept here for now, in memory only: a relaunch starts blank, which is
@@ -260,7 +263,7 @@ pub struct AppState {
     /// still there, keyed by buffer id.
     ///
     /// The identity is what tells a move from a delete when the path stops
-    /// holding anything ([`writ_core::notes::identity`]). It is read at the
+    /// holding anything ([`jotra_core::notes::identity`]). It is read at the
     /// moment a tab takes a file and again after every save, because an atomic
     /// replace writes a new file and renames it over the old one: a record
     /// taken before the save names an inode that no longer exists.
@@ -280,17 +283,21 @@ pub struct AppState {
 
 impl AppState {
     pub fn initialize() -> Result<Self, Box<dyn std::error::Error>> {
-        let data_dir_override = std::env::var("WRIT_DATA_DIR")
-            .ok()
-            .filter(|value| !value.trim().is_empty());
-        let writ_dir = resolve_writ_dir(data_dir_override.clone(), dirs::home_dir())?;
+        let data_folder = locate_data_folder()?;
+        let jotra_dir = data_folder.folder.clone();
+        info!(
+            lineage = ?data_folder.lineage,
+            origin = ?data_folder.origin,
+            index = %file_name_only(&data_folder.index.to_string_lossy()),
+            "data folder chosen"
+        );
 
-        std::fs::create_dir_all(&writ_dir)?;
+        std::fs::create_dir_all(&jotra_dir)?;
 
-        let buffers_dir = writ_dir.join("buffers");
+        let buffers_dir = jotra_dir.join("buffers");
         std::fs::create_dir_all(&buffers_dir)?;
 
-        let db_path = writ_dir.join("writ.db");
+        let db_path = data_folder.index.clone();
         let conn = open_database(&db_path)?;
         run_migrations(&conn)?;
         info!(path = %file_name_only(&db_path.to_string_lossy()), "database initialized");
@@ -301,11 +308,11 @@ impl AppState {
         // Third connection, for the notes index, on the same grounds.
         let notes_index = Arc::new(NotesIndexStore::open(&db_path)?);
 
-        let config_path = writ_dir.join("config.toml");
+        let config_path = jotra_dir.join("config.toml");
         // Asked before the config is read, because reading it is what a later
         // launch would have a file to read: the absence of the file is the
         // whole test (spec O1).
-        let first_run = writ_core::startup::is_first_run(config_path.exists());
+        let first_run = jotra_core::startup::is_first_run(config_path.exists());
         let config_store = ConfigStore::new(config_path);
         // One bad value no longer stops the launch: the rest of the file is
         // used, the default stands in for it, and nothing is written until the
@@ -330,7 +337,7 @@ impl AppState {
         // before that carries it; it is moved once, and a failed move costs
         // the palette its ordering, not the launch.
         let command_usage = CommandUsageStore::new(open_database(&db_path)?);
-        let usage_in_config = writ_core::command::usage::usage_from_config_text(&config_text);
+        let usage_in_config = jotra_core::command::usage::usage_from_config_text(&config_text);
         match command_usage.import_once(&usage_in_config) {
             Ok(true) => info!(
                 commands = usage_in_config.len(),
@@ -340,23 +347,24 @@ impl AppState {
             Err(error) => warn!(%error, "command usage could not be moved out of config.toml"),
         }
 
-        // The notes folder is where every note Writ mints lands, and the file
+        // The notes folder is where every note Jotra mints lands, and the file
         // it lands in is the only copy of the text (ADR-028). It is resolved,
         // created and canonicalised before anything can write into it, so the
         // containment check the write gate runs compares two canonical paths.
-        // An instance running against its own data folder keeps its notes
-        // there too, so a dev or recording launch never creates the folder the
-        // user reads.
-        let notes_env_override = std::env::var("WRIT_NOTES_DIR").ok();
+        // With nothing naming it, it is the data folder's notes default
+        // (ADR-059 decision 4).
+        let notes_env_override =
+            read_user_variable(UserVariable::NotesDir, |name| std::env::var_os(name))
+                .and_then(|value| value.into_string().ok());
         let home = dirs::home_dir();
         let (notes_root, notes_root_fallback) = resolve_and_create_notes_root(
-            writ_core::notes::NotesRootSources {
+            jotra_core::notes::NotesRootSources {
                 env_override: notes_env_override.as_deref(),
                 configured: config.notes.root.as_deref(),
-                data_dir: data_dir_override.as_ref().map(|_| writ_dir.as_path()),
+                default_root: Some(&data_folder.notes_default),
                 home: home.as_deref(),
             },
-            &writ_dir,
+            &jotra_dir,
         )?;
         info!(path = %file_name_only(&notes_root.to_string_lossy()), "notes folder ready");
 
@@ -367,26 +375,26 @@ impl AppState {
         // so this is the invariant behind that rule; `run()` reports the
         // refusal under `StartupStage::DataDirectoryLocation`.
         let verdict =
-            crate::startup::data_dir_verdict(&writ_dir, home.as_deref(), Some(&notes_root));
-        if verdict != writ_core::startup::DataDirVerdict::Ok {
-            return Err(Box::new(writ_core::startup::DataDirRefused(verdict)));
+            crate::startup::data_dir_verdict(&jotra_dir, home.as_deref(), Some(&notes_root));
+        if verdict != jotra_core::startup::DataDirVerdict::Ok {
+            return Err(Box::new(jotra_core::startup::DataDirRefused(verdict)));
         }
 
         // The version store is opened before the buffer store is handed to
         // anything, so no save can land before there is somewhere to keep
         // what it replaced. A store that will not open costs versions and
         // nothing else: the app runs, saves land, nothing is kept.
-        let note_history = Arc::new(NoteHistoryStore::open(&writ_dir)?);
+        let note_history = Arc::new(NoteHistoryStore::open(&jotra_dir)?);
         note_history.set_notes_root(notes_root.clone());
         note_history.set_probe(Arc::new(crate::watcher::identity::PlatformIdentity));
 
         let mut store = BufferStore::new(conn, buffers_dir.clone());
         store.set_history(Arc::clone(&note_history));
-        // `writ mcp` holds the same lock around a program's write, so a save
+        // `jotra mcp` holds the same lock around a program's write, so a save
         // and that write never land between each other's compare and rename.
-        store.set_write_lock(WriteLock::in_data_folder(&writ_dir));
+        store.set_write_lock(WriteLock::in_data_folder(&jotra_dir));
         // A save is stamped into the watcher's ignore set before it lands, so
-        // the notes watcher never sees Writ's own writes: the store indexes
+        // the notes watcher never sees Jotra's own writes: the store indexes
         // them itself, and needs to know which folder is the notes folder to
         // tell a note from an external file someone opened.
         store.set_notes_root(notes_root.clone());
@@ -416,7 +424,7 @@ impl AppState {
         // What each recovered note's file holds once recovery is done, which
         // seeds the write guard. Without it the first save after a relaunch
         // would have nothing to compare against and would write over whatever
-        // arrived while Writ was down.
+        // arrived while Jotra was down.
         let RestoredText {
             recovered: recovered_buffers,
             disk_states: recovered_disk_states,
@@ -426,11 +434,11 @@ impl AppState {
         // the last session never flushed is in place before the pass reads
         // it; before reclaim, so no row it is about to write gets deleted
         // underneath it.
-        let archive_root = writ_dir.join("archive");
-        let piped_root = writ_dir.join("piped");
-        match writ_storage::notes_migration::run_notes_migration(
+        let archive_root = jotra_dir.join("archive");
+        let piped_root = jotra_dir.join("piped");
+        match jotra_storage::notes_migration::run_notes_migration(
             &store,
-            writ_storage::notes_migration::MigrationRoots {
+            jotra_storage::notes_migration::MigrationRoots {
                 db_path: &db_path,
                 notes: &notes_root,
                 archive: &archive_root,
@@ -453,7 +461,7 @@ impl AppState {
         // Counted on every launch, including the one that took the copy: the
         // counter starts at 0. A failure here is a line in the log, never a
         // reason a launch cannot open.
-        match store.age_out_rollback_copy(writ_storage::rollback::ROLLBACK_KEEP_LAUNCHES) {
+        match store.age_out_rollback_copy(jotra_storage::rollback::ROLLBACK_KEEP_LAUNCHES) {
             Ok(true) => info!("deleted the database copy taken before the notes migration"),
             Ok(false) => {}
             Err(e) => warn!(error = %e, "could not age out the pre-migration database copy"),
@@ -542,7 +550,7 @@ impl AppState {
             config: Mutex::new(config),
             config_diagnostics: Mutex::new(read.diagnostics),
             command_usage,
-            writ_dir,
+            jotra_dir,
             buffers_dir,
             notes_root: RwLock::new(notes_root),
             first_run,
@@ -558,7 +566,7 @@ impl AppState {
             removal_holds: Arc::new(RemovalHolds::new()),
             pending_opens: Mutex::new(Vec::new()),
             pending_lines: Mutex::new(std::collections::BTreeMap::new()),
-            cli_waits: Mutex::new(writ_core::instance::WaitSet::default()),
+            cli_waits: Mutex::new(jotra_core::instance::WaitSet::default()),
             frontend_ready: AtomicBool::new(false),
             window_revealed: AtomicBool::new(false),
             window_dismissed: AtomicBool::new(false),
@@ -620,7 +628,7 @@ impl AppState {
     /// working one. The version store has a file and a lock of its own, kept on
     /// the same schedule and for the same reason: a table written on every save
     /// and pruned on a timer leaves a file of free pages behind, and a prune is
-    /// never what a person is waiting on (`writ_core::maintenance`).
+    /// never what a person is waiting on (`jotra_core::maintenance`).
     pub fn run_startup_maintenance(&self) {
         // The store before the index's writer: the order a save takes them in.
         let maintained = {
@@ -655,12 +663,12 @@ impl AppState {
         recover_poison(self.notes_root.read(), "state::notes_root").clone()
     }
 
-    /// The format every file Writ mints carries, as the config stands now
+    /// The format every file Jotra mints carries, as the config stands now
     /// (ADR-041 §2).
     ///
     /// Copied rather than borrowed so no caller holds the config lock across
     /// the write it goes on to make.
-    pub fn default_extension(&self) -> writ_core::config::FileExtension {
+    pub fn default_extension(&self) -> jotra_core::config::FileExtension {
         recover_poison(self.config.lock(), "state::default_extension")
             .files
             .default_extension
@@ -694,7 +702,7 @@ impl AppState {
         }
     }
 
-    /// Points Writ at a different notes folder, after its files have been
+    /// Points Jotra at a different notes folder, after its files have been
     /// moved there.
     ///
     /// `root` is expected to be canonical: it is compared against canonical
@@ -730,7 +738,7 @@ impl AppState {
     ///
     /// This is also where a tab restored at launch learns that its file is not
     /// there any more. The record is not carried across a relaunch, so a note
-    /// whose file was deleted while Writ was closed would otherwise come back
+    /// whose file was deleted while Jotra was closed would otherwise come back
     /// looking ordinary and recreate the file on its first save.
     pub fn follow_note_file(&self, doc: &BufferDocument) {
         let Some(path) = doc.source_path.as_deref() else {
@@ -866,9 +874,9 @@ impl AppState {
     ///
     /// The fourth is `open_generated_document`, which does give a tab a file
     /// and still does not follow it. The row is read-only, so no save of it can
-    /// be lost; the file is under the data directory and holds Writ's own
+    /// be lost; the file is under the data directory and holds Jotra's own
     /// output, rewritten from that output on every open; and the folder is one
-    /// Writ writes into, so a watch there would report Writ's own writes
+    /// Jotra writes into, so a watch there would report Jotra's own writes
     /// (ADR-033 §9).
     ///
     /// Asking twice for the same note and file costs nothing, so a path that
@@ -952,7 +960,7 @@ impl AppState {
         .clone()
     }
 
-    /// Forgets that folder, which a move to one Writ kept makes stale.
+    /// Forgets that folder, which a move to one Jotra kept makes stale.
     fn clear_notes_root_fallback(&self) {
         let mut guard = recover_poison(
             self.notes_root_fallback.write(),
@@ -999,13 +1007,13 @@ impl AppState {
     /// matches component by component, so `<root>/../elsewhere.md` would
     /// otherwise read as contained on its way out of the folder.
     pub fn is_within_notes(&self, canonical_path: &str) -> bool {
-        writ_core::notes::containment::is_inside(
+        jotra_core::notes::containment::is_inside(
             &self.notes_root(),
             std::path::Path::new(canonical_path),
         )
     }
 
-    /// Records what a buffer's file held at the moment Writ read or wrote it,
+    /// Records what a buffer's file held at the moment Jotra read or wrote it,
     /// reading the rest of the record from the file's metadata.
     ///
     /// `size` is what the caller believes the file's length to be, used only
@@ -1014,16 +1022,16 @@ impl AppState {
         &self,
         buffer_id: &str,
         path: &Path,
-        digest: writ_core::hash::Sha256Digest,
+        digest: jotra_core::hash::Sha256Digest,
         size: u64,
     ) {
         self.set_disk_state(buffer_id, disk_state_of(path, digest, size));
     }
 
     /// Records a state the caller already holds, which is what a save hands
-    /// back: re-reading the file to learn what Writ just wrote to it would
+    /// back: re-reading the file to learn what Jotra just wrote to it would
     /// read every note twice per keystroke window, and would record whatever
-    /// arrived in between as Writ's own.
+    /// arrived in between as Jotra's own.
     pub fn set_disk_state(&self, buffer_id: &str, state: DiskState) {
         let mut map = recover_poison(self.last_disk_hash.lock(), "state::set_disk_state");
         map.insert(buffer_id.to_string(), state);
@@ -1035,7 +1043,7 @@ impl AppState {
         self.record_disk_state(
             buffer_id,
             path,
-            writ_core::hash::sha256_bytes(bytes),
+            jotra_core::hash::sha256_bytes(bytes),
             bytes.len() as u64,
         );
     }
@@ -1065,7 +1073,7 @@ impl AppState {
     /// answers `None`.
     pub fn disk_hash_matches(&self, buffer_id: &str, bytes: &[u8]) -> bool {
         let map = recover_poison(self.last_disk_hash.lock(), "state::disk_hash_matches");
-        map.get(buffer_id).map(|state| state.hash) == Some(writ_core::hash::sha256_bytes(bytes))
+        map.get(buffer_id).map(|state| state.hash) == Some(jotra_core::hash::sha256_bytes(bytes))
     }
 }
 
@@ -1094,7 +1102,7 @@ pub struct RestoredText {
 /// file, with any older text beside it.
 ///
 /// An entry stays in the journal when its text reached no file. A note whose
-/// file was deleted outside Writ, or whose first file the launch could not
+/// file was deleted outside Jotra, or whose first file the launch could not
 /// make, has its newest text handed to its tab instead, and that entry becomes
 /// the tab's again, which putting the file back or saving it elsewhere
 /// settles. Older text of that note stays released for a later launch. Any
@@ -1113,7 +1121,7 @@ pub struct RestoredText {
 pub fn restore_unsaved_text(
     store: &BufferStore,
     notes_root: &Path,
-    default_extension: writ_core::config::FileExtension,
+    default_extension: jotra_core::config::FileExtension,
 ) -> RestoredText {
     match store.carry_over_legacy_snapshots() {
         Ok(carried) if carried.journaled > 0 || carried.emptied > 0 => info!(
@@ -1211,27 +1219,27 @@ pub fn restore_unsaved_text(
 /// record: the copy holds the editor's text as it was kept. It goes beside the
 /// file the entry names while that file is there, and to the notes folder
 /// otherwise, named for that file, or for the day when the note never had one
-/// ([`writ_core::recovery::plan_orphan_recovery`]). A dated copy never
+/// ([`jotra_core::recovery::plan_orphan_recovery`]). A dated copy never
 /// replaces a file, so nothing on disk is read or overwritten.
 fn restore_orphaned_text(
     notes_root: &Path,
     path: Option<&str>,
     text: &str,
-    default_extension: writ_core::config::FileExtension,
+    default_extension: jotra_core::config::FileExtension,
 ) -> Result<RecoveryLanding, String> {
     let now = chrono::Utc::now();
     let file_is_there = path.is_some_and(|path| std::fs::symlink_metadata(path).is_ok());
     let file_name = path.and_then(|path| Path::new(path).file_name());
     let beside = match (
-        writ_core::recovery::plan_orphan_recovery(file_is_there),
+        jotra_core::recovery::plan_orphan_recovery(file_is_there),
         path,
         file_name,
     ) {
-        (writ_core::recovery::OrphanPlan::BesideItsFile, Some(path), _) => PathBuf::from(path),
+        (jotra_core::recovery::OrphanPlan::BesideItsFile, Some(path), _) => PathBuf::from(path),
         (_, _, Some(name)) => notes_root.join(name),
         (_, _, None) => crate::notes::mint_note_path(notes_root, "", now, default_extension),
     };
-    let copy = writ_storage::guarded::write_recovered_copy(&beside, text, now, None)
+    let copy = jotra_storage::guarded::write_recovered_copy(&beside, text, now, None)
         .map_err(|e| e.to_string())?;
     info!(
         recovered = %file_name_only(&copy.to_string_lossy()),
@@ -1256,14 +1264,14 @@ fn restore_orphaned_text(
 ///
 /// The write goes through
 /// [`restore_recovered_content`](BufferStore::restore_recovered_content),
-/// which leaves a file that moved on while Writ was down exactly as it is and
+/// which leaves a file that moved on while Jotra was down exactly as it is and
 /// writes the text beside it. A relaunch is precisely when a sync client has
 /// had time to deliver a newer version, and the journaled text is the older
 /// one by definition. The destination is the file the note's row names now, so
 /// a note moved since its save failed keeps its new name.
 ///
 /// A note whose file was never opened, because its bytes are not on this
-/// machine or it is over the size Writ opens without asking, comes back with
+/// machine or it is over the size Jotra opens without asking, comes back with
 /// nothing: the first save reads it instead.
 ///
 /// No stamp is passed: this runs while the app state is still being built, so
@@ -1273,7 +1281,7 @@ fn restore_orphaned_text(
 ///
 /// A note that had a file and no longer has one is the exception, and it is
 /// the only case that reaches no write at all
-/// ([`writ_core::recovery::plan_recovery`]). Its file was deleted, and putting
+/// ([`jotra_core::recovery::plan_recovery`]). Its file was deleted, and putting
 /// it back at a relaunch is the same harm as putting it back at a save, so the
 /// text stays in the journal and the tab comes up removed on disk (ADR-033
 /// decision 15). Nothing is left beside the path either: a dated copy in a
@@ -1282,7 +1290,7 @@ fn restore_recovered_buffer(
     store: &BufferStore,
     notes_root: &std::path::Path,
     recovered: &RecoveredBuffer,
-    default_extension: writ_core::config::FileExtension,
+    default_extension: jotra_core::config::FileExtension,
 ) -> Result<RecoveryLanding, String> {
     let doc = store.get(&recovered.id).map_err(|e| e.to_string())?;
     let had_file = doc.source_path.is_some();
@@ -1290,8 +1298,8 @@ fn restore_recovered_buffer(
         .source_path
         .as_deref()
         .is_some_and(|path| std::fs::symlink_metadata(path).is_ok());
-    if writ_core::recovery::plan_recovery(had_file, file_is_there)
-        == writ_core::recovery::RecoveryPlan::Withhold
+    if jotra_core::recovery::plan_recovery(had_file, file_is_there)
+        == jotra_core::recovery::RecoveryPlan::Withhold
     {
         info!(buffer_id = %recovered.id, "the note's file is gone; its text goes to the tab");
         return Ok(RecoveryLanding::Withheld(None));
@@ -1338,8 +1346,8 @@ fn unmade_file(
     notes_root: &Path,
     title: &str,
     now: chrono::DateTime<chrono::Utc>,
-    extension: writ_core::config::FileExtension,
-) -> writ_core::recovery::UnmadeFile {
+    extension: jotra_core::config::FileExtension,
+) -> jotra_core::recovery::UnmadeFile {
     let path = crate::notes::mint_note_path(notes_root, title, now, extension);
     let name = path
         .file_name()
@@ -1349,7 +1357,7 @@ fn unmade_file(
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| notes_root.display().to_string());
-    writ_core::recovery::UnmadeFile { name, folder }
+    jotra_core::recovery::UnmadeFile { name, folder }
 }
 
 /// Where a note's recovered text ended up at the relaunch.
@@ -1361,7 +1369,7 @@ enum RecoveryLanding {
     /// Nothing was written: the note's file is gone, or the launch could not
     /// give a note with no file its first one, which is the file named here.
     /// The text goes to the tab, which comes up held with its saves.
-    Withheld(Option<writ_core::recovery::UnmadeFile>),
+    Withheld(Option<jotra_core::recovery::UnmadeFile>),
 }
 
 /// The open tab a path is loaded in, read off the buffer rows.
@@ -1380,7 +1388,7 @@ impl OpenNotes for OpenTabs<'_> {
         let wanted = path.to_string_lossy().into_owned();
         let store = recover_poison(self.0.store.lock(), "state::OpenTabs::note_at");
         let rows = store
-            .list_by_status(writ_core::buffer::document::BufferStatus::Active)
+            .list_by_status(jotra_core::buffer::document::BufferStatus::Active)
             .ok()?;
         rows.into_iter().find_map(|doc| {
             let source = doc.source_path?;
@@ -1401,7 +1409,7 @@ impl OpenNotes for OpenTabs<'_> {
 /// webview may write, and reopening it from the history list blesses it again
 /// ([`crate::commands::history::restore_buffer_inner`]).
 pub fn bless_persisted_sources(store: &BufferStore, authorized_paths: &AuthorizedPaths) -> usize {
-    let Ok(buffers) = store.list_by_status(writ_core::buffer::document::BufferStatus::Active)
+    let Ok(buffers) = store.list_by_status(jotra_core::buffer::document::BufferStatus::Active)
     else {
         return 0;
     };
@@ -1421,33 +1429,46 @@ pub fn bless_persisted_sources(store: &BufferStore, authorized_paths: &Authorize
 /// A folder the user chose can fail: it points at a file, it sits on a volume
 /// that is not mounted, it is written relative to a working directory that
 /// means nothing to a launched app, the OS denies it. None of that is a reason
-/// to refuse to launch, so each source is tried in turn — `WRIT_NOTES_DIR`,
+/// to refuse to launch, so each source is tried in turn — `JOTRA_NOTES_DIR`,
 /// then `config.notes.root`, then the default — and the first that can be
 /// created wins. A bad environment variable therefore falls through to the
 /// folder the user actually chose in Settings rather than skipping past it to
 /// the default, which is the order the CLI resolves in
-/// (`writ_cli::resolve_notes_dir`).
+/// (`jotra_cli::resolve_notes_dir`).
 ///
 /// The value that failed comes back as the second element for the Settings
 /// surface to show. Only the default failing is fatal, which is the existing
 /// startup-failure path.
 pub fn resolve_and_create_notes_root(
-    sources: writ_core::notes::NotesRootSources<'_>,
-    writ_dir: &Path,
+    sources: jotra_core::notes::NotesRootSources<'_>,
+    jotra_dir: &Path,
 ) -> Result<(PathBuf, Option<NotesRootFallback>), Box<dyn std::error::Error>> {
-    // Both spellings of the data folder. On macOS `writ_dir` is `/var/...`
+    // Both spellings of the data folders. On macOS `jotra_dir` is `/var/...`
     // where the resolved path is `/private/var/...`, so a candidate is
     // compared against the form it shares a prefix with: as spelled before it
     // exists, canonical once it does.
-    let canonical_writ_dir = canonicalize_root(writ_dir).unwrap_or_else(|_| writ_dir.to_path_buf());
-    let writ_dirs = [writ_dir, canonical_writ_dir.as_path()];
+    let canonical_jotra_dir =
+        canonicalize_root(jotra_dir).unwrap_or_else(|_| jotra_dir.to_path_buf());
+    let canonical_home = sources
+        .home
+        .map(|home| canonicalize_root(home).unwrap_or_else(|_| home.to_path_buf()));
+    let guards = [
+        DataFolderGuard {
+            in_force: jotra_dir,
+            home: sources.home,
+        },
+        DataFolderGuard {
+            in_force: &canonical_jotra_dir,
+            home: canonical_home.as_deref(),
+        },
+    ];
     let mut fallback: Option<NotesRootFallback> = None;
 
     for candidate in [sources.env_override, sources.configured] {
         let Some(chosen) = candidate.map(str::trim).filter(|value| !value.is_empty()) else {
             continue;
         };
-        match usable_notes_root(chosen, sources.home, &writ_dirs) {
+        match usable_notes_root(chosen, sources.home, &guards) {
             Ok(root) => return Ok((root, fallback)),
             Err((reason, error)) => {
                 warn!(
@@ -1464,11 +1485,12 @@ pub fn resolve_and_create_notes_root(
         }
     }
 
-    let default = writ_core::notes::resolve_notes_root_from(writ_core::notes::NotesRootSources {
-        env_override: None,
-        configured: None,
-        ..sources
-    })?;
+    let default =
+        jotra_core::notes::resolve_notes_root_from(jotra_core::notes::NotesRootSources {
+            env_override: None,
+            configured: None,
+            ..sources
+        })?;
     Ok((create_and_canonicalize(&default)?, fallback))
 }
 
@@ -1476,52 +1498,52 @@ pub fn resolve_and_create_notes_root(
 /// why it cannot be the one.
 ///
 /// The data folder is asked about twice: of the path as spelled, before
-/// anything is created, so a folder holding Writ's own data is never minted;
+/// anything is created, so a folder holding Jotra's own data is never minted;
 /// and of the canonical path once it exists, which is the comparison that is
 /// true about folders rather than about spellings.
 fn usable_notes_root(
     chosen: &str,
     home: Option<&Path>,
-    writ_dirs: &[&Path],
+    guards: &[DataFolderGuard<'_>],
 ) -> Result<PathBuf, (NotesRootFallbackReason, String)> {
     let unusable = |error: String| (NotesRootFallbackReason::Unusable, error);
     let holds = || {
         (
-            NotesRootFallbackReason::HoldsWritData,
-            "the folder holds Writ's own data".to_string(),
+            NotesRootFallbackReason::HoldsJotraData,
+            "the folder holds Jotra's own data".to_string(),
         )
     };
 
-    let root = writ_core::notes::resolve_notes_root_from(writ_core::notes::NotesRootSources {
+    let root = jotra_core::notes::resolve_notes_root_from(jotra_core::notes::NotesRootSources {
         env_override: Some(chosen),
         configured: None,
-        data_dir: None,
+        default_root: None,
         home,
     })
     .map_err(|e| unusable(e.to_string()))?;
-    if holds_writ_data(&root, writ_dirs) {
+    if holds_jotra_data(&root, guards) {
         return Err(holds());
     }
 
     let root = create_and_canonicalize(&root).map_err(|e| unusable(e.to_string()))?;
-    if holds_writ_data(&root, writ_dirs) {
+    if holds_jotra_data(&root, guards) {
         return Err(holds());
     }
     Ok(root)
 }
 
-/// Whether `root` may not be the notes folder because of where Writ's data is.
+/// Whether `root` may not be the notes folder because of where Jotra's data is.
 ///
 /// `root` is passed as both the candidate and the folder in force: startup has
 /// no notes folder yet to be moved out of, so the only question
-/// [`writ_core::notes::refuse_notes_root`] can answer here is the data-folder
+/// [`jotra_core::notes::refuse_notes_root`] can answer here is the data-folder
 /// one, and a candidate compared against itself asks exactly that. Every
-/// spelling of the data folder is asked, because a candidate matches the
+/// spelling of the data folders is asked, because a candidate matches the
 /// prefix of only the one it was written in.
-fn holds_writ_data(root: &Path, writ_dirs: &[&Path]) -> bool {
-    writ_dirs
+fn holds_jotra_data(root: &Path, guards: &[DataFolderGuard<'_>]) -> bool {
+    guards
         .iter()
-        .any(|writ_dir| writ_core::notes::refuse_notes_root(root, root, writ_dir).is_some())
+        .any(|guard| jotra_core::notes::refuse_notes_root(root, root, *guard).is_some())
 }
 
 fn create_and_canonicalize(root: &std::path::Path) -> std::io::Result<PathBuf> {
@@ -1529,27 +1551,19 @@ fn create_and_canonicalize(root: &std::path::Path) -> std::io::Result<PathBuf> {
     canonicalize_root(root)
 }
 
-/// Resolve the base directory for Writ's database, buffers, and config.
+/// The data folder for this launch: the data-folder variable under either
+/// name, then the home data folders (ADR-059 decision 3).
 ///
-/// `WRIT_DATA_DIR` overrides the default so that several development
-/// instances can run side by side without sharing one SQLite database.
-/// When unset (or blank) the default is `<home>/.writ`.
-///
-/// The notes folder follows the same idea with its own variable:
-/// `WRIT_NOTES_DIR` overrides it, and when only `WRIT_DATA_DIR` is set the
-/// notes folder defaults to `<WRIT_DATA_DIR>/Writ` rather than `<home>/Writ`,
-/// so an isolated instance never writes into the folder the user reads
-/// (`writ_core::notes::resolve_notes_root_from`).
-pub(crate) fn resolve_writ_dir(
-    custom: Option<String>,
-    home: Option<PathBuf>,
-) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    if let Some(dir) = custom {
-        if !dir.trim().is_empty() {
-            return Ok(PathBuf::from(dir));
-        }
-    }
-    Ok(home.ok_or("could not find home directory")?.join(".writ"))
+/// A variable lets several development instances run side by side without
+/// sharing one index, and keeps their notes beside their own data.
+pub(crate) fn locate_data_folder() -> Result<DataFolder, DataFolderError> {
+    let variable =
+        read_user_variable(UserVariable::DataDir, |name| std::env::var_os(name)).map(PathBuf::from);
+    let home = dirs::home_dir();
+    jotra_storage::data_folder::locate_data_folder(DataFolderSources {
+        variable: variable.as_deref(),
+        home: home.as_deref(),
+    })
 }
 
 #[cfg(test)]
@@ -1558,12 +1572,12 @@ mod tests {
     // returns a `\\?\` prefix that every path the resolver hands back has been
     // stripped of, and the two never compare equal.
     use super::{
-        canonicalize_root, resolve_and_create_notes_root, resolve_writ_dir, NotesRootFallback,
+        canonicalize_root, resolve_and_create_notes_root, NotesRootFallback,
         NotesRootFallbackReason,
     };
+    use jotra_core::notes::NotesRootSources;
     use std::path::PathBuf;
     use tempfile::TempDir;
-    use writ_core::notes::NotesRootSources;
 
     #[test]
     fn configured_notes_folder_is_created_and_used() {
@@ -1574,10 +1588,10 @@ mod tests {
             NotesRootSources {
                 env_override: None,
                 configured: Some(&chosen.to_string_lossy()),
-                data_dir: None,
+                default_root: None,
                 home: Some(home.path()),
             },
-            &writ_dir(home.path()),
+            &jotra_dir(home.path()),
         )
         .unwrap();
 
@@ -1599,15 +1613,15 @@ mod tests {
             NotesRootSources {
                 env_override: None,
                 configured: Some(&chosen.to_string_lossy()),
-                data_dir: None,
+                default_root: None,
                 home: Some(home.path()),
             },
-            &writ_dir(home.path()),
+            &jotra_dir(home.path()),
         )
         .unwrap();
 
         assert!(root.is_dir());
-        assert_eq!(root, canonicalize_root(&home.path().join("Writ")).unwrap());
+        assert_eq!(root, canonicalize_root(&home.path().join("Jotra")).unwrap());
         assert_eq!(
             fallback,
             Some(NotesRootFallback {
@@ -1620,21 +1634,21 @@ mod tests {
     #[test]
     fn a_relative_env_override_falls_through_to_the_configured_folder() {
         // A path relative to nothing in particular is what a shell profile that
-        // exported `WRIT_NOTES_DIR=Writ` leaves behind, and a launched app has
+        // exported `JOTRA_NOTES_DIR=Jotra` leaves behind, and a launched app has
         // no working directory worth anchoring it to. The folder the user chose
         // in Settings is a better answer than the default, and it is the answer
-        // the CLI gives (`writ_cli::resolve_notes_dir`).
+        // the CLI gives (`jotra_cli::resolve_notes_dir`).
         let home = TempDir::new().unwrap();
         let chosen = home.path().join("Documents").join("Notes");
 
         let (root, fallback) = resolve_and_create_notes_root(
             NotesRootSources {
-                env_override: Some("Writ"),
+                env_override: Some("Jotra"),
                 configured: Some(&chosen.to_string_lossy()),
-                data_dir: None,
+                default_root: None,
                 home: Some(home.path()),
             },
-            &writ_dir(home.path()),
+            &jotra_dir(home.path()),
         )
         .unwrap();
 
@@ -1642,13 +1656,13 @@ mod tests {
         assert_eq!(
             fallback,
             Some(NotesRootFallback {
-                from: "Writ".to_string(),
+                from: "Jotra".to_string(),
                 reason: NotesRootFallbackReason::Unusable,
             }),
             "the value that was skipped is named for Settings"
         );
         assert!(
-            !home.path().join("Writ").exists(),
+            !home.path().join("Jotra").exists(),
             "the default was created"
         );
     }
@@ -1659,20 +1673,20 @@ mod tests {
 
         let (root, fallback) = resolve_and_create_notes_root(
             NotesRootSources {
-                env_override: Some("Writ"),
+                env_override: Some("Jotra"),
                 configured: None,
-                data_dir: None,
+                default_root: None,
                 home: Some(home.path()),
             },
-            &writ_dir(home.path()),
+            &jotra_dir(home.path()),
         )
         .unwrap();
 
-        assert_eq!(root, canonicalize_root(&home.path().join("Writ")).unwrap());
+        assert_eq!(root, canonicalize_root(&home.path().join("Jotra")).unwrap());
         assert_eq!(
             fallback,
             Some(NotesRootFallback {
-                from: "Writ".to_string(),
+                from: "Jotra".to_string(),
                 reason: NotesRootFallbackReason::Unusable,
             })
         );
@@ -1681,48 +1695,48 @@ mod tests {
     #[test]
     fn unusable_default_notes_folder_is_a_startup_failure() {
         let home = TempDir::new().unwrap();
-        std::fs::write(home.path().join("Writ"), "x").unwrap();
+        std::fs::write(home.path().join("Jotra"), "x").unwrap();
 
         let result = resolve_and_create_notes_root(
             NotesRootSources {
                 env_override: None,
                 configured: None,
-                data_dir: None,
+                default_root: None,
                 home: Some(home.path()),
             },
-            &writ_dir(home.path()),
+            &jotra_dir(home.path()),
         );
 
         assert!(result.is_err(), "nothing is left to fall back to");
     }
 
-    fn writ_dir(home: &std::path::Path) -> PathBuf {
-        home.join(".writ")
+    fn jotra_dir(home: &std::path::Path) -> PathBuf {
+        home.join(".jotra")
     }
 
     #[test]
     fn an_env_override_inside_the_data_folder_falls_back_to_the_default() {
         let home = TempDir::new().unwrap();
-        let archive = writ_dir(home.path()).join("archive");
+        let archive = jotra_dir(home.path()).join("archive");
         std::fs::create_dir_all(&archive).unwrap();
 
         let (root, fallback) = resolve_and_create_notes_root(
             NotesRootSources {
                 env_override: Some(&archive.to_string_lossy()),
                 configured: None,
-                data_dir: None,
+                default_root: None,
                 home: Some(home.path()),
             },
-            &writ_dir(home.path()),
+            &jotra_dir(home.path()),
         )
         .unwrap();
 
-        assert_eq!(root, canonicalize_root(&home.path().join("Writ")).unwrap());
+        assert_eq!(root, canonicalize_root(&home.path().join("Jotra")).unwrap());
         assert_eq!(
             fallback,
             Some(NotesRootFallback {
                 from: archive.to_string_lossy().into_owned(),
-                reason: NotesRootFallbackReason::HoldsWritData,
+                reason: NotesRootFallbackReason::HoldsJotraData,
             })
         );
     }
@@ -1730,24 +1744,24 @@ mod tests {
     #[test]
     fn a_configured_folder_inside_the_data_folder_is_not_created() {
         let home = TempDir::new().unwrap();
-        std::fs::create_dir_all(writ_dir(home.path())).unwrap();
-        let chosen = writ_dir(home.path()).join("Notes");
+        std::fs::create_dir_all(jotra_dir(home.path())).unwrap();
+        let chosen = jotra_dir(home.path()).join("Notes");
 
         let (root, fallback) = resolve_and_create_notes_root(
             NotesRootSources {
                 env_override: None,
                 configured: Some(&chosen.to_string_lossy()),
-                data_dir: None,
+                default_root: None,
                 home: Some(home.path()),
             },
-            &writ_dir(home.path()),
+            &jotra_dir(home.path()),
         )
         .unwrap();
 
-        assert_eq!(root, canonicalize_root(&home.path().join("Writ")).unwrap());
+        assert_eq!(root, canonicalize_root(&home.path().join("Jotra")).unwrap());
         assert_eq!(
             fallback.map(|fallback| fallback.reason),
-            Some(NotesRootFallbackReason::HoldsWritData)
+            Some(NotesRootFallbackReason::HoldsJotraData)
         );
         assert!(!chosen.exists(), "the folder was not created to be checked");
     }
@@ -1756,18 +1770,18 @@ mod tests {
     fn the_default_beside_the_database_is_kept_when_it_is_named_outright() {
         // The one folder inside the data folder that is allowed, reached
         // through the candidate branch rather than the default one: a dev
-        // instance may name it in `WRIT_NOTES_DIR` instead of leaning on the
-        // default (`writ_core::notes::refuse_notes_root`).
+        // instance may name it in `JOTRA_NOTES_DIR` instead of leaning on the
+        // default (`jotra_core::notes::refuse_notes_root`).
         let home = TempDir::new().unwrap();
         let data = home.path().join("dev-instance");
         std::fs::create_dir_all(&data).unwrap();
-        let chosen = data.join("Writ");
+        let chosen = data.join("Jotra");
 
         let (root, fallback) = resolve_and_create_notes_root(
             NotesRootSources {
                 env_override: Some(&chosen.to_string_lossy()),
                 configured: None,
-                data_dir: Some(&data),
+                default_root: Some(&chosen),
                 home: Some(home.path()),
             },
             &data,
@@ -1783,46 +1797,52 @@ mod tests {
         let home = TempDir::new().unwrap();
         let data = home.path().join("dev-instance");
         std::fs::create_dir_all(&data).unwrap();
+        let notes_default = data.join("Jotra");
 
         let (root, fallback) = resolve_and_create_notes_root(
             NotesRootSources {
                 env_override: None,
                 configured: None,
-                data_dir: Some(&data),
+                default_root: Some(&notes_default),
                 home: Some(home.path()),
             },
             &data,
         )
         .unwrap();
 
-        assert_eq!(root, canonicalize_root(&data.join("Writ")).unwrap());
+        assert_eq!(root, canonicalize_root(&data.join("Jotra")).unwrap());
         assert_eq!(fallback, None);
     }
 
     #[test]
-    fn defaults_to_home_dot_writ_when_unset() {
-        let dir = resolve_writ_dir(None, Some(PathBuf::from("/home/user"))).unwrap();
-        assert_eq!(dir, PathBuf::from("/home/user/.writ"));
-    }
+    fn a_configured_folder_inside_the_other_home_data_folder_falls_back() {
+        // Whichever home data folder is in force, the other one may hold an
+        // index too, so neither can take the notes (ADR-059 decision 3).
+        let home = TempDir::new().unwrap();
+        let in_force = jotra_dir(home.path());
+        let other = home.path().join(jotra_core::legacy_names::DATA_FOLDER);
+        std::fs::create_dir_all(&other).unwrap();
+        let chosen = other.join("Notes");
 
-    #[test]
-    fn blank_override_falls_back_to_home() {
-        let dir = resolve_writ_dir(Some("  ".into()), Some(PathBuf::from("/home/user"))).unwrap();
-        assert_eq!(dir, PathBuf::from("/home/user/.writ"));
-    }
-
-    #[test]
-    fn honours_explicit_override() {
-        let dir = resolve_writ_dir(
-            Some("/tmp/writ-dev-1431".into()),
-            Some(PathBuf::from("/home/user")),
+        let (root, fallback) = resolve_and_create_notes_root(
+            NotesRootSources {
+                env_override: None,
+                configured: Some(&chosen.to_string_lossy()),
+                default_root: None,
+                home: Some(home.path()),
+            },
+            &in_force,
         )
         .unwrap();
-        assert_eq!(dir, PathBuf::from("/tmp/writ-dev-1431"));
-    }
 
-    #[test]
-    fn errors_when_no_home_and_no_override() {
-        assert!(resolve_writ_dir(None, None).is_err());
+        assert_eq!(
+            root,
+            canonicalize_root(&home.path().join(jotra_core::notes::DEFAULT_NOTES_FOLDER)).unwrap()
+        );
+        assert_eq!(
+            fallback.map(|fallback| fallback.reason),
+            Some(NotesRootFallbackReason::HoldsJotraData)
+        );
+        assert!(!chosen.exists(), "the folder was not created to be checked");
     }
 }

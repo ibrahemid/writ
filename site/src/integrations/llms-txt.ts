@@ -30,7 +30,7 @@ export default function llmsTxt({ repository }: LlmsTxtOptions): AstroIntegratio
   let base = '/';
 
   return {
-    name: 'writ-llms-txt',
+    name: 'jotra-llms-txt',
     hooks: {
       'astro:config:done': ({ config }) => {
         site = config.site ? new URL(config.site) : undefined;
@@ -76,7 +76,7 @@ export default function llmsTxt({ repository }: LlmsTxtOptions): AstroIntegratio
         const docsRoutes = await section('/docs/', 'a[data-topic]');
         const guidesRoutes = await section('/guides/', 'a[href]');
         const llms = {
-          name: 'Writ',
+          name: 'Jotra',
           summary: (await link('/')).description,
           repository,
           docs: await Promise.all(docsRoutes.map(withBody)),

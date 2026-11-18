@@ -1,21 +1,21 @@
 .search-bar {
-  padding: var(--writ-space-3);
+  padding: var(--jotra-space-3);
   flex-shrink: 0;
 }
 
 .search-field {
   display: flex;
   align-items: center;
-  gap: var(--writ-space-2-5);
+  gap: var(--jotra-space-2-5);
   min-height: 28px;
-  padding: 0 var(--writ-space-3-5);
-  background: var(--writ-bg-sunken);
+  padding: 0 var(--jotra-space-3-5);
+  background: var(--jotra-bg-sunken);
   border: 0;
-  border-radius: var(--writ-r-pill);
+  border-radius: var(--jotra-r-pill);
 }
 
 .search-field:focus-within {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--writ-accent) 30%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--jotra-accent) 30%, transparent);
 }
 
 /* Fluent's field carries the heavier stroke on its bottom edge at rest and
@@ -25,19 +25,19 @@
 }
 
 :root[data-platform="win"] .search-field:focus-within {
-  border-bottom: 2px solid var(--writ-accent);
+  border-bottom: 2px solid var(--jotra-accent);
   box-shadow: none;
 }
 
 :root[data-platform="linux"] .search-field:focus-within {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
-  outline-offset: var(--writ-focus-offset, 2px);
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
+  outline-offset: var(--jotra-focus-offset, 2px);
   box-shadow: none;
 }
 
 .search-icon {
   flex-shrink: 0;
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
   opacity: 1;
 }
 
@@ -48,13 +48,13 @@
   background: transparent;
   border: none;
   font-family: inherit;
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  color: var(--writ-fg);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  color: var(--jotra-fg);
   text-overflow: ellipsis;
 }
 
 .search-input::placeholder {
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
   text-overflow: ellipsis;
 }

@@ -1,14 +1,14 @@
 /*
- * Writ preview rules — ADR-009 §F2.
+ * Jotra preview rules — ADR-009 §F2.
  *
  * Applied only when a document brings no <style> and no
  * <link rel="stylesheet"> of its own (the HtmlRenderer injects the link
  * to this file presence-conditionally; author styles win mechanically).
  *
- * Rules only. The --writ-preview-* token layer is generated from
+ * Rules only. The --jotra-preview-* token layer is generated from
  * design/tokens into assets/generated/preview-tokens.css and inlined ahead
  * of these rules by renderers::theme. Light is the :root default there and
- * dark is declared under [data-writ-theme="dark"]; both palettes are
+ * dark is declared under [data-jotra-theme="dark"]; both palettes are
  * asserted WCAG AA by preview-base-contrast.test.ts.
  *
  * This is a reading surface for a writer's tool — editorial, quiet,
@@ -22,7 +22,7 @@
 }
 
 html {
-  background: var(--writ-preview-bg);
+  background: var(--jotra-preview-bg);
 }
 
 body {
@@ -30,13 +30,13 @@ body {
   /* The column is the pane; only the gutters are drawn, and they are multiples
      of the base size so they follow the zoom (ADR-030 decision 3). */
   max-width: none;
-  padding: calc(var(--writ-preview-fs-base) * var(--writ-preview-prose-pad-y-em))
-    calc(var(--writ-preview-fs-base) * var(--writ-preview-prose-pad-x-em));
-  background: var(--writ-preview-bg);
-  color: var(--writ-preview-fg);
-  font-family: var(--writ-preview-font-sans);
-  font-size: var(--writ-preview-fs-base);
-  line-height: var(--writ-preview-leading);
+  padding: calc(var(--jotra-preview-fs-base) * var(--jotra-preview-prose-pad-y-em))
+    calc(var(--jotra-preview-fs-base) * var(--jotra-preview-prose-pad-x-em));
+  background: var(--jotra-preview-bg);
+  color: var(--jotra-preview-fg);
+  font-family: var(--jotra-preview-font-sans);
+  font-size: var(--jotra-preview-fs-base);
+  line-height: var(--jotra-preview-leading);
   font-feature-settings: "kern", "liga", "clig", "calt";
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -59,48 +59,48 @@ dt, dd {
 }
 
 ::selection {
-  background: var(--writ-preview-selection);
+  background: var(--jotra-preview-selection);
 }
 
 /* In-preview find highlights, injected by the bridge runtime. All matches get
    a subtle wash; the current match is accented. Inherit color so wrapping a
    match never recolors the prose. */
-mark.writ-find {
-  background: var(--writ-preview-selection);
+mark.jotra-find {
+  background: var(--jotra-preview-selection);
   color: inherit;
   border-radius: 2px;
 }
-mark.writ-find-current {
-  background: var(--writ-preview-accent);
-  color: var(--writ-preview-bg);
+mark.jotra-find-current {
+  background: var(--jotra-preview-accent);
+  color: var(--jotra-preview-bg);
 }
 
 /* Headings — tight leading, deliberate rhythm above, none below. */
 h1, h2, h3, h4, h5, h6 {
   margin: 2.4em 0 0.6em;
-  font-family: var(--writ-preview-font-sans);
+  font-family: var(--jotra-preview-font-sans);
   font-weight: 650;
   line-height: 1.2;
   letter-spacing: -0.012em;
-  color: var(--writ-preview-fg);
+  color: var(--jotra-preview-fg);
 }
 
-h1 { font-size: var(--writ-preview-fs-h1); margin-top: 0; letter-spacing: -0.02em; }
-h2 { font-size: var(--writ-preview-fs-h2); }
-h3 { font-size: var(--writ-preview-fs-h3); }
-h4 { font-size: var(--writ-preview-fs-h4); }
-h5 { font-size: var(--writ-preview-fs-h5); font-weight: 600; }
+h1 { font-size: var(--jotra-preview-fs-h1); margin-top: 0; letter-spacing: -0.02em; }
+h2 { font-size: var(--jotra-preview-fs-h2); }
+h3 { font-size: var(--jotra-preview-fs-h3); }
+h4 { font-size: var(--jotra-preview-fs-h4); }
+h5 { font-size: var(--jotra-preview-fs-h5); font-weight: 600; }
 h6 {
-  font-size: var(--writ-preview-fs-h6);
+  font-size: var(--jotra-preview-fs-h6);
   font-weight: 600;
-  color: var(--writ-preview-muted);
+  color: var(--jotra-preview-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 
 h2 {
   padding-bottom: 0.3em;
-  border-bottom: 1px solid var(--writ-preview-border-soft);
+  border-bottom: 1px solid var(--jotra-preview-border-soft);
 }
 
 p {
@@ -108,7 +108,7 @@ p {
 }
 
 a {
-  color: var(--writ-preview-accent);
+  color: var(--jotra-preview-accent);
   text-decoration: none;
   text-underline-offset: 0.18em;
   text-decoration-thickness: 1px;
@@ -116,17 +116,17 @@ a {
 }
 
 a:hover {
-  color: var(--writ-preview-accent-hover);
+  color: var(--jotra-preview-accent-hover);
   text-decoration: underline;
 }
 
-strong { font-weight: 650; color: var(--writ-preview-fg); }
+strong { font-weight: 650; color: var(--jotra-preview-fg); }
 em { font-style: italic; }
-small { font-size: var(--writ-preview-fs-sm); color: var(--writ-preview-muted); }
+small { font-size: var(--jotra-preview-fs-sm); color: var(--jotra-preview-muted); }
 
 mark {
-  background: var(--writ-preview-mark-bg);
-  color: var(--writ-preview-mark-fg);
+  background: var(--jotra-preview-mark-bg);
+  color: var(--jotra-preview-mark-fg);
   padding: 0.05em 0.25em;
   border-radius: 3px;
 }
@@ -135,8 +135,8 @@ mark {
 blockquote {
   margin: 1.6em 0;
   padding: 0.2em 0 0.2em 1.4em;
-  border-left: 3px solid var(--writ-preview-accent);
-  color: var(--writ-preview-muted);
+  border-left: 3px solid var(--jotra-preview-accent);
+  color: var(--jotra-preview-muted);
   font-style: italic;
 }
 
@@ -145,7 +145,7 @@ blockquote p:last-child { margin-bottom: 0; }
 hr {
   margin: 2.6em 0;
   border: none;
-  border-top: 1px solid var(--writ-preview-rule);
+  border-top: 1px solid var(--jotra-preview-rule);
 }
 
 /* Lists — restored rhythm and indentation. */
@@ -158,33 +158,33 @@ li { margin: 0.3em 0; }
 li > ul, li > ol { margin: 0.3em 0; }
 
 ul { list-style: square; }
-li::marker { color: var(--writ-preview-subtle); }
+li::marker { color: var(--jotra-preview-subtle); }
 
 dl { margin: 0 0 1.15em; }
 dt { font-weight: 650; margin-top: 0.8em; }
-dd { margin: 0.2em 0 0 1.5em; color: var(--writ-preview-muted); }
+dd { margin: 0.2em 0 0 1.5em; color: var(--jotra-preview-muted); }
 
 /* Inline code and code blocks reuse the editor's mono + highlight tokens. */
 code, kbd, samp, pre {
-  font-family: var(--writ-preview-font-mono);
+  font-family: var(--jotra-preview-font-mono);
   font-feature-settings: "liga" 0;
 }
 
 :not(pre) > code {
   padding: 0.12em 0.38em;
   font-size: 0.88em;
-  background: var(--writ-preview-code-bg);
-  color: var(--writ-preview-code-fg);
+  background: var(--jotra-preview-code-bg);
+  color: var(--jotra-preview-code-fg);
   border-radius: 4px;
-  border: 1px solid var(--writ-preview-border-soft);
+  border: 1px solid var(--jotra-preview-border-soft);
 }
 
 pre {
   margin: 1.5em 0;
   padding: 1em 1.15em;
-  background: var(--writ-preview-code-bg);
-  color: var(--writ-preview-code-fg);
-  border: 1px solid var(--writ-preview-border);
+  background: var(--jotra-preview-code-bg);
+  color: var(--jotra-preview-code-fg);
+  border: 1px solid var(--jotra-preview-border);
   border-radius: 8px;
   overflow-x: auto;
   font-size: 0.875em;
@@ -200,17 +200,17 @@ pre code {
 }
 
 /* Highlight-token classes match the app's highlighter output. */
-.tok-keyword, .hljs-keyword { color: var(--writ-preview-syntax-keyword); }
-.tok-string, .hljs-string { color: var(--writ-preview-syntax-string); }
-.tok-comment, .hljs-comment { color: var(--writ-preview-syntax-comment); font-style: italic; }
-.tok-function, .hljs-title { color: var(--writ-preview-syntax-function); }
-.tok-number, .hljs-number { color: var(--writ-preview-syntax-number); }
+.tok-keyword, .hljs-keyword { color: var(--jotra-preview-syntax-keyword); }
+.tok-string, .hljs-string { color: var(--jotra-preview-syntax-string); }
+.tok-comment, .hljs-comment { color: var(--jotra-preview-syntax-comment); font-style: italic; }
+.tok-function, .hljs-title { color: var(--jotra-preview-syntax-function); }
+.tok-number, .hljs-number { color: var(--jotra-preview-syntax-number); }
 
 kbd {
   padding: 0.1em 0.4em;
   font-size: 0.82em;
-  background: var(--writ-preview-bg-sunken);
-  border: 1px solid var(--writ-preview-border);
+  background: var(--jotra-preview-bg-sunken);
+  border: 1px solid var(--jotra-preview-border);
   border-bottom-width: 2px;
   border-radius: 5px;
 }
@@ -226,17 +226,17 @@ table {
 th, td {
   padding: 0.5em 0.8em;
   text-align: left;
-  border-bottom: 1px solid var(--writ-preview-border-soft);
+  border-bottom: 1px solid var(--jotra-preview-border-soft);
 }
 
 thead th {
-  border-bottom: 2px solid var(--writ-preview-border);
+  border-bottom: 2px solid var(--jotra-preview-border);
   font-weight: 650;
-  color: var(--writ-preview-fg);
+  color: var(--jotra-preview-fg);
 }
 
 tbody tr:nth-child(even) {
-  background: var(--writ-preview-table-stripe);
+  background: var(--jotra-preview-table-stripe);
 }
 
 /* Figures and images — captions, contained width. */
@@ -256,8 +256,8 @@ figure {
 
 figcaption {
   margin-top: 0.6em;
-  font-size: var(--writ-preview-fs-sm);
-  color: var(--writ-preview-muted);
+  font-size: var(--jotra-preview-fs-sm);
+  color: var(--jotra-preview-muted);
   font-style: italic;
 }
 
@@ -274,83 +274,83 @@ sub, sup { font-size: 0.75em; line-height: 0; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: var(--writ-preview-border);
+  background: var(--jotra-preview-border);
   border-radius: 5px;
-  border: 2px solid var(--writ-preview-bg);
+  border: 2px solid var(--jotra-preview-bg);
 }
-::-webkit-scrollbar-thumb:hover { background: var(--writ-preview-subtle); }
+::-webkit-scrollbar-thumb:hover { background: var(--jotra-preview-subtle); }
 
 /* Callouts. The accent is the only thing the type changes: one border, one
    title colour, and the same box for all thirteen words a type is written
    as. An unknown type keeps its word in `data-callout` and is styled by
    `data-callout-type`, which the renderer resolves to `note`. */
-.writ-callout {
+.jotra-callout {
   margin: 1.4em 0;
   padding: 0.9em 1.1em;
-  border: 1px solid var(--writ-preview-border);
-  border-inline-start: 3px solid var(--writ-preview-accent);
-  border-radius: var(--writ-preview-r-card);
-  background: var(--writ-preview-bg-sunken);
+  border: 1px solid var(--jotra-preview-border);
+  border-inline-start: 3px solid var(--jotra-preview-accent);
+  border-radius: var(--jotra-preview-r-card);
+  background: var(--jotra-preview-bg-sunken);
 }
 
-.writ-callout-title {
+.jotra-callout-title {
   font-weight: 600;
-  color: var(--writ-preview-accent);
+  color: var(--jotra-preview-accent);
 }
 
-.writ-callout-body > :first-child { margin-top: 0.6em; }
-.writ-callout-body > :last-child { margin-bottom: 0; }
-.writ-callout-body:empty { display: none; }
+.jotra-callout-body > :first-child { margin-top: 0.6em; }
+.jotra-callout-body > :last-child { margin-bottom: 0; }
+.jotra-callout-body:empty { display: none; }
 
 /* A callout written closed shows its title and nothing else. */
-.writ-callout[data-fold="closed"] .writ-callout-body { display: none; }
+.jotra-callout[data-fold="closed"] .jotra-callout-body { display: none; }
 
-.writ-callout[data-callout-type="warning"],
-.writ-callout[data-callout-type="question"] {
-  border-inline-start-color: var(--writ-preview-status-warning);
+.jotra-callout[data-callout-type="warning"],
+.jotra-callout[data-callout-type="question"] {
+  border-inline-start-color: var(--jotra-preview-status-warning);
 }
 
-.writ-callout[data-callout-type="warning"] .writ-callout-title,
-.writ-callout[data-callout-type="question"] .writ-callout-title {
-  color: var(--writ-preview-status-warning);
+.jotra-callout[data-callout-type="warning"] .jotra-callout-title,
+.jotra-callout[data-callout-type="question"] .jotra-callout-title {
+  color: var(--jotra-preview-status-warning);
 }
 
-.writ-callout[data-callout-type="danger"],
-.writ-callout[data-callout-type="failure"],
-.writ-callout[data-callout-type="bug"] {
-  border-inline-start-color: var(--writ-preview-status-error);
+.jotra-callout[data-callout-type="danger"],
+.jotra-callout[data-callout-type="failure"],
+.jotra-callout[data-callout-type="bug"] {
+  border-inline-start-color: var(--jotra-preview-status-error);
 }
 
-.writ-callout[data-callout-type="danger"] .writ-callout-title,
-.writ-callout[data-callout-type="failure"] .writ-callout-title,
-.writ-callout[data-callout-type="bug"] .writ-callout-title {
-  color: var(--writ-preview-status-error);
+.jotra-callout[data-callout-type="danger"] .jotra-callout-title,
+.jotra-callout[data-callout-type="failure"] .jotra-callout-title,
+.jotra-callout[data-callout-type="bug"] .jotra-callout-title {
+  color: var(--jotra-preview-status-error);
 }
 
-.writ-callout[data-callout-type="success"] {
-  border-inline-start-color: var(--writ-preview-status-success);
+.jotra-callout[data-callout-type="success"] {
+  border-inline-start-color: var(--jotra-preview-status-success);
 }
 
-.writ-callout[data-callout-type="success"] .writ-callout-title {
-  color: var(--writ-preview-status-success);
+.jotra-callout[data-callout-type="success"] .jotra-callout-title {
+  color: var(--jotra-preview-status-success);
 }
 
 /* An embedded note, bounded so it reads as another note rather than as more
    of this one. */
-.writ-embed {
+.jotra-embed {
   display: block;
   margin: 1.4em 0;
   padding: 0.2em 1.1em;
-  border: 1px solid var(--writ-preview-border-soft);
-  border-radius: var(--writ-preview-r-card);
+  border: 1px solid var(--jotra-preview-border-soft);
+  border-radius: var(--jotra-preview-r-card);
 }
 
-.writ-embed > :first-child { margin-top: 0.9em; }
-.writ-embed > :last-child { margin-bottom: 0.9em; }
+.jotra-embed > :first-child { margin-top: 0.9em; }
+.jotra-embed > :last-child { margin-bottom: 0.9em; }
 
-.writ-embed-placeholder,
-.writ-embed-missing {
-  color: var(--writ-preview-muted);
+.jotra-embed-placeholder,
+.jotra-embed-missing {
+  color: var(--jotra-preview-muted);
 }
 
 /* First-element top margins collapse so prose starts flush. */

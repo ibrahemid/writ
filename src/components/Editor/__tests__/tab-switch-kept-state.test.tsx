@@ -10,7 +10,7 @@ import type { WindowState } from "../../../stores/window/createWindowState";
 import type { PaneId } from "../../../lib/pane-layout";
 
 // A tab switched back to keeps its editor without its file being read while
-// the backend finds the file as Writ last read or wrote it (perf-15), and
+// the backend finds the file as Jotra last read or wrote it (perf-15), and
 // reads the file when it does not: a change no watcher reported.
 
 // `record` is the backend's record of each file, which every read and write
@@ -176,7 +176,7 @@ describe("EditorInstance: a tab switched back to", () => {
     vi.restoreAllMocks();
   });
 
-  it("keeps its editor without reading or hashing its file when the file is as Writ left it", async () => {
+  it("keeps its editor without reading or hashing its file when the file is as Jotra left it", async () => {
     const { container, setBuf, depth, doc, win } = await leaveEditedTab();
     expect(win().editor.isDirty("A")).toBe(false);
     const { api, readContent } = await services();

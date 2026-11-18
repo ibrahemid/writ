@@ -62,9 +62,9 @@ function hasActiveLine(container: HTMLElement): boolean {
   return container.querySelector(".cm-activeLine") !== null;
 }
 
-// writCodeFace is the only rule that puts the mono token on the content, so
+// jotraCodeFace is the only rule that puts the mono token on the content, so
 // the computed value says whether the face compartment carries it.
-const MONO = "writ-test-mono";
+const MONO = "jotra-test-mono";
 
 function contentFace(container: HTMLElement): string {
   return getComputedStyle(container.querySelector(".cm-content")!).fontFamily;
@@ -72,14 +72,14 @@ function contentFace(container: HTMLElement): string {
 
 describe("EditorInstance: gutter and active line follow the buffer's language", () => {
   beforeEach(() => {
-    document.documentElement.style.setProperty("--writ-font-mono", MONO);
+    document.documentElement.style.setProperty("--jotra-font-mono", MONO);
     bufferContent.clear();
     vi.clearAllMocks();
   });
 
   afterEach(() => {
     cleanup();
-    document.documentElement.style.removeProperty("--writ-font-mono");
+    document.documentElement.style.removeProperty("--jotra-font-mono");
   });
 
   it("opens a markdown note with no gutter and no active-line background", async () => {

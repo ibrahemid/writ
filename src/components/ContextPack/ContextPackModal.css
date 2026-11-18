@@ -4,37 +4,37 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--writ-overlay-scrim);
-  z-index: var(--writ-z-modal);
+  background: var(--jotra-overlay-scrim);
+  z-index: var(--jotra-z-modal);
 }
 
 .context-pack-dialog {
   width: min(560px, calc(100vw - 48px));
   max-height: min(680px, calc(100vh - 80px));
-  background: var(--writ-bg-raised);
+  background: var(--jotra-bg-raised);
   border: 0;
-  border-radius: var(--writ-r-modal);
-  padding: var(--writ-space-6);
+  border-radius: var(--jotra-r-modal);
+  padding: var(--jotra-space-6);
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-4);
-  box-shadow: var(--writ-shadow-modal);
-  font-family: var(--writ-font-ui);
+  gap: var(--jotra-space-4);
+  box-shadow: var(--jotra-shadow-modal);
+  font-family: var(--jotra-font-ui);
   overflow: hidden;
 }
 
 .context-pack-title {
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
   font-weight: 600;
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
   flex-shrink: 0;
 }
 
 .context-pack-sources {
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
   margin: 0;
   padding: 0;
   border: 0;
@@ -44,33 +44,33 @@
 .context-pack-option {
   display: inline-flex;
   align-items: center;
-  gap: var(--writ-space-3);
-  font-size: var(--writ-ui-md);
-  color: var(--writ-fg);
+  gap: var(--jotra-space-3);
+  font-size: var(--jotra-ui-md);
+  color: var(--jotra-fg);
   cursor: pointer;
 }
 
 .context-pack-tag-row {
   display: flex;
   align-items: center;
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
 }
 
 .context-pack-tag {
   font-family: inherit;
-  font-size: var(--writ-ui-sm);
-  color: var(--writ-fg);
-  background: var(--writ-bg-sunken);
-  border: 1px solid var(--writ-border);
-  border-radius: var(--writ-r-row);
-  padding: var(--writ-space-1) var(--writ-space-2);
+  font-size: var(--jotra-ui-sm);
+  color: var(--jotra-fg);
+  background: var(--jotra-bg-sunken);
+  border: 1px solid var(--jotra-border);
+  border-radius: var(--jotra-r-row);
+  padding: var(--jotra-space-1) var(--jotra-space-2);
 }
 
 .context-pack-meta {
-  min-height: var(--writ-ui-sm-lh);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-fg-faint);
+  min-height: var(--jotra-ui-sm-lh);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-fg-faint);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
@@ -78,7 +78,7 @@
 .context-pack-body {
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -91,17 +91,17 @@
   list-style: none;
   max-height: 140px;
   overflow-y: auto;
-  border: 1px solid var(--writ-border-soft);
-  border-radius: var(--writ-r-row);
+  border: 1px solid var(--jotra-border-soft);
+  border-radius: var(--jotra-r-row);
 }
 
 .context-pack-file {
   display: flex;
   justify-content: space-between;
-  gap: var(--writ-space-4);
-  padding: var(--writ-space-1) var(--writ-space-3);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
+  gap: var(--jotra-space-4);
+  padding: var(--jotra-space-1) var(--jotra-space-3);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
 }
 
 .context-pack-path {
@@ -109,20 +109,20 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
   -webkit-user-select: text;
   user-select: text;
 }
 
 .context-pack-tokens {
   flex: none;
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
   font-variant-numeric: tabular-nums;
 }
 
 .context-pack-note {
-  font-size: var(--writ-ui-xs);
-  color: var(--writ-fg-faint);
+  font-size: var(--jotra-ui-xs);
+  color: var(--jotra-fg-faint);
 }
 
 .context-pack-preview {
@@ -130,12 +130,12 @@
   max-height: 200px;
   overflow: auto;
   overscroll-behavior: contain;
-  padding: var(--writ-space-3) var(--writ-space-4);
-  border-radius: var(--writ-r-row);
-  background: var(--writ-bg-sunken);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-fg);
+  padding: var(--jotra-space-3) var(--jotra-space-4);
+  border-radius: var(--jotra-r-row);
+  background: var(--jotra-bg-sunken);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-fg);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   -webkit-user-select: text;
@@ -145,6 +145,6 @@
 .context-pack-actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
   flex-shrink: 0;
 }

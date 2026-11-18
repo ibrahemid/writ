@@ -3,13 +3,13 @@ import Prose from '../../layouts/Prose.astro';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const guides = [
-  { href: 'default-md-app', title: 'Make Writ the app for .md and .txt', p: 'Register Writ for text and Markdown so a double-click in Finder or Explorer opens the file here.' },
-  { href: 'agent-output', title: 'Connect a program to your folder with MCP', p: 'Connect Claude Code or another MCP client to Writ\'s folder, approve what it may do, and see what it did.' },
-  { href: 'obsidian-vault-files', title: 'Open your Obsidian folder in Writ', p: 'Point Writ at the folder. Links, properties and tags read as written, and Obsidian keeps using the same files.' },
-  { href: 'obsidian', title: 'Writ and Obsidian on one folder', p: 'What each app does with the same folder of Markdown files.' },
+  { href: 'default-md-app', title: 'Make Jotra the app for .md and .txt', p: 'Register Jotra for text and Markdown so a double-click in Finder or Explorer opens the file here.' },
+  { href: 'agent-output', title: 'Connect a program to your folder with MCP', p: 'Connect Claude Code or another MCP client to Jotra\'s folder, approve what it may do, and see what it did.' },
+  { href: 'obsidian-vault-files', title: 'Open your Obsidian folder in Jotra', p: 'Point Jotra at the folder. Links, properties and tags read as written, and Obsidian keeps using the same files.' },
+  { href: 'obsidian', title: 'Jotra and Obsidian on one folder', p: 'What each app does with the same folder of Markdown files.' },
 ];
 ---
-<Prose title="Guides" description="Step-by-step guides: making Writ the default app for text and Markdown, connecting an MCP client, opening a folder Obsidian uses." path="/guides/">
+<Prose title="Guides" description="Step-by-step guides: making Jotra the default app for text and Markdown, connecting an MCP client, opening a folder Obsidian uses." path="/guides/">
   {guides.map((g) => (
     <Fragment>
       <h2><a href={`${base}/guides/${g.href}/`}>{g.title}</a></h2>

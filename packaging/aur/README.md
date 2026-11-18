@@ -1,6 +1,6 @@
-# Writ AUR Package
+# Jotra AUR Package
 
-This directory holds the Arch User Repository (AUR) recipe for Writ. End users on Arch and its derivatives install Writ via an AUR helper:
+This directory holds the Arch User Repository (AUR) recipe for Jotra. End users on Arch and its derivatives install Jotra via an AUR helper:
 
 ```sh
 yay -S writ-bin
@@ -15,17 +15,17 @@ packaging/aur/writ-bin/
   PKGBUILD    # Arch build recipe pulling the official AppImage from GitHub Releases
 ```
 
-Package name: `writ-bin`. The `-bin` suffix follows AUR convention for packages that ship a prebuilt binary rather than compiling from source. If we add a from-source package later it will live at `packaging/aur/writ/`.
+Package name: `writ-bin`. The `-bin` suffix follows AUR convention for packages that ship a prebuilt binary rather than compiling from source. If we add a from-source package later it will live at `packaging/aur/jotra/`.
 
 ## Source strategy
 
 The PKGBUILD pulls the official AppImage from GitHub Releases:
 
 ```
-https://github.com/ibrahemid/writ/releases/download/v<version>/Writ_<version>_amd64.AppImage
+https://github.com/ibrahemid/writ/releases/download/v<version>/Jotra_<version>_amd64.AppImage
 ```
 
-`prepare()` first checks the AppImage's minisign signature (the release's `Writ_<version>_amd64.AppImage.sig`, saved as `writ-<version>.AppImage.minisign` so makepkg does not take it for a PGP signature) against the release key in `_minisign_pubkey`, which needs `minisign` at build time. It then extracts the AppImage under `/opt/writ/` and installs `/usr/bin/writ` as a `/bin/sh` wrapper that execs the CLI from the payload (`/opt/writ/usr/bin/writ`) with `WRIT_GUI_BIN` defaulting to `/opt/writ/AppRun`. The CLI therefore handles `writ file.rs` and `... | writ`, while the app starts through `AppRun`, which sets up the bundled GTK environment the payload expects. The desktop entry launches `AppRun` directly. `/opt/writ/.package-manager` (containing `pacman`) tells Writ that pacman owns the install, so the app reports a new release with "Update with your package manager" instead of downloading it. The AppImage is not executed at install time, only unpacked, so no FUSE runtime is required for `pacman -S writ-bin` to succeed. `fuse2` is still listed as a runtime dependency because the app launcher re-executes `AppRun`, which many Tauri AppImages expect to run under a FUSE loopback.
+`prepare()` first checks the AppImage's minisign signature (the release's `Jotra_<version>_amd64.AppImage.sig`, saved as `jotra-<version>.AppImage.minisign` so makepkg does not take it for a PGP signature) against the release key in `_minisign_pubkey`, which needs `minisign` at build time. It then extracts the AppImage under `/opt/jotra/` and installs `/usr/bin/jotra` as a `/bin/sh` wrapper that execs the CLI from the payload (`/opt/jotra/usr/bin/jotra`) with `JOTRA_GUI_BIN` defaulting to `/opt/jotra/AppRun`. The CLI therefore handles `jotra file.rs` and `... | jotra`, while the app starts through `AppRun`, which sets up the bundled GTK environment the payload expects. The desktop entry launches `AppRun` directly. For installs from before the rename, the package provides and conflicts with the old package name, installs the same wrapper under the old command name (running a copy of the CLI under that name), links the old launcher name to `/usr/bin/jotra-tauri`, and keeps the old desktop id installed with `NoDisplay=true` so default-app entries that name it still resolve. `/opt/jotra/.package-manager` (containing `pacman`) tells Jotra that pacman owns the install, so the app reports a new release with "Update with your package manager" instead of downloading it. The AppImage is not executed at install time, only unpacked, so no FUSE runtime is required for `pacman -S writ-bin` to succeed. `fuse2` is still listed as a runtime dependency because the app launcher re-executes `AppRun`, which many Tauri AppImages expect to run under a FUSE loopback.
 
 ## Checksums
 
@@ -38,7 +38,7 @@ On an Arch host with `base-devel` installed:
 ```sh
 cd packaging/aur/writ-bin
 makepkg -si --noconfirm
-writ --version
+jotra --version
 sudo pacman -Rns writ-bin
 ```
 
@@ -68,9 +68,9 @@ Done. `writ-bin` is published at https://aur.archlinux.org/packages/writ-bin, fi
 The post-release workflow `.github/workflows/packages.yml` rewrites `pkgver`, `sha256sums`, and `.SRCINFO` in this repo and opens a PR with the bumps. After the PR merges, push the updated files to the AUR remote:
 
 ```sh
-git clone ssh://aur@aur.archlinux.org/writ-bin.git aur-writ-bin
-install -m644 packaging/aur/writ-bin/PKGBUILD packaging/aur/writ-bin/.SRCINFO aur-writ-bin/
-cd aur-writ-bin
+git clone ssh://aur@aur.archlinux.org/writ-bin.git aur-jotra-bin
+install -m644 packaging/aur/writ-bin/PKGBUILD packaging/aur/writ-bin/.SRCINFO aur-jotra-bin/
+cd aur-jotra-bin
 git add PKGBUILD .SRCINFO
 git commit -m "writ-bin <version>-1"
 git push origin HEAD:master

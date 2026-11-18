@@ -4,7 +4,7 @@ import { defineConfig } from "vite";
 import solidPlugin from "vite-plugin-solid";
 
 const host = process.env.TAURI_DEV_HOST;
-const devPort = Number(process.env.WRIT_DEV_PORT) || 1420;
+const devPort = Number(process.env.JOTRA_DEV_PORT) || 1420;
 
 const SHARED_EXCLUDE = ["**/node_modules/**", "**/dist/**", "**/.claude/**", "**/.status/**", "site/**"];
 // Files that mount a component or an editor view, wherever they live.
@@ -18,7 +18,7 @@ const MOUNT_TESTS = [
 export default defineConfig({
   plugins: [solidPlugin()],
   clearScreen: false,
-  // Pinned to the webviews Writ ships against: tauri.conf.json sets
+  // Pinned to the webviews Jotra ships against: tauri.conf.json sets
   // minimumSystemVersion 12.0, whose WKWebView predates Vite's default
   // baseline target.
   build: {

@@ -56,7 +56,7 @@ beforeEach(() => {
   tabs.openFile.mockResolvedValue(undefined);
 });
 
-describe("answering a file that changed outside Writ", () => {
+describe("answering a file that changed outside Jotra", () => {
   it("sends the text on screen as mine", async () => {
     api.resolveExternalChange.mockResolvedValue({
       conflict_copy_path: "/notes/note (conflict).md",

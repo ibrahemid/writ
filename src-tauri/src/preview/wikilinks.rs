@@ -1,9 +1,9 @@
 //! Resolving a preview's `[[…]]` against the notes index.
 //!
-//! The rules are `writ_core::notes::links` and the rows are
-//! `writ_storage::notes_index`, the same pair the editor reads through
+//! The rules are `jotra_core::notes::links` and the rows are
+//! `jotra_storage::notes_index`, the same pair the editor reads through
 //! `resolve_note_link` (ADR-034). This module is the adapter that lets
-//! `writ-render` ask them a question without depending on either: the crate
+//! `jotra-render` ask them a question without depending on either: the crate
 //! sees only the [`WikilinkResolver`] trait, so it keeps building to wasm for
 //! the site, where no resolver is supplied and a wikilink stays text.
 
@@ -11,15 +11,15 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use writ_core::notes::links::{self, LinkKind, Resolution, WikilinkTarget};
-use writ_render::{WikilinkRender, WikilinkResolver};
+use jotra_core::notes::links::{self, LinkKind, Resolution, WikilinkTarget};
+use jotra_render::{WikilinkRender, WikilinkResolver};
 
 /// What a preview link to a note is written with.
 ///
 /// The frontend recognises it and opens the note; anything else posted from
 /// the frame goes to the external-link policy the way it always has. Kept in
 /// step with `NOTE_LINK_SCHEME` in `src/lib/wikilink.ts`.
-pub const NOTE_LINK_SCHEME: &str = "writ-note:";
+pub const NOTE_LINK_SCHEME: &str = "jotra-note:";
 
 /// `path` with the characters that would be read as something other than path
 /// text escaped, so the frontend decodes back to the name on disk.
@@ -35,7 +35,7 @@ fn encode_href(path: &str) -> String {
     }
     out
 }
-use writ_storage::notes_index::{self, NotesIndexStore};
+use jotra_storage::notes_index::{self, NotesIndexStore};
 
 /// Resolves the wikilinks of one rendered note.
 pub struct IndexWikilinks {
@@ -216,9 +216,9 @@ mod tests {
         fs::write(root.join("folder/Deep.md"), "# Deep\n").expect("deep");
         fs::write(root.join("From.md"), "[[Note]]\n").expect("from");
 
-        let db_path = dir.path().join("writ.db");
-        let conn = writ_storage::database::connection::open_database(&db_path).expect("open");
-        writ_storage::database::migrations::run_migrations(&conn).expect("migrations");
+        let db_path = dir.path().join("jotra.db");
+        let conn = jotra_storage::database::connection::open_database(&db_path).expect("open");
+        jotra_storage::database::migrations::run_migrations(&conn).expect("migrations");
         drop(conn);
 
         let index = Arc::new(NotesIndexStore::open(&db_path).expect("index"));
@@ -234,7 +234,7 @@ mod tests {
         let (_dir, resolver) = fixture();
         let rendered = resolver.resolve("Note");
         assert!(rendered.resolved);
-        assert_eq!(rendered.href.as_deref(), Some("writ-note:Note.md"));
+        assert_eq!(rendered.href.as_deref(), Some("jotra-note:Note.md"));
         assert_eq!(rendered.label, "Note");
     }
 
@@ -242,7 +242,7 @@ mod tests {
     fn a_note_in_a_folder_keeps_its_folder_in_the_href() {
         let (_dir, resolver) = fixture();
         let rendered = resolver.resolve("Deep");
-        assert_eq!(rendered.href.as_deref(), Some("writ-note:folder/Deep.md"));
+        assert_eq!(rendered.href.as_deref(), Some("jotra-note:folder/Deep.md"));
     }
 
     #[test]
@@ -272,19 +272,19 @@ mod tests {
         let (_dir, resolver) = fixture();
         assert_eq!(
             resolver.resolve("Note#Some Heading").href.as_deref(),
-            Some("writ-note:Note.md#some-heading")
+            Some("jotra-note:Note.md#some-heading")
         );
         assert_eq!(
             resolver.resolve("Note#What's next?").href.as_deref(),
-            Some("writ-note:Note.md#whats-next")
+            Some("jotra-note:Note.md#whats-next")
         );
         assert_eq!(
             resolver.resolve("Note|label").href.as_deref(),
-            Some("writ-note:Note.md")
+            Some("jotra-note:Note.md")
         );
         assert_eq!(
             resolver.resolve("Note#").href.as_deref(),
-            Some("writ-note:Note.md")
+            Some("jotra-note:Note.md")
         );
     }
 
@@ -307,13 +307,13 @@ mod tests {
 
         assert_eq!(
             resolver.resolve("Note").href.as_deref(),
-            Some("writ-note:Note.md")
+            Some("jotra-note:Note.md")
         );
         assert!(resolver.resolve("Deep|the deep one").resolved);
         assert!(resolver.resolve("folder/Deep").resolved);
         assert_eq!(
             resolver.resolve("Note#Some Heading").href.as_deref(),
-            Some("writ-note:Note.md#some-heading")
+            Some("jotra-note:Note.md#some-heading")
         );
         assert!(!resolver.resolve("Nowhere").resolved);
     }
@@ -324,7 +324,7 @@ mod tests {
         resolver.prefetch("[[Note]]\n");
         assert_eq!(
             resolver.resolve("Deep").href.as_deref(),
-            Some("writ-note:folder/Deep.md")
+            Some("jotra-note:folder/Deep.md")
         );
     }
 

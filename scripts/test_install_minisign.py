@@ -55,7 +55,7 @@ def fake_archive(path: pathlib.Path) -> str:
 
 class InstallMinisignTests(unittest.TestCase):
     def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory(prefix="writ-install-minisign-test-")
+        tmp = tempfile.TemporaryDirectory(prefix="jotra-install-minisign-test-")
         self.addCleanup(tmp.cleanup)
         self.root = pathlib.Path(tmp.name)
         stubs = self.root / "stubs"

@@ -1,34 +1,34 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
-use tempfile::TempDir;
-use writ_core::buffer::manager::BufferManager;
-use writ_core::config::WritConfig;
-use writ_core::events::bus::EventBus;
-use writ_core::hash::sha256_bytes;
-use writ_core::preview::ContentRendererRegistry;
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
-use writ_tauri_lib::commands::buffer::{
+use jotra_core::buffer::manager::BufferManager;
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::EventBus;
+use jotra_core::hash::sha256_bytes;
+use jotra_core::preview::ContentRendererRegistry;
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::notes_index::NotesIndexStore;
+use jotra_tauri_lib::commands::buffer::{
     decide_create_buffer, note_file_unchanged_inner, peek_buffer_content_inner,
     read_buffer_content_inner, record_unsaved_notes_inner, save_buffer_content_inner,
     save_failure_message, CreateDecision, UnsavedNote, ERR_FILE_CHANGED_ON_DISK, ERR_FILE_IN_USE,
     ERR_FILE_NOT_DOWNLOADED, ERR_FOLDER_NOT_WRITABLE, ERR_HARD_LINKED, ERR_READ_ONLY_DESTINATION,
     ERR_WRITE_FAILED,
 };
-use writ_tauri_lib::commands::file::open_file_from_path;
-use writ_tauri_lib::preview::handler::RenderCache;
-use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
-use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::create_ignore_set;
+use jotra_tauri_lib::commands::file::open_file_from_path;
+use jotra_tauri_lib::preview::handler::RenderCache;
+use jotra_tauri_lib::quit::QuitState;
+use jotra_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
+use jotra_tauri_lib::state::AppState;
+use jotra_tauri_lib::watcher::handler::create_ignore_set;
+use tempfile::TempDir;
 
 fn setup() -> (TempDir, BufferStore) {
     let dir = TempDir::new().expect("temp dir");
@@ -88,33 +88,33 @@ fn create_buffer_with_explicit_title_always_mints() {
 /// A whole app state over a temp data folder, which the guard needs because
 /// what a save compares against lives on it, not in the store.
 fn make_state(dir: &TempDir) -> AppState {
-    let writ_dir = dir.path().to_path_buf();
-    let buffers_dir = writ_dir.join("buffers");
+    let jotra_dir = dir.path().to_path_buf();
+    let buffers_dir = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
 
-    let notes_root = writ_dir.join("Writ");
+    let notes_root = jotra_dir.join("Jotra");
     std::fs::create_dir_all(&notes_root).expect("notes folder");
-    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+    let notes_root = jotra_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
 
     let note_history = Arc::new(
-        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+        jotra_storage::note_history::NoteHistoryStore::open(&jotra_dir).expect("version store"),
     );
 
     AppState {
         store: Mutex::new(BufferStore::new(conn, buffers_dir.clone())),
-        config_store: ConfigStore::new(writ_dir.join("config.toml")),
-        config: Mutex::new(WritConfig::default()),
-        writ_dir,
+        config_store: ConfigStore::new(jotra_dir.join("config.toml")),
+        config: Mutex::new(JotraConfig::default()),
+        jotra_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: std::sync::atomic::AtomicBool::new(false),
         menu_apps: std::sync::Mutex::new(None),
-        retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+        retitle_watch: std::sync::Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -140,7 +140,7 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
-        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+        command_usage: jotra_storage::command_usage::CommandUsageStore::new(
             open_database(&db_path).expect("usage db"),
         ),
         config_diagnostics: std::sync::Mutex::new(Vec::new()),
@@ -150,9 +150,9 @@ fn make_state(dir: &TempDir) -> AppState {
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
-        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(
-            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+            jotra_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
@@ -220,10 +220,10 @@ fn save_updates_the_recorded_disk_state_so_the_next_save_proceeds() {
 }
 
 #[test]
-fn a_save_over_a_file_changed_outside_writ_is_stopped_and_the_text_lands_beside_it() {
+fn a_save_over_a_file_changed_outside_jotra_is_stopped_and_the_text_lands_beside_it() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
-    let (id, path) = open_note(&state, &dir, "shared.md", "what Writ read");
+    let (id, path) = open_note(&state, &dir, "shared.md", "what Jotra read");
 
     std::fs::write(&path, "what another program wrote").unwrap();
 
@@ -265,7 +265,7 @@ fn a_save_over_a_file_changed_outside_writ_is_stopped_and_the_text_lands_beside_
 
 #[test]
 fn a_stopped_save_comes_back_under_a_stable_code() {
-    let changed = writ_storage::errors::StorageError::SourceChangedOnDisk {
+    let changed = jotra_storage::errors::StorageError::SourceChangedOnDisk {
         path: "/notes/shared.md".to_string(),
         disk_hash: "deadbeef".to_string(),
         conflict_copy: Some("/notes/shared (conflict 2026-08-29 09.41.07).md".to_string()),
@@ -274,7 +274,7 @@ fn a_stopped_save_comes_back_under_a_stable_code() {
     assert!(message.starts_with(ERR_FILE_CHANGED_ON_DISK), "{message}");
     assert!(message.contains("/notes/shared.md"), "{message}");
 
-    let waiting = writ_storage::errors::StorageError::SourceNotDownloaded {
+    let waiting = jotra_storage::errors::StorageError::SourceNotDownloaded {
         path: "/notes/evicted.md".to_string(),
     };
     let message = save_failure_message(&waiting);
@@ -283,7 +283,7 @@ fn a_stopped_save_comes_back_under_a_stable_code() {
 
 #[test]
 fn a_refused_destination_comes_back_under_a_stable_code() {
-    let linked = writ_storage::errors::StorageError::HardLinkedDestination {
+    let linked = jotra_storage::errors::StorageError::HardLinkedDestination {
         path: "/notes/linked.md".to_string(),
         links: 2,
     };
@@ -291,7 +291,7 @@ fn a_refused_destination_comes_back_under_a_stable_code() {
     assert!(message.starts_with(ERR_HARD_LINKED), "{message}");
     assert!(message.contains("/notes/linked.md"), "{message}");
 
-    let locked = writ_storage::errors::StorageError::DestinationReadOnly {
+    let locked = jotra_storage::errors::StorageError::DestinationReadOnly {
         path: "/notes/locked.md".to_string(),
     };
     let message = save_failure_message(&locked);
@@ -307,7 +307,7 @@ fn a_folder_that_would_not_take_the_write_comes_back_under_its_own_code() {
     // copy behind without failing anything.
     assert_eq!(ERR_FOLDER_NOT_WRITABLE, "ERR_FOLDER_NOT_WRITABLE");
 
-    let folder = writ_storage::errors::StorageError::DestinationFolderNotWritable {
+    let folder = jotra_storage::errors::StorageError::DestinationFolderNotWritable {
         path: "/notes/locked folder/note.md".to_string(),
     };
     let message = save_failure_message(&folder);
@@ -322,11 +322,11 @@ fn a_folder_that_would_not_take_the_write_comes_back_under_its_own_code() {
 
 #[test]
 fn a_save_stopped_by_another_program_says_so_rather_than_denying_permission() {
-    // What Windows hands back once the retries in writ_storage::atomic run
+    // What Windows hands back once the retries in jotra_storage::atomic run
     // out: the rename was refused because somebody else has the file open,
     // and "you do not have permission to change this file" would send the
     // person looking at the wrong thing.
-    let busy = writ_storage::errors::StorageError::Io(std::io::Error::new(
+    let busy = jotra_storage::errors::StorageError::Io(std::io::Error::new(
         std::io::ErrorKind::ResourceBusy,
         std::io::Error::from_raw_os_error(5),
     ));
@@ -336,7 +336,7 @@ fn a_save_stopped_by_another_program_says_so_rather_than_denying_permission() {
 
 #[test]
 fn every_other_failure_comes_back_under_the_catch_all_code() {
-    let other = writ_storage::errors::StorageError::Consistency {
+    let other = jotra_storage::errors::StorageError::Consistency {
         message: "note x has no file to save into".to_string(),
     };
     let message = save_failure_message(&other);
@@ -350,12 +350,12 @@ fn the_copy_a_stopped_save_writes_is_not_an_arrival_in_the_watched_folder() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
     let watched = TempDir::new().unwrap();
-    let root = writ_tauri_lib::security::canonicalize_root(watched.path()).expect("canonical");
+    let root = jotra_tauri_lib::security::canonicalize_root(watched.path()).expect("canonical");
 
-    // The folder Writ writes into is the one the inbox watcher is watching,
-    // which is the case that turns Writ's own write into an arrival: a toast,
+    // The folder Jotra writes into is the one the inbox watcher is watching,
+    // which is the case that turns Jotra's own write into an arrival: a toast,
     // a reopened tab, and the window pulled forward.
-    let (id, path) = open_note(&state, &watched, "shared.md", "what Writ read");
+    let (id, path) = open_note(&state, &watched, "shared.md", "what Jotra read");
     let preexisting: std::collections::HashSet<std::path::PathBuf> =
         std::iter::once(path.clone()).collect();
 
@@ -371,17 +371,17 @@ fn the_copy_a_stopped_save_writes_is_not_an_arrival_in_the_watched_folder() {
     assert_eq!(copies.len(), 1, "{copies:?}");
     assert!(copies[0].starts_with(&root), "{:?}", copies[0]);
 
-    let arrival = writ_tauri_lib::watcher::handler::classify_inbox_event(
+    let arrival = jotra_tauri_lib::watcher::handler::classify_inbox_event(
         &copies[0],
         &root,
         &preexisting,
         &state.watcher_ignore,
-        writ_core::watcher::ignore::DEFAULT_IGNORE_TTL,
+        jotra_core::watcher::ignore::DEFAULT_IGNORE_TTL,
         std::time::Instant::now(),
     );
     assert!(
         arrival.is_none(),
-        "Writ's own copy must not come back as somebody else's file: {arrival:?}"
+        "Jotra's own copy must not come back as somebody else's file: {arrival:?}"
     );
 }
 
@@ -390,19 +390,19 @@ fn a_file_another_program_drops_in_the_watched_folder_still_arrives() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
     let watched = TempDir::new().unwrap();
-    let root = writ_tauri_lib::security::canonicalize_root(watched.path()).expect("canonical");
+    let root = jotra_tauri_lib::security::canonicalize_root(watched.path()).expect("canonical");
     let preexisting: std::collections::HashSet<std::path::PathBuf> =
         std::collections::HashSet::new();
 
     let dropped = root.join("from-somewhere-else.md");
     std::fs::write(&dropped, "# not ours").unwrap();
 
-    let arrival = writ_tauri_lib::watcher::handler::classify_inbox_event(
+    let arrival = jotra_tauri_lib::watcher::handler::classify_inbox_event(
         &dropped,
         &root,
         &preexisting,
         &state.watcher_ignore,
-        writ_core::watcher::ignore::DEFAULT_IGNORE_TTL,
+        jotra_core::watcher::ignore::DEFAULT_IGNORE_TTL,
         std::time::Instant::now(),
     );
     assert!(
@@ -416,11 +416,11 @@ fn a_conflict_copy_in_one_folder_does_not_suppress_an_arrival_of_the_same_name_i
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
     let watched = TempDir::new().unwrap();
-    let root = writ_tauri_lib::security::canonicalize_root(watched.path()).expect("canonical");
+    let root = jotra_tauri_lib::security::canonicalize_root(watched.path()).expect("canonical");
     std::fs::create_dir_all(root.join("a")).unwrap();
     std::fs::create_dir_all(root.join("b")).unwrap();
 
-    let (id, path) = open_note_at(&state, &root.join("a").join("shared.md"), "what Writ read");
+    let (id, path) = open_note_at(&state, &root.join("a").join("shared.md"), "what Jotra read");
     std::fs::write(&path, "what another program wrote").unwrap();
     save_buffer_content_inner(&state, &id, "what the user typed").expect_err("the save is stopped");
 
@@ -429,16 +429,16 @@ fn a_conflict_copy_in_one_folder_does_not_suppress_an_arrival_of_the_same_name_i
     let name = copies[0].file_name().expect("name").to_owned();
 
     // Same name, same bytes, different folder: nothing but the key separates
-    // somebody else's file from the copy Writ just wrote.
+    // somebody else's file from the copy Jotra just wrote.
     let elsewhere = root.join("b").join(&name);
     std::fs::write(&elsewhere, "what the user typed").unwrap();
 
-    let arrival = writ_tauri_lib::watcher::handler::classify_inbox_event(
+    let arrival = jotra_tauri_lib::watcher::handler::classify_inbox_event(
         &elsewhere,
         &root,
         &std::collections::HashSet::new(),
         &state.watcher_ignore,
-        writ_core::watcher::ignore::DEFAULT_IGNORE_TTL,
+        jotra_core::watcher::ignore::DEFAULT_IGNORE_TTL,
         std::time::Instant::now(),
     );
     assert!(
@@ -529,7 +529,7 @@ fn modified(path: &std::path::Path) -> std::time::SystemTime {
 fn a_file_untouched_since_the_tab_read_it_is_unchanged() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
-    let (id, _path) = open_note(&state, &dir, "kept.md", "what Writ read\n");
+    let (id, _path) = open_note(&state, &dir, "kept.md", "what Jotra read\n");
     read_buffer_content_inner(&state, &id).expect("the open reads");
 
     assert!(note_file_unchanged_inner(&state, &id));
@@ -555,7 +555,7 @@ fn writs_own_save_leaves_the_file_unchanged() {
 fn a_change_no_watcher_reported_is_a_changed_file() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
-    let (id, path) = open_note(&state, &dir, "shared.md", "what Writ read\n");
+    let (id, path) = open_note(&state, &dir, "shared.md", "what Jotra read\n");
     read_buffer_content_inner(&state, &id).expect("the open reads");
 
     std::fs::write(&path, "what another program wrote\n").unwrap();
@@ -595,7 +595,7 @@ fn a_file_renamed_over_the_note_with_its_time_put_back_is_told_by_its_id() {
     assert_eq!(
         modified(&path),
         read_at,
-        "size and time are as Writ read them"
+        "size and time are as Jotra read them"
     );
 
     assert!(!note_file_unchanged_inner(&state, &id));
@@ -660,7 +660,7 @@ fn a_read_no_tab_takes_leaves_the_record_where_the_tab_left_it() {
     let row = state.store.lock().unwrap().get(&id).expect("row");
     assert_eq!(
         row.line_ending,
-        writ_core::notes::line_ending::LineEnding::Lf,
+        jotra_core::notes::line_ending::LineEnding::Lf,
         "the ending stays the one the tab's text has"
     );
     let refused = save_buffer_content_inner(&state, &id, "what the tab read\ntyped\n")

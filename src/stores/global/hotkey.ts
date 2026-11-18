@@ -3,10 +3,10 @@ import * as api from "../../services/tauri";
 import { onEvent, type UnlistenFn } from "../../services/events";
 import { logFailure } from "../../lib/log";
 
-/** The chord Writ ships with for showing and hiding the window. */
+/** The chord Jotra ships with for showing and hiding the window. */
 export const SHIPPED_WINDOW_CHORD = "CmdOrCtrl+Shift+Space";
 
-/** The chord Writ ships with for the quick capture note (ADR-055). */
+/** The chord Jotra ships with for the quick capture note (ADR-055). */
 export const SHIPPED_CAPTURE_CHORD = "CmdOrCtrl+Shift+Alt+Space";
 
 /** How one chord that works from any app is read, listened for and changed.
@@ -20,8 +20,8 @@ interface GlobalChordCalls {
   unread: string;
 }
 
-// Singleton state — Writ is single-window. Each chord that works from any app
-// has one answer saying whether this machine let Writ have it.
+// Singleton state — Jotra is single-window. Each chord that works from any app
+// has one answer saying whether this machine let Jotra have it.
 
 function createGlobalChordStore(calls: GlobalChordCalls) {
   const [chord, setChord] = createSignal("");

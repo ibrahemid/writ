@@ -10,31 +10,31 @@
    can only take back what this rule draws through `outline`. Fluent's second
    ring lives on `.winctrl:focus-visible` instead. */
 :root {
-  --writ-focus-outline: 2px solid var(--writ-accent);
-  --writ-focus-offset: 2px;
+  --jotra-focus-outline: 2px solid var(--jotra-accent);
+  --jotra-focus-offset: 2px;
   /* How far inward a control inside a clipping scroller draws its ring. The
      same on all three shells: it is the scroller that decides, not the host. */
-  --writ-focus-offset-inset: -2px;
+  --jotra-focus-offset-inset: -2px;
 }
 
 :root[data-platform="win"] {
-  --writ-focus-outline: 2px solid var(--writ-win-focus-outer);
-  --writ-focus-offset: 1px;
+  --jotra-focus-outline: 2px solid var(--jotra-win-focus-outer);
+  --jotra-focus-offset: 1px;
 }
 
 /* GNOME draws its ring inside the control at half the accent. */
 :root[data-platform="linux"] {
-  --writ-focus-outline: 2px solid color-mix(in srgb, var(--writ-accent) 50%, transparent);
-  --writ-focus-offset: -2px;
+  --jotra-focus-outline: 2px solid color-mix(in srgb, var(--jotra-accent) 50%, transparent);
+  --jotra-focus-offset: -2px;
 }
 
 :focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
-  outline-offset: var(--writ-focus-offset, 2px);
-  border-radius: var(--writ-r-control);
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
+  outline-offset: var(--jotra-focus-offset, 2px);
+  border-radius: var(--jotra-r-control);
 }
 
-[data-writ-focus-silent][data-writ-focus-silent]:focus-visible {
+[data-jotra-focus-silent][data-jotra-focus-silent]:focus-visible {
   outline: none;
 }
 

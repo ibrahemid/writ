@@ -94,9 +94,9 @@ describe("text arriving from the file", () => {
     // changed reads dirty against a file it matches, and the next change to
     // it asks a question that has no reason to be asked.
     const store = newStore();
-    fileOnDisk.set("one", "as Writ opened it\n");
-    store.noteOpened("one", Text.of(["as Writ opened it", ""]), true);
-    await recordCatchesUp(store, "one", "as Writ opened it\n");
+    fileOnDisk.set("one", "as Jotra opened it\n");
+    store.noteOpened("one", Text.of(["as Jotra opened it", ""]), true);
+    await recordCatchesUp(store, "one", "as Jotra opened it\n");
     expect(store.isDirty("one")).toBe(false);
 
     fileOnDisk.set("one", "rewritten by another program\n");

@@ -1,8 +1,8 @@
 .update-banner-live {
   position: fixed;
-  bottom: calc(var(--writ-statusbar-height) + 12px);
-  left: var(--writ-space-5);
-  z-index: var(--writ-z-banner);
+  bottom: calc(var(--jotra-statusbar-height) + 12px);
+  left: var(--jotra-space-5);
+  z-index: var(--jotra-z-banner);
   pointer-events: none;
 }
 
@@ -14,27 +14,27 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: var(--writ-space-4-5);
+  gap: var(--jotra-space-4-5);
   max-width: min(440px, calc(100vw - 32px));
-  padding: var(--writ-space-3-5) var(--writ-space-4-5);
+  padding: var(--jotra-space-3-5) var(--jotra-space-4-5);
   /* The same sheet as a toast: the two corners report in one voice. */
-  background: var(--writ-bg-raised);
+  background: var(--jotra-bg-raised);
   border: 0;
-  border-radius: var(--writ-r-media);
-  color: var(--writ-fg);
-  font-size: var(--writ-ui-sm);
-  box-shadow: var(--writ-shadow-popover);
+  border-radius: var(--jotra-r-media);
+  color: var(--jotra-fg);
+  font-size: var(--jotra-ui-sm);
+  box-shadow: var(--jotra-shadow-popover);
 }
 
 .update-banner::before {
   content: '';
   position: absolute;
-  top: var(--writ-space-3);
-  bottom: var(--writ-space-3);
-  left: var(--writ-space-2-5);
+  top: var(--jotra-space-3);
+  bottom: var(--jotra-space-3);
+  left: var(--jotra-space-2-5);
   width: 3px;
-  border-radius: var(--writ-r-pill);
-  background: var(--writ-accent);
+  border-radius: var(--jotra-r-pill);
+  background: var(--jotra-accent);
 }
 
 .update-banner-text {
@@ -47,12 +47,12 @@
 }
 
 .update-banner.is-failed::before {
-  background: var(--writ-status-error);
+  background: var(--jotra-status-error);
 }
 
 .update-banner-actions {
   display: flex;
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
   flex-shrink: 0;
 }
 
@@ -60,22 +60,22 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-2-5);
+  gap: var(--jotra-space-2-5);
 }
 
 .update-banner-track {
   position: relative;
   height: 4px;
-  border-radius: var(--writ-r-indicator);
-  background: var(--writ-bg-sidebar);
+  border-radius: var(--jotra-r-indicator);
+  background: var(--jotra-bg-sidebar);
   overflow: hidden;
 }
 
 .update-banner-fill {
   height: 100%;
-  border-radius: var(--writ-r-indicator);
-  background: var(--writ-accent);
-  transition: width var(--writ-motion-fast) var(--writ-ease-linear);
+  border-radius: var(--jotra-r-indicator);
+  background: var(--jotra-accent);
+  transition: width var(--jotra-motion-fast) var(--jotra-ease-linear);
 }
 
 /* A track with no share to show fills, so reduced motion reads as unknown
@@ -89,23 +89,23 @@
   height: 13px;
   flex-shrink: 0;
   border-radius: 50%;
-  border: 2px solid var(--writ-border);
-  border-top-color: var(--writ-accent);
+  border: 2px solid var(--jotra-border);
+  border-top-color: var(--jotra-accent);
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .update-banner {
-    animation: update-banner-in var(--writ-motion-slow) var(--writ-ease);
+    animation: update-banner-in var(--jotra-motion-slow) var(--jotra-ease);
   }
 
   .update-banner-spinner {
-    animation: update-banner-spin var(--writ-motion-ambient) var(--writ-ease-linear) infinite;
+    animation: update-banner-spin var(--jotra-motion-ambient) var(--jotra-ease-linear) infinite;
   }
 
   .update-banner-track.indeterminate .update-banner-fill {
     width: 40%;
-    animation: update-banner-indeterminate calc(var(--writ-motion-ambient) * 11 / 7)
-      var(--writ-ease) infinite;
+    animation: update-banner-indeterminate calc(var(--jotra-motion-ambient) * 11 / 7)
+      var(--jotra-ease) infinite;
   }
 
   @keyframes update-banner-in {

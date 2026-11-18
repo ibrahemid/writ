@@ -11,12 +11,12 @@ import {
   type ChatStoredTurn,
   type RequestIdentity,
 } from "../../../services/tauri";
-import type { WritEvent } from "../../../types/events";
+import type { JotraEvent } from "../../../types/events";
 import type { Attachment } from "./attachments";
 import type { ChatRender } from "./render";
 import { readableError } from "./errors";
 
-export type ChatPayload = Extract<WritEvent, { kind: "ai:chat" }>["payload"];
+export type ChatPayload = Extract<JotraEvent, { kind: "ai:chat" }>["payload"];
 
 export type ChatStatus = "idle" | "thinking" | "streaming" | "done" | "stopped" | "error";
 

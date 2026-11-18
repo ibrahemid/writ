@@ -5,11 +5,11 @@ import { configStore } from "../../stores/global/config";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { rendererRegistry } from "../../stores/global/renderer-registry";
 import type { BufferDocument } from "../../types/buffer";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 
 // The chat column is a sibling of the note, not a layer over it, and opening
 // it must leave the preview's iframe element where it is: taking a loaded
-// writ-preview:// iframe out of the page freezes the macOS webview (PR #127).
+// jotra-preview:// iframe out of the page freezes the macOS webview (PR #127).
 // The column can take the room, the iframe keeps its element.
 
 const mocks = vi.hoisted(() => ({
@@ -69,7 +69,7 @@ const [chatColumnOpen, setChatColumnOpen] = createRoot(() => createSignal(false)
 vi.spyOn(configStore, "loaded").mockImplementation(() => true);
 vi.spyOn(configStore, "setChatPanelOpen").mockImplementation((open) => setChatColumnOpen(open));
 vi.spyOn(configStore, "config").mockImplementation(() => {
-  const config = mocks.config() as WritConfig;
+  const config = mocks.config() as JotraConfig;
   return { ...config, chat_panel: { ...config.chat_panel, open: chatColumnOpen() } };
 });
 vi.spyOn(bufferRegistry, "activeTabs").mockImplementation(() => []);
@@ -100,7 +100,7 @@ function htmlBuffer(): BufferDocument {
   };
 }
 
-function chatConfig(): WritConfig {
+function chatConfig(): JotraConfig {
   return {
     hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
     sidebar: {

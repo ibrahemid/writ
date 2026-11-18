@@ -1,7 +1,7 @@
 //! Minting the file a note has to have.
 //!
 //! The policy half — what a title becomes, how a collision dedupes — is
-//! [`writ_core::notes`]. This is the half that touches the disk: it lists the
+//! [`jotra_core::notes`]. This is the half that touches the disk: it lists the
 //! notes folder to learn which names are taken. Two callers share it, and
 //! they have to agree or the same note would be named one way on its first
 //! keystroke and another way after a crash: the first save of a new note
@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
-use writ_core::config::FileExtension;
+use jotra_core::config::FileExtension;
 
 /// Picks the path a note with `title` takes inside `notes_root`, in
 /// `extension`.
@@ -33,9 +33,9 @@ pub fn mint_note_path(
     now: DateTime<Utc>,
     extension: FileExtension,
 ) -> PathBuf {
-    let stem = writ_core::notes::note_file_stem(title, now);
+    let stem = jotra_core::notes::note_file_stem(title, now);
     let taken = taken_names(notes_root);
-    notes_root.join(writ_core::notes::dedupe_file_name(
+    notes_root.join(jotra_core::notes::dedupe_file_name(
         &stem,
         extension.as_str(),
         &taken,
@@ -78,11 +78,11 @@ pub fn mint_note_path_text(
 /// caller so exactly one code path writes a note's text.
 ///
 /// A caller whose write then makes nothing at the path takes it back
-/// ([`writ_storage::buffer_store::BufferStore::detach_source_path_with_no_file`]):
+/// ([`jotra_storage::buffer_store::BufferStore::detach_source_path_with_no_file`]):
 /// a row naming a file that was never made reads at the next launch as a note
 /// whose file was deleted.
 pub fn attach_note_file(
-    store: &writ_storage::buffer_store::BufferStore,
+    store: &jotra_storage::buffer_store::BufferStore,
     notes_root: &Path,
     id: &str,
     title: &str,
@@ -110,7 +110,12 @@ mod tests {
     #[test]
     fn a_title_nobody_typed_becomes_the_date() {
         let root = TempDir::new().unwrap();
-        let path = mint_note_path(root.path(), "writ-1756000000000", day(), FileExtension::Txt);
+        let path = mint_note_path(
+            root.path(),
+            "jotra-1756000000000",
+            day(),
+            FileExtension::Txt,
+        );
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         assert_eq!(name, "2026-08-28.txt", "{name}");
     }

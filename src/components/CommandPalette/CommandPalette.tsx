@@ -7,7 +7,7 @@ import { createContentProvider } from "../../commands/providers/content-provider
 import { createGotoLineProvider } from "../../commands/providers/goto-line-provider";
 import type { ResultProvider } from "../Palette/types";
 
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 const [isOpen, setIsOpen] = createSignal(false);
 // What the input is seeded with on the next open. The name-search mode is a
 // routing prefix, so opening "in" it is opening with that prefix already typed.

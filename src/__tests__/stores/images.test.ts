@@ -185,9 +185,9 @@ describe("host calls", () => {
   });
 
   it("loads a web image for the tab it names", async () => {
-    mocks.previewRemoteImage.mockResolvedValue({ src: "writ-preview://x" });
+    mocks.previewRemoteImage.mockResolvedValue({ src: "jotra-preview://x" });
     expect(await loadRemoteImage("buf-3", "https://e.com/a.png", "automatic")).toEqual({
-      src: "writ-preview://x",
+      src: "jotra-preview://x",
     });
     expect(mocks.previewRemoteImage).toHaveBeenCalledWith(
       "buf-3",
@@ -222,9 +222,9 @@ describe("host calls", () => {
       "asked",
     );
 
-    answers[0].resolve({ src: "writ-preview://1" });
+    answers[0].resolve({ src: "jotra-preview://1" });
     await settle();
-    expect(await loads[0]).toEqual({ src: "writ-preview://1" });
+    expect(await loads[0]).toEqual({ src: "jotra-preview://1" });
     expect(mocks.previewRemoteImage).toHaveBeenCalledTimes(6);
 
     answers[1].reject(new Error("refused"));
@@ -237,9 +237,9 @@ describe("host calls", () => {
       "automatic",
     );
 
-    for (const answer of answers.slice(2)) answer.resolve({ src: "writ-preview://x" });
+    for (const answer of answers.slice(2)) answer.resolve({ src: "jotra-preview://x" });
     await Promise.all([asked, ...loads.slice(2)]);
-    mocks.previewRemoteImage.mockResolvedValue({ src: "writ-preview://y" });
+    mocks.previewRemoteImage.mockResolvedValue({ src: "jotra-preview://y" });
     await Promise.all(
       [1, 2, 3, 4, 5].map((n) => loadRemoteImage("buf-1", `https://e.com/again-${n}.png`, "automatic")),
     );

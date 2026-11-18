@@ -42,7 +42,7 @@ function withoutComments(text: string): string {
 }
 
 describe("no literal colour in authored source", () => {
-  it("every colour resolves through a --writ-* token", () => {
+  it("every colour resolves through a --jotra-* token", () => {
     const offenders: string[] = [];
     for (const file of walk(SRC)) {
       const rel = relative(REPO_ROOT, file);

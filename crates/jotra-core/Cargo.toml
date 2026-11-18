@@ -1,0 +1,53 @@
+[package]
+name = "jotra-core"
+description = "Pure Rust domain logic for the Jotra editor: buffers, config, events, and conflict policy."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+thiserror = "2"
+sha2 = "0.11"
+unicode-normalization = "0.1"
+unicode-segmentation = "1"
+url = "2"
+# `FilesConfig::from_config_text` reads one table out of a whole config.toml
+# for the consumers that hold no `JotraConfig`.
+toml = "1.1"
+# Text encodings (ADR-049): decoding and encoding, and the guess for a file
+# that is not UTF-8.
+encoding_rs = "0.8.42"
+chardetng = "1.0.0"
+toml_edit = { version = "0.25", default-features = false, features = ["parse", "display"] }
+# The install links an MCP client takes (`mcp_clients`): base64 and
+# `encodeURIComponent` of the server's JSON. Both already resolve in the lock.
+base64 = "0.23"
+percent-encoding = "2.3"
+semver = "1"
+
+[dev-dependencies]
+tempfile = "3"
+# Test-only. `frontmatter_divergence_tests` runs both splitters over one table.
+# jotra-render depends on nothing in this crate, so this adds no cycle, and a
+# dev-dependency does not reach the wasm build the site compiles.
+jotra-render = { path = "../jotra-render" }
+# Test-only. The spec tokenizer the resource-hint tests use as their oracle;
+# the same version the spell checker already resolves, so no new package
+# enters the lock.
+html5ever = "0.40"
+# Test-only. A tree builder for the resource-hint tests to compare documents
+# with.
+dom_query = "0.29"

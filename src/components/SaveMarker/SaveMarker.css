@@ -3,7 +3,7 @@
   flex-shrink: 0;
   width: 7px;
   height: 7px;
-  border: 1.5px solid var(--writ-fg-muted);
+  border: 1.5px solid var(--jotra-fg-muted);
   border-radius: 50%;
 }
 
@@ -12,6 +12,6 @@
   height: 8px;
   border: none;
   border-radius: 0;
-  background: var(--writ-status-error);
+  background: var(--jotra-status-error);
   clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
 }

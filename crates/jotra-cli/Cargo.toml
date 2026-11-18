@@ -1,0 +1,31 @@
+[package]
+name = "jotra-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "jotra"
+path = "src/main.rs"
+
+[dependencies]
+jotra-core = { path = "../jotra-core" }
+# `bundled` because the sidecar is built on its own
+# (`cargo build -p jotra-cli --release --target …`), where cargo unifies in no
+# feature from src-tauri and a system libsqlite3 may not be there to link.
+jotra-storage = { path = "../jotra-storage", features = ["bundled"] }
+jotra-mcp = { path = "../jotra-mcp" }
+chrono = "0.4"
+clap = { version = "4", features = ["derive"] }
+dirs = "7"
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "macros"] }
+toml = "1.1"
+
+[dev-dependencies]
+tempfile = "3"

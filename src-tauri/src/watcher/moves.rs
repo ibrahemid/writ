@@ -1,6 +1,6 @@
 //! What a watcher does about the file behind a tab moving or going away.
 //!
-//! The verdict is [`writ_core::notes::identity::classify_delete`]'s; this is
+//! The verdict is [`jotra_core::notes::identity::classify_delete`]'s; this is
 //! the half that acts on it. A move has to reach the note's row before
 //! anything else happens, because the row is where the next save reads its
 //! destination from: a tab still pointing at the old path recreates a file the
@@ -12,16 +12,16 @@
 //! implementation reaches the state through the app handle; the tests supply
 //! one that records what it was told.
 
+use jotra_core::text_encoding::TextEncoding;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use writ_core::text_encoding::TextEncoding;
 
+use jotra_core::notes::guard::DiskState;
+use jotra_core::notes::identity::{FileIdentity, IdentityProbe};
+use jotra_core::notes::Writer;
+use jotra_core::watcher::pending::RemovalHolds;
+use jotra_storage::paths::file_name_only;
 use tauri::{AppHandle, Manager};
-use writ_core::notes::guard::DiskState;
-use writ_core::notes::identity::{FileIdentity, IdentityProbe};
-use writ_core::notes::Writer;
-use writ_core::watcher::pending::RemovalHolds;
-use writ_storage::paths::file_name_only;
 
 use crate::state::AppState;
 
@@ -53,15 +53,15 @@ pub trait NoteFiles: Send + Sync {
     /// Records that another program changed the note's file, before the tab
     /// is told. What was granted to the document the file held goes with it:
     /// its preview-scripts opt-in lapses (ADR-043). Asked only for a change
-    /// that is news to the tab, never for a write of Writ's own.
+    /// that is news to the tab, never for a write of Jotra's own.
     fn note_file_changed(&self, note_id: &str);
 
-    /// The digest of what the note's file held the last time Writ read or
+    /// The digest of what the note's file held the last time Jotra read or
     /// wrote it.
     ///
     /// What a modification report is measured against: a watcher can deliver
     /// the write a tab has already read, and the recorded digest is what says
-    /// so ([`writ_core::watcher::change_event::modification_is_news`]). It is
+    /// so ([`jotra_core::watcher::change_event::modification_is_news`]). It is
     /// not evidence of where a file went — a move is followed on the id and
     /// nothing else (ADR-033 §12).
     fn last_disk_state(&self, note_id: &str) -> Option<DiskState>;
@@ -106,7 +106,7 @@ pub trait NoteFiles: Send + Sync {
 pub struct FileTracking {
     /// Reads what the filesystem calls a file.
     pub probe: Arc<dyn IdentityProbe>,
-    /// Holds what Writ knows about each tab's file.
+    /// Holds what Jotra knows about each tab's file.
     pub files: Arc<dyn NoteFiles>,
     /// Where the removals being held are published, so a save can wait for one
     /// rather than write to a path whose file may have moved.
@@ -314,7 +314,7 @@ pub(crate) fn writer_of_file(state: &AppState, path: &Path, bytes: &[u8]) -> Opt
     let key = state.note_history.key_for(path)?;
     match state
         .note_history
-        .writer_of(&key, writ_core::hash::sha256_bytes(bytes))
+        .writer_of(&key, jotra_core::hash::sha256_bytes(bytes))
     {
         Ok(stored) => stored.as_deref().and_then(Writer::from_stored),
         Err(error) => {
@@ -374,7 +374,7 @@ pub enum MoveOutcome {
 /// — so taking them the other way round here is how a watcher thread and a
 /// keystroke deadlock.
 ///
-/// The bytes did not move, so the record of what Writ last read or wrote
+/// The bytes did not move, so the record of what Jotra last read or wrote
 /// stays as it is, size and modification time with it. Reading again would
 /// fetch the whole file in a sync folder for an answer already in hand, and
 /// taking the size and time from the file now would vouch for a change another

@@ -286,22 +286,22 @@ const TAGS_CSS = readFileSync(resolve(process.cwd(), "src/components/Sidebar/Tag
 describe("the tag row on the design baseline", () => {
   it("takes the shared row box, with the count muted and small", () => {
     expect(TAGS_CSS).not.toMatch(/\.tags-row\s*\{[^}]*[\s;](height|margin|border-radius):/);
-    expect(TAGS_CSS).toMatch(/\.tags-row\s*\{[^}]*padding-right:\s*var\(--writ-space-3-5\)/);
+    expect(TAGS_CSS).toMatch(/\.tags-row\s*\{[^}]*padding-right:\s*var\(--jotra-space-3-5\)/);
     expect(TAGS_CSS).toMatch(
-      /\.tags-row-count\s*\{[^}]*color:\s*var\(--writ-fg-muted\)[^}]*font-size:\s*var\(--writ-ui-sm\)/,
+      /\.tags-row-count\s*\{[^}]*color:\s*var\(--jotra-fg-muted\)[^}]*font-size:\s*var\(--jotra-ui-sm\)/,
     );
   });
 
   it("spends the accent on the selected row's hash and the focus ring, nowhere else", () => {
     expect(TAGS_CSS).toMatch(
-      /\.tags-row\.is-selected\s*\{[^}]*background:\s*var\(--writ-bg-selected\)/,
+      /\.tags-row\.is-selected\s*\{[^}]*background:\s*var\(--jotra-bg-selected\)/,
     );
     expect(TAGS_CSS).toMatch(
-      /\.tags-row\.is-selected \.tags-row-hash\s*\{\s*color:\s*var\(--writ-accent\)/,
+      /\.tags-row\.is-selected \.tags-row-hash\s*\{\s*color:\s*var\(--jotra-accent\)/,
     );
     expect(TAGS_CSS).not.toMatch(/\.tags-row:focus-visible/);
     const rowRule = /\.tags-row\s*\{[^}]*\}/.exec(TAGS_CSS)![0];
-    expect(rowRule).not.toContain("--writ-accent");
+    expect(rowRule).not.toContain("--jotra-accent");
   });
 
   it("holds the caret in a 12px slot like the folder tree", () => {

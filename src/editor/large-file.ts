@@ -3,12 +3,12 @@ import type { BufferDocument, FileOpenMode } from "../types/buffer";
 import { utf8Length } from "./document-counts";
 
 // Files up to this size get the full editor feature set. Mirrors
-// writ-core's THRESHOLD_NORMAL_BYTES; the backend decides the byte tiers, the
+// jotra-core's THRESHOLD_NORMAL_BYTES; the backend decides the byte tiers, the
 // frontend additionally inspects line shape (below) before mounting CodeMirror.
 export const THRESHOLD_NORMAL_BYTES = 5 * 1024 * 1024;
 
 // Files over this size are asked about before anything reads them. Mirrors
-// writ-core's THRESHOLD_LARGE_BYTES.
+// jotra-core's THRESHOLD_LARGE_BYTES.
 export const THRESHOLD_LARGE_BYTES = 50 * 1024 * 1024;
 
 // A line longer than this is drawn without per-line decorations (Markdown

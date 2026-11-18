@@ -83,7 +83,7 @@ vi.mock("../../stores/global/window-registry", () => ({
   windowRegistry: { getActive: () => ({ tabs: { activeTabId: () => h.activeId() } }) },
 }));
 vi.mock("../../stores/global/notes", () => ({
-  notesStore: { root: () => "/Users/me/Writ", contains: () => true },
+  notesStore: { root: () => "/Users/me/Jotra", contains: () => true },
 }));
 vi.mock("../../stores/global/workspace", () => ({ workspaceStore: { root: () => null } }));
 vi.mock("../../stores/global/clipboard", () => ({ clipboardStore: { copyText: h.copyText } }));
@@ -137,9 +137,9 @@ afterEach(() => {
 describe("tabs that share a name", () => {
   it("show the shortest folder that tells them apart", () => {
     open([
-      tab("a", "/Users/me/Writ/api/README.md"),
-      tab("b", "/Users/me/Writ/web/README.md"),
-      tab("c", "/Users/me/Writ/plan.md"),
+      tab("a", "/Users/me/Jotra/api/README.md"),
+      tab("b", "/Users/me/Jotra/web/README.md"),
+      tab("c", "/Users/me/Jotra/plan.md"),
     ]);
     const { container } = render(() => <TabBar />);
     const tabs = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
@@ -155,9 +155,9 @@ describe("tabs that share a name", () => {
 
   it("give the path inside the notes folder in the tooltip", async () => {
     vi.useFakeTimers();
-    open([tab("a", "/Users/me/Writ/api/README.md"), tab("b", "/Users/me/Writ/web/README.md")]);
+    open([tab("a", "/Users/me/Jotra/api/README.md"), tab("b", "/Users/me/Jotra/web/README.md")]);
     const { container } = render(() => <TabBar />);
-    const anchor = container.querySelector<HTMLElement>(".tab .writ-tooltip-anchor")!;
+    const anchor = container.querySelector<HTMLElement>(".tab .jotra-tooltip-anchor")!;
     fireEvent.pointerEnter(anchor);
     await vi.advanceTimersByTimeAsync(600);
     expect(document.querySelector('[role="tooltip"]')!.textContent).toBe("api/README.md");
@@ -166,7 +166,7 @@ describe("tabs that share a name", () => {
 });
 
 describe("a strip wider than the window", () => {
-  const twelve = Array.from({ length: 12 }, (_, i) => tab(`t${i}`, `/Users/me/Writ/file-${i}.md`));
+  const twelve = Array.from({ length: 12 }, (_, i) => tab(`t${i}`, `/Users/me/Jotra/file-${i}.md`));
 
   it("shows no overflow control while every tab fits", () => {
     open(twelve);
@@ -273,7 +273,7 @@ describe("the tab menu", () => {
       scope: "app",
       execute: () => {},
     });
-    open([tab("a", "/Users/me/Writ/a.md")]);
+    open([tab("a", "/Users/me/Jotra/a.md")]);
     const { container } = render(() => <TabBar />);
     const items = menuFor(container);
     const kbd = (label: string) => items.find((item) => item.label === label)?.kbd;
@@ -287,12 +287,12 @@ describe("the tab menu", () => {
   });
 
   it("copies the file's path", () => {
-    open([tab("a", "/Users/me/Writ/a.md")]);
+    open([tab("a", "/Users/me/Jotra/a.md")]);
     const { container } = render(() => <TabBar />);
     const copy = menuFor(container).find((item) => item.label === "Copy path")!;
     expect(copy.disabled).toBe(false);
     copy.action();
-    expect(h.copyText).toHaveBeenCalledWith("/Users/me/Writ/a.md");
+    expect(h.copyText).toHaveBeenCalledWith("/Users/me/Jotra/a.md");
   });
 
   it("has no path to copy for a file not written yet", () => {
@@ -302,7 +302,7 @@ describe("the tab menu", () => {
   });
 
   it("reopens the last closed tab, and only when one was closed", () => {
-    open([tab("a", "/Users/me/Writ/a.md")]);
+    open([tab("a", "/Users/me/Jotra/a.md")]);
     const { container } = render(() => <TabBar />);
     expect(menuFor(container).find((item) => item.label === "Reopen closed tab")!.disabled).toBe(true);
 

@@ -2,13 +2,13 @@ use crate::commands::buffer::ERR_READ_FAILED;
 use crate::commands::file::FileOpenResult;
 use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};
 use crate::state::AppState;
+use jotra_core::buffer::document::{BufferDocument, BufferStatus};
+use jotra_core::file_ops::{self, FileOpenMode};
+use jotra_core::search::SearchHit;
+use jotra_core::workspace::file_search::FileHit;
+use jotra_storage::buffer_store::BufferStore;
 use serde::Serialize;
 use tauri::{AppHandle, Runtime, State};
-use writ_core::buffer::document::{BufferDocument, BufferStatus};
-use writ_core::file_ops::{self, FileOpenMode};
-use writ_core::search::SearchHit;
-use writ_core::workspace::file_search::FileHit;
-use writ_storage::buffer_store::BufferStore;
 
 /// Caps the number of ranked hits returned to the UI; `total` still reports the
 /// full match count so the footer can show "N of M".
@@ -61,14 +61,14 @@ pub async fn restore_buffer_confirmed<R: Runtime>(
 /// Brings a closed file back as an open tab, answering as an open does.
 ///
 /// Reopening reads the file, and it may have grown while it was closed: one
-/// now over the size Writ opens without asking answers
+/// now over the size Jotra opens without asking answers
 /// [`FileOpenMode::LargeFileConfirm`] and stays closed until
-/// [`restore_buffer_confirmed_inner`], and one over the size Writ opens is
+/// [`restore_buffer_confirmed_inner`], and one over the size Jotra opens is
 /// refused. The size comes from a stat, never a read, since reading a file
 /// whose bytes are with a sync provider fetches them. A file that is not there
 /// reopens as it always did, and its tab says what became of it.
 ///
-/// A tab restored at launch whose file was over the size Writ opens without
+/// A tab restored at launch whose file was over the size Jotra opens without
 /// asking answers the same way when it is shown. It was never closed, so it
 /// stays where it is and nothing is restored.
 ///
@@ -195,7 +195,7 @@ pub fn clear_history_inner(state: &AppState) -> Result<(), String> {
 
 /// Searches note names and content for the user's query.
 ///
-/// Raw input is planned by [`writ_core::search::plan_search`]: a sanitized
+/// Raw input is planned by [`jotra_core::search::plan_search`]: a sanitized
 /// prefix-match expression over the word index, so typing `tok` finds `token`
 /// (search-as-you-type) and FTS5 operators in the input can never reach the
 /// `MATCH` parser, or, for a query in Han, kana, Hangul or Arabic script,
@@ -224,7 +224,7 @@ pub async fn search_buffers<R: Runtime>(
 /// ([`crate::commands::buffer::reindex_pending_now`]), so the text typed a
 /// moment ago is found.
 pub fn search_buffers_inner(state: &AppState, query: &str) -> Result<SearchResults, String> {
-    let Some(planned) = writ_core::search::plan_search(query) else {
+    let Some(planned) = jotra_core::search::plan_search(query) else {
         return Ok(SearchResults {
             hits: Vec::new(),
             total: 0,

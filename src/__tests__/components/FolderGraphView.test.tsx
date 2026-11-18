@@ -18,14 +18,14 @@ import {
 // and the drawing answers the keys.
 
 const TOKEN_VALUES: Record<string, string> = {
-  "--writ-bg-canvas": "rgb(1, 1, 1)",
-  "--writ-fg-muted": "rgb(2, 2, 2)",
-  "--writ-fg": "rgb(3, 3, 3)",
-  "--writ-accent": "#1F6F5C",
-  "--writ-border": "rgb(5, 5, 5)",
-  "--writ-bg-raised": "rgb(6, 6, 6)",
-  "--writ-fg-faint": "rgb(7, 7, 7)",
-  "--writ-icon-opacity": "0.85",
+  "--jotra-bg-canvas": "rgb(1, 1, 1)",
+  "--jotra-fg-muted": "rgb(2, 2, 2)",
+  "--jotra-fg": "rgb(3, 3, 3)",
+  "--jotra-accent": "#1F6F5C",
+  "--jotra-border": "rgb(5, 5, 5)",
+  "--jotra-bg-raised": "rgb(6, 6, 6)",
+  "--jotra-fg-faint": "rgb(7, 7, 7)",
+  "--jotra-icon-opacity": "0.85",
 };
 
 interface Rows {
@@ -267,7 +267,7 @@ describe("the search", () => {
   it("dims the notes it does not name", () => {
     twoFolders();
     const view = render(() => <FolderGraphView />);
-    const dim = Number(TOKEN_VALUES["--writ-icon-opacity"]);
+    const dim = Number(TOKEN_VALUES["--jotra-icon-opacity"]);
 
     expect(recorder.discs.every((disc) => disc.alpha === 1)).toBe(true);
 
@@ -309,7 +309,7 @@ describe("the colors", () => {
     twoFolders();
     render(() => <FolderGraphView />);
     expect(recorder.discs.map((disc) => disc.color)).toContain(
-      TOKEN_VALUES["--writ-fg-muted"],
+      TOKEN_VALUES["--jotra-fg-muted"],
     );
   });
 });
@@ -757,14 +757,14 @@ describe("the legend", () => {
       chips(view)
         .find((chip) => labelOf(chip) === label)!
         .querySelector<HTMLElement>(".folder-graph-swatch")!.style.background;
-    expect(swatch("notes")).toBe(TOKEN_VALUES["--writ-fg-muted"]);
+    expect(swatch("notes")).toBe(TOKEN_VALUES["--jotra-fg-muted"]);
     expect(swatch("Archive")).not.toBe(swatch("Projects"));
   });
 
   it("keeps one folder lit and dims the rest, and lights them all again", () => {
     twoFolders();
     const view = render(() => <FolderGraphView />);
-    const dim = Number(TOKEN_VALUES["--writ-icon-opacity"]);
+    const dim = Number(TOKEN_VALUES["--jotra-icon-opacity"]);
     const projects = chips(view).find((chip) => labelOf(chip) === "Projects")!;
 
     recorder.discs = [];

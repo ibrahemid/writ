@@ -2,27 +2,27 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: var(--writ-space-3-5);
+  gap: var(--jotra-space-3-5);
   /* The baseline drew 212px against a fixed 240px sidebar; the sidebar now
      resizes down to 200, so the card follows it. */
   width: auto;
   max-width: 212px;
-  margin: var(--writ-space-3);
-  padding: 20px var(--writ-space-5);
-  background: var(--writ-bg-sidebar);
-  border-radius: var(--writ-r-media);
+  margin: var(--jotra-space-3);
+  padding: 20px var(--jotra-space-5);
+  background: var(--jotra-bg-sidebar);
+  border-radius: var(--jotra-r-media);
 }
 
 .sidebar-empty-title {
-  margin: 0 0 var(--writ-space-1);
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  color: var(--writ-fg-muted);
+  margin: 0 0 var(--jotra-space-1);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  color: var(--jotra-fg-muted);
 }
 
 .sidebar-empty-line {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
 }

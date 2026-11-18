@@ -53,15 +53,15 @@ describe("the environment's localStorage", () => {
   afterEach(() => localStorage.clear());
 
   it("supports both the method and the property form", () => {
-    localStorage.setItem("writ-probe", "1");
-    expect(localStorage.getItem("writ-probe")).toBe("1");
-    expect(localStorage["writ-probe"]).toBe("1");
-    expect("writ-probe" in localStorage).toBe(true);
+    localStorage.setItem("jotra-probe", "1");
+    expect(localStorage.getItem("jotra-probe")).toBe("1");
+    expect(localStorage["jotra-probe"]).toBe("1");
+    expect("jotra-probe" in localStorage).toBe(true);
 
-    localStorage["writ-probe-2"] = "2";
-    expect(localStorage.getItem("writ-probe-2")).toBe("2");
+    localStorage["jotra-probe-2"] = "2";
+    expect(localStorage.getItem("jotra-probe-2")).toBe("2");
 
-    delete localStorage["writ-probe-2"];
-    expect(localStorage.getItem("writ-probe-2")).toBeNull();
+    delete localStorage["jotra-probe-2"];
+    expect(localStorage.getItem("jotra-probe-2")).toBeNull();
   });
 });

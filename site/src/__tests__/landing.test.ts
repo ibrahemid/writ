@@ -113,7 +113,7 @@ function runNounScript(options: { interval: string; reduced?: boolean; clock?: '
   const fakeDocument = { querySelector: (selector: string) => (selector === '[data-noun-slot]' ? slot : null) };
   const fakeStyle = () => ({
     getPropertyValue: (name: string) =>
-      name === '--writ-site-motion-noun-interval' ? (reduced.matches ? '0ms' : options.interval) : '',
+      name === '--jotra-site-motion-noun-interval' ? (reduced.matches ? '0ms' : options.interval) : '',
   });
   new Function('window', 'document', 'getComputedStyle', NOUN_SCRIPT)(fakeWindow, fakeDocument, fakeStyle);
   const setReduced = (matches: boolean): void => {
@@ -279,14 +279,14 @@ describe('the landing page', () => {
 
   it('sets the intro and tour attributes before paint, from the breakpoint token', () => {
     expect(INDEX).toContain("import tokensCss from '../styles/tokens.css?raw';");
-    expect(INDEX).toContain('/--writ-site-bp-lg:\\s*([^;]+);/.exec(tokensCss)');
-    expect(INDEX).toContain("if (!writTourBp) throw new MissingTokenError('--writ-site-bp-lg');");
+    expect(INDEX).toContain('/--jotra-site-bp-lg:\\s*([^;]+);/.exec(tokensCss)');
+    expect(INDEX).toContain("if (!jotraTourBp) throw new MissingTokenError('--jotra-site-bp-lg');");
     const head = /<Fragment slot="head">([\s\S]*?)<\/Fragment>/.exec(INDEX)?.[1] ?? '';
-    expect(head).toContain('<script is:inline define:vars={{ writTourBp }}>');
+    expect(head).toContain('<script is:inline define:vars={{ jotraTourBp }}>');
     expect(head).toContain("if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches)");
-    expect(head).toContain("setAttribute('data-writ-intro', '')");
-    expect(head).toContain("window.matchMedia('(min-width: ' + writTourBp + ')').matches");
-    expect(head).toContain("setAttribute('data-writ-tour', '')");
+    expect(head).toContain("setAttribute('data-jotra-intro', '')");
+    expect(head).toContain("window.matchMedia('(min-width: ' + jotraTourBp + ')').matches");
+    expect(head).toContain("setAttribute('data-jotra-tour', '')");
   });
 
   it('runs no script of its own beyond inline ones, and the hero is the live window', () => {
@@ -326,29 +326,29 @@ describe('the landing page', () => {
   it('hides a primed loop at once and transitions only its fade-in', () => {
     expect(CSS).toContain('.window[data-fade] video {\n  opacity: 0;\n}');
     expect(CSS).toContain(
-      '.window[data-fade].is-playing video {\n  opacity: 1;\n  transition: opacity var(--writ-site-motion-crossfade) var(--writ-ease);\n}',
+      '.window[data-fade].is-playing video {\n  opacity: 1;\n  transition: opacity var(--jotra-site-motion-crossfade) var(--jotra-ease);\n}',
     );
   });
 
   it('lifts the camera to the frame bottom for a bottom anchor, and fades the cropped edge opposite the anchor', () => {
     expect(CSS).toContain(
-      '[data-writ-tour] .stage[data-anchor="bottom"] .live-camera {\n  transform: translateY(min(0%, var(--tour-view) - var(--writ-space-7) - var(--writ-site-hairline) * 2 - 100%));\n}',
+      '[data-jotra-tour] .stage[data-anchor="bottom"] .live-camera {\n  transform: translateY(min(0%, var(--tour-view) - var(--jotra-space-7) - var(--jotra-site-hairline) * 2 - 100%));\n}',
     );
     expect(CSS).not.toContain('data-anchor="center"');
     expect(CSS).toContain(
-      '[data-writ-tour] .stage:not([data-anchor="bottom"]) .live-window.is-cropped::after,\n[data-writ-tour] .stage[data-anchor="bottom"] .live-window.is-cropped::before {\n  opacity: 1;\n}',
+      '[data-jotra-tour] .stage:not([data-anchor="bottom"]) .live-window.is-cropped::after,\n[data-jotra-tour] .stage[data-anchor="bottom"] .live-window.is-cropped::before {\n  opacity: 1;\n}',
     );
   });
 
   it('brings the first caption to the band within the hold token of scroll after the window pins', () => {
     expect(INDEX).toMatch(/<div class="hero-media wrap-media">\s*<LiveWindow [^>]*\/>\s*<\/div>\s*<Feature id="any-file"/);
     expect(CSS).toContain(
-      '[data-writ-tour] .stage {\n  --tour-view: calc(100svh - var(--writ-site-nav-height) - var(--writ-site-tour-band));\n}',
+      '[data-jotra-tour] .stage {\n  --tour-view: calc(100svh - var(--jotra-site-nav-height) - var(--jotra-site-tour-band));\n}',
     );
-    expect(CSS).toMatch(/\[data-writ-tour\] \.hero-media \{[^}]*\n  min-height: var\(--tour-view\);/);
-    expect(CSS).toMatch(/\[data-writ-tour\] \.live-window \{\n  max-height: calc\(var\(--tour-view\) - var\(--writ-space-7\)\);/);
-    expect(CSS).toContain('[data-writ-tour] .hero-media + .feature {\n  margin-top: calc(var(--writ-site-tour-hold) - var(--tour-view));\n}');
-    const hold = Number(/--writ-site-tour-hold: (\d+)px;/.exec(TOKENS)?.[1]);
+    expect(CSS).toMatch(/\[data-jotra-tour\] \.hero-media \{[^}]*\n  min-height: var\(--tour-view\);/);
+    expect(CSS).toMatch(/\[data-jotra-tour\] \.live-window \{\n  max-height: calc\(var\(--tour-view\) - var\(--jotra-space-7\)\);/);
+    expect(CSS).toContain('[data-jotra-tour] .hero-media + .feature {\n  margin-top: calc(var(--jotra-site-tour-hold) - var(--tour-view));\n}');
+    const hold = Number(/--jotra-site-tour-hold: (\d+)px;/.exec(TOKENS)?.[1]);
     expect(hold).toBeGreaterThan(0);
     expect(hold).toBeLessThanOrEqual(150);
   });
@@ -356,10 +356,10 @@ describe('the landing page', () => {
   it('scales the H1 with the viewport below the small breakpoint, at the default size from 480px and above its floor at 320px', () => {
     const small = CSS.slice(CSS.indexOf('@media (max-width: 640px) {'), CSS.indexOf('@media (max-width: 880px) {'));
     expect(small).toContain(
-      '  .hero-h1 {\n    font-size: clamp(var(--writ-site-text-h1-xs), var(--writ-site-text-h1-fluid), var(--writ-site-text-h1));\n  }',
+      '  .hero-h1 {\n    font-size: clamp(var(--jotra-site-text-h1-xs), var(--jotra-site-text-h1-fluid), var(--jotra-site-text-h1));\n  }',
     );
-    const px = (name: string) => Number(new RegExp(`--writ-site-text-${name}: (\\d+)px;`).exec(TOKENS)?.[1]);
-    const vw = Number(/--writ-site-text-h1-fluid: (\d+(?:\.\d+)?)vw;/.exec(TOKENS)?.[1]);
+    const px = (name: string) => Number(new RegExp(`--jotra-site-text-${name}: (\\d+)px;`).exec(TOKENS)?.[1]);
+    const vw = Number(/--jotra-site-text-h1-fluid: (\d+(?:\.\d+)?)vw;/.exec(TOKENS)?.[1]);
     expect(px('h1-xs')).toBeLessThan(px('h1'));
     expect((vw * 480) / 100).toBeGreaterThanOrEqual(px('h1'));
     expect((vw * 320) / 100).toBeGreaterThan(px('h1-xs'));
@@ -380,7 +380,7 @@ describe('the landing page', () => {
     const rules = CSS.replace(/\/\*[\s\S]*?\*\//g, '').split('}').map((r) => r.trim()).filter((r) => r.includes('{'));
     for (const rule of rules) {
       const [selector, body] = rule.split('{');
-      if (!body?.includes('var(--writ-accent')) continue;
+      if (!body?.includes('var(--jotra-accent')) continue;
       expect((selector ?? '').trim(), `accent on ${selector?.trim()}`).toMatch(
         /^(a|\.btn-primary|\.btn-primary:hover|\.skip|:focus-visible)$/,
       );
@@ -416,28 +416,28 @@ describe('the site type', () => {
   });
 
   it('declares the faces and the marker colours as tokens', () => {
-    expect(TOKENS).toContain('--writ-site-font-display: "Wix Madefor Display", var(--writ-font-ui);');
-    expect(TOKENS).toContain('--writ-site-font-text: "Wix Madefor Text", var(--writ-font-ui);');
-    expect(TOKENS).toMatch(/--writ-site-hl: #[0-9A-Fa-f]{6};/);
-    expect(TOKENS).toContain('--writ-site-hl-ink: var(--writ-fg);');
+    expect(TOKENS).toContain('--jotra-site-font-display: "Wix Madefor Display", var(--jotra-font-ui);');
+    expect(TOKENS).toContain('--jotra-site-font-text: "Wix Madefor Text", var(--jotra-font-ui);');
+    expect(TOKENS).toMatch(/--jotra-site-hl: #[0-9A-Fa-f]{6};/);
+    expect(TOKENS).toContain('--jotra-site-hl-ink: var(--jotra-fg);');
   });
 
   it('sets the body in the text cut, and the headings and the wordmark in the display cut', () => {
-    expect(rule('body')).toContain('font-family: var(--writ-site-font-text);');
+    expect(rule('body')).toContain('font-family: var(--jotra-site-font-text);');
     const display = rules
-      .filter(({ body }) => body.includes('var(--writ-site-font-display)'))
+      .filter(({ body }) => body.includes('var(--jotra-site-font-display)'))
       .flatMap(({ selector }) => selector.split(',').map((part) => part.trim()));
     expect(display.sort()).toEqual(
       ['.nav-mark', '.hero-h1', '.feature h2', '.download h2', '.dl-os', '.download-page h1', '.prose h1', '.prose h2', '.prose h3'].sort(),
     );
-    expect(rules.filter(({ body }) => /font-family:/.test(body) && !/var\(--writ-(site-font-(display|text)|font-mono)\)/.test(body))).toEqual([]);
+    expect(rules.filter(({ body }) => /font-family:/.test(body) && !/var\(--jotra-(site-font-(display|text)|font-mono)\)/.test(body))).toEqual([]);
   });
 
   it('weights the hero heading at 700 with -0.02em tracking and the other headings at 600', () => {
     const hero = rule('.hero-h1');
     expect(hero).toContain('font-weight: 700;');
-    expect(hero).toContain('letter-spacing: var(--writ-site-tracking-heading);');
-    expect(TOKENS).toContain('--writ-site-tracking-heading: -0.02em;');
+    expect(hero).toContain('letter-spacing: var(--jotra-site-tracking-heading);');
+    expect(TOKENS).toContain('--jotra-site-tracking-heading: -0.02em;');
     for (const selector of ['.nav-mark', '.feature h2', '.download h2', '.dl-os', '.prose h1,\n.download-page h1', '.prose h2', '.prose h3']) {
       expect(rule(selector), selector).toContain('font-weight: 600;');
     }
@@ -446,9 +446,9 @@ describe('the site type', () => {
   it('draws the marker behind the shown noun, fully when nothing rotates', () => {
     const noun = rule('.noun');
     expect(noun).toContain('isolation: isolate;');
-    expect(noun).toContain('color: var(--writ-site-hl-ink);');
+    expect(noun).toContain('color: var(--jotra-site-hl-ink);');
     const sweep = rule('.noun::before');
-    expect(sweep).toContain('background: var(--writ-site-hl);');
+    expect(sweep).toContain('background: var(--jotra-site-hl);');
     expect(sweep).toContain('z-index: -1;');
     expect(sweep).toContain('transform: rotate(-1.2deg) translateX(0) scaleX(1);');
     expect(sweep).not.toContain('transition');
@@ -457,19 +457,19 @@ describe('the site type', () => {
   it('grows the marker from the left after the noun arrives and collapses it to the right as it leaves', () => {
     const idle = rule('.noun-slot.is-live .noun::before');
     expect(idle).toContain('transform: rotate(-1.2deg) translateX(0) scaleX(0);');
-    expect(idle).toContain('transition: transform var(--writ-site-motion-crossfade) var(--writ-ease);');
+    expect(idle).toContain('transition: transform var(--jotra-site-motion-crossfade) var(--jotra-ease);');
     const on = rule('.noun-slot.is-live .noun.is-on::before');
     expect(on).toContain('transform: rotate(-1.2deg) translateX(0) scaleX(1);');
-    expect(on).toContain('transition-delay: var(--writ-site-motion-noun-sweep-delay);');
+    expect(on).toContain('transition-delay: var(--jotra-site-motion-noun-sweep-delay);');
     const out = rule('.noun-slot.is-live .noun.is-out::before');
     expect(out).toContain('transform: rotate(-1.2deg) translateX(100%) scaleX(0);');
-    expect(out).toContain('transition-duration: var(--writ-site-motion-noun-sweep-out);');
+    expect(out).toContain('transition-duration: var(--jotra-site-motion-noun-sweep-out);');
     // One origin for every state: moving the origin of a rotated box shifts it.
     expect(
       rules.filter(({ selector, body }) => selector.includes('.noun') && body.includes('transform-origin')).map(({ selector }) => selector),
     ).toEqual(['.noun::before']);
     const reduced = /@media \(prefers-reduced-motion: reduce\) \{\s*:root \{([^}]*)\}/.exec(TOKENS)?.[1] ?? '';
-    expect(reduced).toContain('--writ-site-motion-noun-sweep-delay: 0ms;');
-    expect(reduced).toContain('--writ-site-motion-noun-sweep-out: 0ms;');
+    expect(reduced).toContain('--jotra-site-motion-noun-sweep-delay: 0ms;');
+    expect(reduced).toContain('--jotra-site-motion-noun-sweep-out: 0ms;');
   });
 });

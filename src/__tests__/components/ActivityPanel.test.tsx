@@ -129,7 +129,7 @@ describe("ActivityPanel", () => {
   });
 
   it("gives the next step when nothing has called yet", () => {
-    h.setServerCommand({ path: "/usr/local/bin/writ", command: '"/usr/local/bin/writ" mcp' });
+    h.setServerCommand({ path: "/usr/local/bin/jotra", command: '"/usr/local/bin/jotra" mcp' });
     openActivity();
     const { container } = render(() => <ActivityPanel />);
 
@@ -231,7 +231,7 @@ describe("ActivityPanel", () => {
     expect(container.querySelector(".activity-row .activity-program")!.textContent).toBe("Cursor");
   });
 
-  it("puts chat and Writ's own rows under a heading of their own, below the programs' calls", () => {
+  it("puts chat and Jotra's own rows under a heading of their own, below the programs' calls", () => {
     h.setRecords([
       record({ at: "2026-09-09T10:33:00.000Z" }),
       record({
@@ -252,13 +252,13 @@ describe("ActivityPanel", () => {
     const { container } = render(() => <ActivityPanel />);
 
     const programs = container.querySelector("[data-rows='programs']")!;
-    const writ = container.querySelector("[data-rows='writ']")!;
+    const jotra = container.querySelector("[data-rows='jotra']")!;
     const names = (list: Element) =>
       Array.from(list.querySelectorAll(".activity-program"), (name) => name.textContent);
     expect(names(programs)).toEqual(["Claude Code"]);
     expect(programs.querySelector(".activity-count")!.textContent).toBe("2 times");
-    expect(names(writ)).toEqual(["api.openai.com", "Writ"]);
-    const heading = document.getElementById(writ.getAttribute("aria-labelledby")!);
+    expect(names(jotra)).toEqual(["api.openai.com", "Jotra"]);
+    const heading = document.getElementById(jotra.getAttribute("aria-labelledby")!);
     expect(heading?.textContent?.trim()).toBe("Chat and earlier versions");
   });
 
@@ -271,7 +271,7 @@ describe("ActivityPanel", () => {
 
     expect(container.querySelector(".activity-empty")).not.toBeNull();
     expect(container.querySelector("[data-rows='programs']")).toBeNull();
-    expect(container.querySelector("[data-rows='writ'] .activity-row")).not.toBeNull();
+    expect(container.querySelector("[data-rows='jotra'] .activity-row")).not.toBeNull();
   });
 
   it("words a call that names no file without one", () => {

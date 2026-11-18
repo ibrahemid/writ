@@ -33,7 +33,7 @@ export function indentationFor(tabSize: number): Extension {
 }
 
 /**
- * The reading measure: the text column stops at `--writ-prose-measure` and
+ * The reading measure: the text column stops at `--jotra-prose-measure` and
  * sits centered in the pane. Above the theme's own `maxWidth: none`.
  */
 export const readingMeasure: Extension = Prec.high(

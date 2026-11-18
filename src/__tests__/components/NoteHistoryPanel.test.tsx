@@ -96,11 +96,11 @@ describe("NoteHistoryPanel", () => {
     expect(screen.getByText(dateOf(older))).toBeTruthy();
   });
 
-  it("names who wrote each version, and nobody for a version Writ cannot place", async () => {
+  it("names who wrote each version, and nobody for a version Jotra cannot place", async () => {
     given([
       { ...version(1, at(0, 14, 40)), writer: { kind: "program", name: "claude-code" } },
       { ...version(2, at(0, 14, 35)), writer: { kind: "chat" } },
-      { ...version(3, at(0, 14, 30)), writer: { kind: "writ" } },
+      { ...version(3, at(0, 14, 30)), writer: { kind: "jotra" } },
       { ...version(4, at(0, 14, 25)), writer: { kind: "command" } },
       { ...version(5, at(0, 14, 20)), writer: null },
     ]);
@@ -113,7 +113,7 @@ describe("NoteHistoryPanel", () => {
     const writers = [...rows].map(
       (row) => row.querySelector(".note-version-writer")?.textContent ?? null,
     );
-    expect(writers).toEqual(["Claude Code", "Chat", "Writ", "writ command", null]);
+    expect(writers).toEqual(["Claude Code", "Chat", "Jotra", "jotra command", null]);
   });
 
   it("reads the newest version as soon as it opens", async () => {
@@ -188,7 +188,7 @@ describe("NoteHistoryPanel", () => {
     await waitFor(() =>
       expect(screen.getByText("Files over 2 MB are not versioned.")).toBeTruthy(),
     );
-    expect(screen.queryByText("Writ keeps one each time the file is saved.")).toBeNull();
+    expect(screen.queryByText("Jotra keeps one each time the file is saved.")).toBeNull();
   });
 
   it("says a file outside the folder has no versions", async () => {

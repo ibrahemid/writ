@@ -2,7 +2,7 @@
 //! driver ([`session`]), what the main window ends ([`window`]) and the one
 //! live session the app allows.
 //!
-//! What a session reports and when lives in `writ_core::dictation`; the IPC
+//! What a session reports and when lives in `jotra_core::dictation`; the IPC
 //! surface is `commands::dictation`.
 
 pub mod bridge;
@@ -12,7 +12,7 @@ pub mod window;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
-use writ_core::dictation::DictationError;
+use jotra_core::dictation::DictationError;
 
 use crate::poison::recover_poison;
 use session::Controls;

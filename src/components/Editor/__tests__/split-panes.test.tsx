@@ -276,7 +276,7 @@ describe("a note restored in both panes at launch", () => {
     openTabs.push(a);
     bufferContent.set("A", "one\n");
     localStorage.setItem(
-      "writ.editor.panes.v1",
+      "jotra.editor.panes.v1",
       JSON.stringify({ v: 1, ratio: 0.5, focused: "right", right: [], both: ["A"], active: { left: "A", right: "A" } }),
     );
     // Another program writes the file just after the first read.
@@ -312,7 +312,7 @@ describe("a note restored in both panes at launch", () => {
     openTabs.push(a);
     bufferContent.set("A", "one\n");
     localStorage.setItem(
-      "writ.editor.panes.v1",
+      "jotra.editor.panes.v1",
       JSON.stringify({ v: 1, ratio: 0.5, focused: "right", right: [], both: ["A"], active: { left: "A", right: "A" } }),
     );
     vi.mocked(bufferRegistry.readContent).mockImplementationOnce(async () => {

@@ -197,7 +197,7 @@ describe("the window's plan", () => {
 });
 
 describe("files handed to the window", () => {
-  it("opens each file at the line the writ command named for it", async () => {
+  it("opens each file at the line the jotra command named for it", async () => {
     const reveals: Array<[string, number]> = [];
     const win = {
       windowId: 9101,

@@ -438,7 +438,7 @@ def accepted_licences() -> list[str]:
 
 
 def resolve_licence(declared: str, accepted: list[str]) -> str:
-    """Reduce a declared expression to the one licence Writ ships under.
+    """Reduce a declared expression to the one licence Jotra ships under.
 
     A conjunction ("A AND B") means every licence applies, so it is left intact.
     A choice is resolved the way cargo-about resolves it: first match in
@@ -706,7 +706,7 @@ def render(
     add("# Third-party notices")
     add("")
     add(
-        "Writ links in the Rust crates, bundles the npm packages, and ships the files "
+        "Jotra links in the Rust crates, bundles the npm packages, and ships the files "
         "listed below. Their licences require the copyright notice and "
         "permission text to be distributed with the binaries, so both are reproduced "
         "in full."
@@ -761,7 +761,7 @@ def render(
     add("")
     add(
         "Each block is one distinct licence text and the crates it covers. Crates "
-        "offering a choice of licences appear under the one Writ takes, in the "
+        "offering a choice of licences appear under the one Jotra takes, in the "
         "order set by `about.toml`."
     )
     add("")

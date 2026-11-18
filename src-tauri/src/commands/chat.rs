@@ -1,23 +1,23 @@
 //! IPC surface for the chat pane.
 //!
-//! The pane's request, stream, context and apply are [`writ_ai::chat`]. These
+//! The pane's request, stream, context and apply are [`jotra_ai::chat`]. These
 //! commands read the config and the open tabs, hand them over, deliver each
-//! [`PaneFrame`] as `writ://ai-chat`, and do the two things that need an open
+//! [`PaneFrame`] as `jotra://ai-chat`, and do the two things that need an open
 //! tab's buffer: an apply to a file outside the notes folder goes through that
 //! tab's save path, and a tab holding a file a proposal changed is told so.
 
 use std::path::Path;
 
+use jotra_ai::chat::{self, PaneFrame, TabLookup};
+use jotra_core::chat::{ChatError, ProposalStatus};
+use jotra_core::config::AiConfig;
+use jotra_core::polish;
+use jotra_storage::chat_store::{ChatStore, ConversationSummary};
+use jotra_storage::paths::file_name_only;
 use tauri::{AppHandle, Manager, State};
 use tokio_util::sync::CancellationToken;
-use writ_ai::chat::{self, PaneFrame, TabLookup};
-use writ_core::chat::{ChatError, ProposalStatus};
-use writ_core::config::AiConfig;
-use writ_core::polish;
-use writ_storage::chat_store::{ChatStore, ConversationSummary};
-use writ_storage::paths::file_name_only;
 
-pub use writ_ai::chat::{
+pub use jotra_ai::chat::{
     apply_permissions, begin_request, chat_delete_inner, context_permissions, endpoint_state_from,
     needs_key_lookup, note_file_in, prepare_chat, stop_live_chats, AttachedSize, ChatEndpointState,
     ChatSendAccepted, ChatState, ConversationDto, LiveGuard, PreparedChat, ProposalDto,
@@ -25,7 +25,7 @@ pub use writ_ai::chat::{
 };
 
 use super::ai::AiKeyState;
-use crate::events::{emit_event, WritFrontendEvent};
+use crate::events::{emit_event, JotraFrontendEvent};
 use crate::poison::recover_poison;
 use crate::state::AppState;
 use crate::watcher::open_files::OpenNotes;
@@ -39,9 +39,9 @@ impl TabLookup for Tabs<'_> {
     }
 }
 
-/// The frame the pane receives on `writ://ai-chat`.
-fn pane_event(frame: PaneFrame) -> WritFrontendEvent {
-    WritFrontendEvent::AiChat {
+/// The frame the pane receives on `jotra://ai-chat`.
+fn pane_event(frame: PaneFrame) -> JotraFrontendEvent {
+    JotraFrontendEvent::AiChat {
         conversation_id: frame.conversation_id,
         request_id: frame.request_id,
         kind: frame.kind,
@@ -63,7 +63,7 @@ pub async fn run_reply(
     store: &ChatStore,
     conversation_id: &str,
     request_id: &str,
-    mut emit: impl FnMut(WritFrontendEvent),
+    mut emit: impl FnMut(JotraFrontendEvent),
 ) {
     chat::run_reply(
         client,
@@ -92,7 +92,7 @@ pub fn read_attached_in(
     notes_root: &Path,
     open_notes: &dyn OpenNotes,
     paths: &[String],
-) -> Result<Vec<writ_core::chat::AttachedNote>, String> {
+) -> Result<Vec<jotra_core::chat::AttachedNote>, String> {
     chat::read_attached_in(notes_root, &Tabs(open_notes), paths)
 }
 
@@ -102,18 +102,18 @@ pub fn read_attached_in(
 pub fn apply_proposal_inner(
     notes_root: &Path,
     open_notes: &dyn OpenNotes,
-    writ_dir: &Path,
+    jotra_dir: &Path,
     host: &str,
     path: &str,
     new_content: &str,
     before_hash: &str,
-    history: Option<&writ_storage::note_history::NoteHistoryStore>,
+    history: Option<&jotra_storage::note_history::NoteHistoryStore>,
     write_tab: impl FnOnce(&str, &str, &[u8]) -> Result<(), String>,
 ) -> Result<ProposalOutcome, String> {
     chat::apply_proposal_inner(
         notes_root,
         &Tabs(open_notes),
-        writ_dir,
+        jotra_dir,
         host,
         path,
         new_content,
@@ -129,17 +129,17 @@ pub fn apply_proposal_inner(
 pub fn undo_proposal_inner(
     notes_root: &Path,
     open_notes: &dyn OpenNotes,
-    writ_dir: &Path,
+    jotra_dir: &Path,
     host: &str,
     path: &str,
     before_hash: &str,
     applied_hash: &str,
-    history: Option<&writ_storage::note_history::NoteHistoryStore>,
+    history: Option<&jotra_storage::note_history::NoteHistoryStore>,
 ) -> Result<ProposalOutcome, String> {
     chat::undo_proposal_inner(
         notes_root,
         &Tabs(open_notes),
-        writ_dir,
+        jotra_dir,
         host,
         path,
         before_hash,
@@ -153,18 +153,18 @@ pub fn undo_proposal_inner(
 pub fn discard_proposal_inner(
     notes_root: &Path,
     open_notes: &dyn OpenNotes,
-    writ_dir: &Path,
+    jotra_dir: &Path,
     host: &str,
     path: &str,
 ) {
-    chat::discard_proposal_inner(notes_root, &Tabs(open_notes), writ_dir, host, path);
+    chat::discard_proposal_inner(notes_root, &Tabs(open_notes), jotra_dir, host, path);
 }
 
 /// The stored conversation as the pane reads it ([`chat::conversation_dto`]).
 fn conversation_dto(
     notes_root: &Path,
     open_notes: &dyn OpenNotes,
-    conversation: writ_core::chat::Conversation,
+    conversation: jotra_core::chat::Conversation,
 ) -> ConversationDto {
     chat::conversation_dto(notes_root, &Tabs(open_notes), conversation)
 }
@@ -203,7 +203,7 @@ pub fn chat_attached_sizes(
 
 /// The conversation folder under this instance's data directory.
 fn chat_store(app: &AppHandle) -> ChatStore {
-    ChatStore::new(&app.state::<AppState>().writ_dir)
+    ChatStore::new(&app.state::<AppState>().jotra_dir)
 }
 
 /// The conversations the folder holds, most recently changed first.
@@ -269,7 +269,7 @@ pub fn chat_delete(app: AppHandle, id: String) -> Result<(), String> {
 #[tauri::command]
 pub fn chat_render_reply(markdown: String) -> Result<String, String> {
     render_reply_with(&markdown, |markdown| {
-        writ_render::render_markdown_fragment_untrusted(markdown).html
+        jotra_render::render_markdown_fragment_untrusted(markdown).html
     })
 }
 
@@ -278,8 +278,8 @@ fn render_reply_with(
     render: impl FnOnce(&str) -> String,
 ) -> Result<String, String> {
     // The closure never returns an error of its own: an `Err` is a panic.
-    writ_core::preview::render_contained(|| Ok(render(markdown)))
-        .map_err(|_| writ_core::preview::RENDERER_PANICKED.to_string())
+    jotra_core::preview::render_contained(|| Ok(render(markdown)))
+        .map_err(|_| jotra_core::preview::RENDERER_PANICKED.to_string())
 }
 
 /// What the card reads when the tab's own save path refused the write.
@@ -303,12 +303,12 @@ fn save_error_sentence(name: &str, error: &str) -> String {
 /// Tells the tab holding `file` that an applied proposal changed it.
 ///
 /// The write carries no ignore stamp, because ADR-033 is right that the folder
-/// watcher is the channel a write Writ did not make reaches a tab through. That
+/// watcher is the channel a write Jotra did not make reaches a tab through. That
 /// channel is slow and, on a loaded machine, late. This is the same event the
 /// watcher would build, delivered by the write itself; recording the written
 /// bytes as the tab's disk state in the same step is what makes the watcher's
 /// own delivery silent at
-/// [`writ_core::watcher::change_event::modification_is_news`], so the tab gets
+/// [`jotra_core::watcher::change_event::modification_is_news`], so the tab gets
 /// one event rather than two.
 ///
 /// A note nobody has open is told nothing, and answers `None`.
@@ -338,14 +338,14 @@ pub fn announce_note_change(state: &AppState, note_id: &str, file: &Path, bytes:
             file,
             Some(bytes),
             crate::watcher::moves::encoding_of_note(state, note_id),
-            Some(writ_core::notes::Writer::Chat),
+            Some(jotra_core::notes::Writer::Chat),
         ));
 }
 
 /// Sends one frame to the pane. A frame that cannot be delivered is a warning:
 /// the reply is already in the file, and there is nothing a second attempt
 /// would reach.
-fn emit_to_pane(app: &AppHandle, event: WritFrontendEvent) {
+fn emit_to_pane(app: &AppHandle, event: JotraFrontendEvent) {
     if let Err(error) = emit_event(app, event) {
         tracing::warn!(error = %error, "failed to emit chat frame");
     }
@@ -355,7 +355,7 @@ fn emit_to_pane(app: &AppHandle, event: WritFrontendEvent) {
 /// first ([`chat::prepare_send`]).
 ///
 /// `conversation_id` names the file the turns live in and keys the
-/// `writ://ai-chat` frames; `request_id` names this send among the sends that
+/// `jotra://ai-chat` frames; `request_id` names this send among the sends that
 /// conversation has had, so a stop and a frame both say which reply they mean.
 #[tauri::command]
 pub async fn chat_send(
@@ -522,7 +522,7 @@ pub fn apply_proposal_to_state(
     let outcome = apply_proposal_inner(
         &notes_root,
         &open_tabs,
-        &state.writ_dir,
+        &state.jotra_dir,
         host,
         path,
         new_content,
@@ -536,7 +536,7 @@ pub fn apply_proposal_to_state(
             // offer was made against, and those are the bytes handed here.
             // Recording them as the tab's disk state is what stops the buffer
             // store's own guard reading the write as one landing over a change
-            // Writ never saw, which for a file outside the folder would leave a
+            // Jotra never saw, which for a file outside the folder would leave a
             // dated copy beside it.
             if let Some(file) = write_file.as_ref() {
                 state.record_disk_state_bytes(tab_id, file, verified);
@@ -619,7 +619,7 @@ pub fn undo_proposal_to_state(
     let outcome = undo_proposal_inner(
         &notes_root,
         &open_tabs,
-        &state.writ_dir,
+        &state.jotra_dir,
         host,
         path,
         before_hash,
@@ -639,14 +639,14 @@ pub fn undo_proposal_to_state(
 /// Records that a proposal was read and not applied.
 #[tauri::command]
 pub fn chat_discard_proposal(app: AppHandle, conversation_id: String, turn: usize, path: String) {
-    let (notes_root, writ_dir) = {
+    let (notes_root, jotra_dir) = {
         let state = app.state::<AppState>();
-        (state.notes_root(), state.writ_dir.clone())
+        (state.notes_root(), state.jotra_dir.clone())
     };
     discard_proposal_inner(
         &notes_root,
         &app.state::<AppState>().open_tabs(),
-        &writ_dir,
+        &jotra_dir,
         &chat_host(&app),
         &path,
     );
@@ -670,7 +670,7 @@ fn chat_host(app: &AppHandle) -> String {
 
 /// Tells any open activity view that the log grew.
 fn announce_activity(app: &AppHandle) {
-    if let Err(error) = emit_event(app, WritFrontendEvent::ActivityChanged {}) {
+    if let Err(error) = emit_event(app, JotraFrontendEvent::ActivityChanged {}) {
         tracing::warn!(error = %error, "failed to emit activity event");
     }
 }
@@ -730,7 +730,7 @@ mod render_reply_tests {
 
         assert_eq!(
             failed,
-            Err(writ_core::preview::RENDERER_PANICKED.to_string())
+            Err(jotra_core::preview::RENDERER_PANICKED.to_string())
         );
     }
 }

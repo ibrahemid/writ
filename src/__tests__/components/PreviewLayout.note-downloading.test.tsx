@@ -48,7 +48,7 @@ describe("PreviewLayout — the editor slot hosts a note that is downloading", (
 
     const win = windowRegistry.getActive()!;
     await win.downloads.start({
-      path: "/home/user/Writ/trip.md",
+      path: "/home/user/Jotra/trip.md",
       title: "trip.md",
       provider: "iCloud Drive",
     });
@@ -57,10 +57,10 @@ describe("PreviewLayout — the editor slot hosts a note that is downloading", (
       expect(container.querySelector(".note-downloading")).not.toBeNull(),
     );
     expect(container.textContent).toContain("Downloading from iCloud Drive");
-    expect(mocks.materialiseNote).toHaveBeenCalledWith("/home/user/Writ/trip.md");
+    expect(mocks.materialiseNote).toHaveBeenCalledWith("/home/user/Jotra/trip.md");
 
     // Closing the download takes the pane with it.
-    win.downloads.dismiss("/home/user/Writ/trip.md");
+    win.downloads.dismiss("/home/user/Jotra/trip.md");
     await waitFor(() =>
       expect(container.querySelector(".note-downloading")).toBeNull(),
     );

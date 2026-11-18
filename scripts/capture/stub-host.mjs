@@ -80,7 +80,7 @@ const server = createServer((req, res) => {
       birthday
         ? 'Two of these are a tenner and two are a weekend. Splitting them makes the list easier to pick from.\n\n'
         : 'The opening reads as a list of what has stopped. Ending it on the shed and the tea turns that into a scene, and it sets up the recipe below.\n\n',
-      `\`\`\`writ-proposal path="${note.path}" summary="${birthday ? 'Split the list by size' : 'End the opening on the shed'}"\n`,
+      `\`\`\`jotra-proposal path="${note.path}" summary="${birthday ? 'Split the list by size' : 'End the opening on the shed'}"\n`,
       revise(note.text),
       '```\n',
     ];

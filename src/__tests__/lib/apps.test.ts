@@ -49,8 +49,8 @@ describe("where an app lives, in words", () => {
   it("names the macOS menu the item is in, and the one menu elsewhere", () => {
     const point = { kind: "menu", command: "folderGraph.open" } as const;
     expect(entryPointName(point, "mac")).toBe("View menu");
-    expect(entryPointName(point, "win")).toBe("Writ menu");
-    expect(entryPointName(point, "linux")).toBe("Writ menu");
+    expect(entryPointName(point, "win")).toBe("Jotra menu");
+    expect(entryPointName(point, "linux")).toBe("Jotra menu");
   });
 
   it("draws a chord as keys rather than naming it", () => {

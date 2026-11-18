@@ -103,9 +103,9 @@ describe("LargeFileOpen", () => {
     expect(container.querySelector(".large-file-dialog")).toBeNull();
   });
 
-  // The file grew past the size Writ opens between Open and the editor's read,
+  // The file grew past the size Jotra opens between Open and the editor's read,
   // which measured it and read nothing: the tab says why in the editor's place.
-  it("goes when the editor's read found the file past the size Writ opens", async () => {
+  it("goes when the editor's read found the file past the size Jotra opens", async () => {
     const { container, win } = mount();
     const answer = largeFileOpen.ask("server.log", 60_000_000);
     fireEvent.click(button(container, "Open"));
@@ -113,7 +113,7 @@ describe("LargeFileOpen", () => {
     largeFileOpen.handOff("big");
     win().tabs.setActiveTabId("big");
 
-    unreadTabs.takeRefused("big", "it is 600 MB, and Writ opens files up to 524 MB.");
+    unreadTabs.takeRefused("big", "it is 600 MB, and Jotra opens files up to 524 MB.");
 
     expect(container.querySelector(".large-file-dialog")).toBeNull();
     expect(largeFileOpen.state()).toBeNull();

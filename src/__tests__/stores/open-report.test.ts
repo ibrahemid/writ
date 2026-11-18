@@ -61,7 +61,7 @@ function row(id: string, path: string): BufferDocument {
   };
 }
 
-const TOO_LARGE = "it is 600 MB, and Writ opens files up to 524 MB.";
+const TOO_LARGE = "it is 600 MB, and Jotra opens files up to 524 MB.";
 
 beforeEach(() => {
   vi.clearAllMocks();

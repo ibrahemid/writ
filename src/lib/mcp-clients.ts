@@ -3,7 +3,7 @@ import { displayProgramName } from "./program-names";
 
 export interface McpClientEntry {
   id: McpClientId;
-  /** The name the card shows. For a client that calls Writ, the name
+  /** The name the card shows. For a client that calls Jotra, the name
    * `displayProgramName` gives the names it sends, so a card finds its own
    * program on the waiting and approved lists. */
   label: string;

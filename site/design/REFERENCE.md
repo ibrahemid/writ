@@ -86,13 +86,13 @@ Measured live with Chrome DevTools at 1440x900 (DPR 1) and 390x844 (DPR 2, mobil
 - The tightest palettes (Bear 11, Granola 26 working colours) read as the calmest. Cap's 108 colours read as busy.
 - Footers are 19 to 53 links; none carry a tagline that says anything (Cap's is marketing filler).
 
-## The lock for Writ
+## The lock for Jotra
 
 Primary: **Tuple** for the page grammar (centered H1 at weight 600 in Inter, one sub in grey, one filled button with a detail line, the real window under it with one shadow, plain light bands between sections) with **Linear** for type discipline (Inter Variable at 510 to 600, tracking -0.022em, a 14-step scale, hairline nav) and **Bear** for palette count (11 colours) and for being a notes app that shows its window plainly.
 
 Preserve:
 - Centered hero, H1 at 44/60/72 in Wix Madefor Display 700, tracking -0.02em, line-height 1.05; below 640px it scales at 10.8vw between 32 and 44. Tuple's 60px H1 at 1440 is the direct model; Linear's 64 and Raycast's 64 confirm the range.
-- One grey for secondary text (Tuple #71717A, Linear #8A8F98, Bear #888): Writ uses its own `fg.muted`.
+- One grey for secondary text (Tuple #71717A, Linear #8A8F98, Bear #888): Jotra uses its own `fg.muted`.
 - One filled button on the accent, a text button beside it (Cap's pair, Tuple's single filled button with a text detail line).
 - The detail line in 13px under the buttons (Raycast, Tuple, Granola).
 - The window as a real 2x capture, hairline border, one shadow, 64px under the buttons (between Linear's 72 and Cap's 22, the shadow from Tuple).

@@ -1,0 +1,13 @@
+{
+  "canvas": 1024,
+  "variant": "j-dot-bold",
+  "tile": {
+    "color": "#090B13",
+    "superellipseExponent": 5,
+    "body": { "macos": 824, "flat": 896 }
+  },
+  "glyph": {
+    "color": "#5BC5A7",
+    "frame": 1024
+  }
+}

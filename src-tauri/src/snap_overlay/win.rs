@@ -24,7 +24,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::{overlay_rect, CaptionButtonMetrics};
-use crate::events::{emit_event_to_main, CaptionHitPhase, WritFrontendEvent};
+use crate::events::{emit_event_to_main, CaptionHitPhase, JotraFrontendEvent};
 
 const PARENT_SUBCLASS_ID: usize = 1;
 
@@ -106,7 +106,7 @@ fn register_class() -> Result<(), String> {
                 // The overlay exists to answer a hit test, never to draw: a null
                 // brush leaves whatever the webview painted underneath visible.
                 hbrBackground: HBRUSH(unsafe { GetStockObject(NULL_BRUSH) }.0),
-                lpszClassName: w!("WritSnapOverlay"),
+                lpszClassName: w!("JotraSnapOverlay"),
                 ..Default::default()
             };
             if unsafe { RegisterClassExW(&class) } == 0 {
@@ -135,7 +135,7 @@ unsafe fn create_overlay(parent: HWND, app: AppHandle) -> Result<HWND, String> {
     let created = unsafe {
         CreateWindowExW(
             WINDOW_EX_STYLE::default(),
-            w!("WritSnapOverlay"),
+            w!("JotraSnapOverlay"),
             None,
             WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
             0,
@@ -211,7 +211,7 @@ unsafe extern "system" fn parent_subclass_proc(
 ) -> LRESULT {
     match msg {
         WM_SIZE | WM_DPICHANGED => unsafe { reposition(hwnd) },
-        // Teardown belongs to WM_NCDESTROY, not WM_CLOSE: Writ hides on close,
+        // Teardown belongs to WM_NCDESTROY, not WM_CLOSE: Jotra hides on close,
         // so the window outlives every WM_CLOSE it receives (Alt+F4 included)
         // and tearing down there would kill snap for the rest of the session.
         //
@@ -350,7 +350,7 @@ unsafe fn track_leave(hwnd: HWND) {
 }
 
 fn emit_phase(app: &AppHandle, phase: CaptionHitPhase) {
-    if let Err(e) = emit_event_to_main(app, WritFrontendEvent::CaptionMaximizeHit { phase }) {
+    if let Err(e) = emit_event_to_main(app, JotraFrontendEvent::CaptionMaximizeHit { phase }) {
         tracing::debug!(error = %e, phase = ?phase, "caption hit emit failed");
     }
 }

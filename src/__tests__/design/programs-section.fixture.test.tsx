@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { render, cleanup, waitFor } from "@solidjs/testing-library";
 import { configStore, isAppOnIn } from "../../stores/global/config";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 
 const TEST_CLAIMABLE_TYPE = {
   id: "markdown",
@@ -36,7 +36,7 @@ const mocks = vi.hoisted(() => ({
   claimDefaultApp: vi.fn().mockResolvedValue(undefined),
   fetchDefaultAppTypes: vi.fn(),
   fetchCliStatus: vi.fn().mockResolvedValue({ installed: false }),
-  fetchStorageInfo: vi.fn().mockResolvedValue({ db_path: "/home/user/.writ/writ.db", dir: "/home/user/.writ" }),
+  fetchStorageInfo: vi.fn().mockResolvedValue({ db_path: "/home/user/.jotra/jotra.db", dir: "/home/user/.jotra" }),
   revealStoragePath: vi.fn().mockResolvedValue(undefined),
   copyStoragePath: vi.fn().mockResolvedValue(undefined),
   writeClipboardText: vi.fn().mockResolvedValue(undefined),
@@ -56,7 +56,7 @@ const mocks = vi.hoisted(() => ({
   mcpSetClientPermission: vi.fn(),
   mcpSetClientContext: vi.fn(),
   mcpForgetClient: vi.fn(),
-  mcpServerCommand: vi.fn().mockResolvedValue({ path: "/usr/local/bin/writ", command: "writ mcp" }),
+  mcpServerCommand: vi.fn().mockResolvedValue({ path: "/usr/local/bin/jotra", command: "jotra mcp" }),
   mcpTools: vi.fn(),
   onEvent: vi.fn().mockResolvedValue(() => {}),
   aiCheckConnection: vi.fn().mockResolvedValue({
@@ -124,11 +124,11 @@ vi.mock("../../stores/global/default-app", () => ({
 }));
 
 vi.mock("../../stores/global/cli", () => ({
-  installCli: vi.fn().mockResolvedValue({ symlink_path: "/usr/local/bin/writ", manual_command: "" }),
+  installCli: vi.fn().mockResolvedValue({ symlink_path: "/usr/local/bin/jotra", manual_command: "" }),
   fetchCliStatus: mocks.fetchCliStatus,
-  CLI_EXAMPLES: ["writ .", "git log | writ --title log"],
+  CLI_EXAMPLES: ["jotra .", "git log | jotra --title log"],
   copyCliExample: vi.fn().mockResolvedValue(undefined),
-  installFailureMessage: () => "Could not install the writ command",
+  installFailureMessage: () => "Could not install the jotra command",
 }));
 
 vi.mock("../../stores/global/notes", () => ({
@@ -189,7 +189,7 @@ vi.spyOn(configStore, "isAppOn").mockImplementation((app) => isAppOnIn(mocks.con
 
 import SettingsModal, { openSettings, closeSettings } from "../../components/SettingsModal/SettingsModal";
 
-function baseConfig(): WritConfig {
+function baseConfig(): JotraConfig {
   return {
     hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
     sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false, width: 240, collapsed: [], hidden: [] },
@@ -225,9 +225,9 @@ function baseConfig(): WritConfig {
 
 // The programs row is read at three interface text sizes and at the window's
 // minimum width, so the design gate can see the rows it has to fit. Off unless
-// the gate points WRIT_DESIGN_FIXTURE_DIR at a folder.
+// the gate points JOTRA_DESIGN_FIXTURE_DIR at a folder.
 
-const FIXTURE_DIR = process.env.WRIT_DESIGN_FIXTURE_DIR;
+const FIXTURE_DIR = process.env.JOTRA_DESIGN_FIXTURE_DIR;
 const SIZES = [12, 16, 22];
 
 const SERVER_READ_TOOLS = [
@@ -272,7 +272,7 @@ function page(size: number, modal: string, extra = ""): string {
 <head>
 <meta charset="utf-8" />
 ${styleBlocks()}
-<style>:root{--writ-ui-size:${size}px}</style>
+<style>:root{--jotra-ui-size:${size}px}</style>
 ${extra}
 </head>
 <body style="padding:24px">
@@ -292,7 +292,7 @@ async function renderPrograms(): Promise<string> {
   mocks.mcpClients.mockReset().mockResolvedValue({ approved: CLIENTS, waiting: [] });
   mocks.mcpServerCommand
     .mockReset()
-    .mockResolvedValue({ path: "/usr/local/bin/writ", command: "writ mcp" });
+    .mockResolvedValue({ path: "/usr/local/bin/jotra", command: "jotra mcp" });
   mocks.mcpTools.mockReset().mockResolvedValue({
     read: SERVER_READ_TOOLS,
     write: SERVER_WRITE_TOOLS,

@@ -3,7 +3,7 @@ import Palette from "../Palette/Palette";
 import { createEncodingProvider } from "../../commands/providers/encoding-provider";
 import type { ResultProvider } from "../Palette/types";
 
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 const [isOpen, setIsOpen] = createSignal(false);
 
 /** Opens the encoding list for the file in front (Reopen with Encoding). */

@@ -29,8 +29,8 @@ describe("joinDictation", () => {
   });
 
   it("spaces Arabic after English and English after Arabic", () => {
-    expect(joinDictation("Writ", "مرحبا", "")).toBe(" مرحبا");
-    expect(joinDictation("مرحبا", "Writ", "")).toBe(" Writ");
+    expect(joinDictation("Jotra", "مرحبا", "")).toBe(" مرحبا");
+    expect(joinDictation("مرحبا", "Jotra", "")).toBe(" Jotra");
   });
 
   it("puts a space behind the text when a word follows it", () => {
@@ -48,8 +48,8 @@ describe("joinDictation", () => {
     expect(joinDictation("我想说", "你好", "")).toBe("你好");
     expect(joinDictation("今日は", "いい天気", "です")).toBe("いい天気");
     expect(joinDictation("カタカナ", "テスト", "")).toBe("テスト");
-    expect(joinDictation("Writ", "很好", "")).toBe("很好");
-    expect(joinDictation("很好", "Writ", "")).toBe("Writ");
+    expect(joinDictation("Jotra", "很好", "")).toBe("很好");
+    expect(joinDictation("很好", "Jotra", "")).toBe("Jotra");
     expect(joinDictation("", "Hello", "世界")).toBe("Hello");
     expect(joinDictation("", "你好", "world")).toBe("你好");
   });

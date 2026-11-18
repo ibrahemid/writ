@@ -272,7 +272,7 @@ describe("chords the macOS menu bar holds", () => {
     const screen = render(both);
 
     expect(screen.container.querySelector(".shortcut-row-conflict")!.textContent).toBe(
-      "Conflicts with Quit Writ",
+      "Conflicts with Quit Jotra",
     );
     const save = screen.container.querySelector<HTMLButtonElement>("[data-action='save-shortcuts']")!;
     expect(save.disabled).toBe(true);

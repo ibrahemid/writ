@@ -46,6 +46,6 @@ describe("pathInRoots", () => {
   });
 
   it("writes a Windows path inside its root with forward slashes", () => {
-    expect(pathInRoots("C:\\Users\\me\\Writ\\api\\a.md", ["C:\\Users\\me\\Writ"])).toBe("api/a.md");
+    expect(pathInRoots("C:\\Users\\me\\Jotra\\api\\a.md", ["C:\\Users\\me\\Jotra"])).toBe("api/a.md");
   });
 });

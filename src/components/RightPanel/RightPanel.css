@@ -7,19 +7,19 @@
   flex-shrink: 0;
   width: 0;
   height: 100%;
-  background: var(--writ-bg-sidebar);
-  border-left: 1px solid var(--writ-border-soft);
+  background: var(--jotra-bg-sidebar);
+  border-left: 1px solid var(--jotra-border-soft);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: width var(--writ-motion);
+  transition: width var(--jotra-motion);
 }
 
 /* The live width is the persisted one; the token stays the default. Bounds
    are clamped in JS (clampPanelWidth), so nothing here needs a min/max-width
    floor that would otherwise make expand pop straight to it. */
 .right-panel.is-open {
-  width: var(--writ-panel-live-width, var(--writ-sidebar-width));
+  width: var(--jotra-panel-live-width, var(--jotra-sidebar-width));
 }
 
 .right-panel.is-resizing {
@@ -32,7 +32,7 @@
   flex: 1;
   flex-shrink: 0;
   min-height: 0;
-  width: var(--writ-panel-live-width, var(--writ-sidebar-width));
+  width: var(--jotra-panel-live-width, var(--jotra-sidebar-width));
   display: flex;
   flex-direction: column;
 }
@@ -43,19 +43,19 @@
   left: 0;
   bottom: 0;
   width: 4px;
-  z-index: var(--writ-z-drag);
+  z-index: var(--jotra-z-drag);
   cursor: col-resize;
   touch-action: none;
   background: transparent;
-  transition: background var(--writ-motion);
+  transition: background var(--jotra-motion);
 }
 
 .right-panel-resizer:hover {
-  background: var(--writ-border);
+  background: var(--jotra-border);
 }
 
 .right-panel-resizer:focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
   outline-offset: -2px;
 }
 
@@ -67,25 +67,25 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--writ-space-2);
-  padding: var(--writ-space-2) var(--writ-space-2) 0 var(--writ-space-4);
+  gap: var(--jotra-space-2);
+  padding: var(--jotra-space-2) var(--jotra-space-2) 0 var(--jotra-space-4);
 }
 
 .right-panel-title {
   margin: 0;
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  letter-spacing: var(--writ-ui-tracking);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  letter-spacing: var(--jotra-ui-tracking);
   font-weight: 600;
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
 }
 
 .right-panel-empty {
   margin: 0;
-  padding: var(--writ-space-3);
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  color: var(--writ-fg-muted);
+  padding: var(--jotra-space-3);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  color: var(--jotra-fg-muted);
 }
 
 .right-panel-scroll {
@@ -93,7 +93,7 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  padding-bottom: var(--writ-space-3);
+  padding-bottom: var(--jotra-space-3);
 }
 
 .right-panel-section {
@@ -104,40 +104,40 @@
 
 .right-panel-section-title {
   margin: 0;
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
   font-weight: inherit;
 }
 
 .right-panel-section-toggle {
   display: flex;
   align-items: center;
-  gap: var(--writ-space-2-5);
+  gap: var(--jotra-space-2-5);
   width: 100%;
-  padding: var(--writ-space-4) var(--writ-space-4) var(--writ-space-2);
+  padding: var(--jotra-space-4) var(--jotra-space-4) var(--jotra-space-2);
   border: none;
   background: transparent;
   font: inherit;
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  letter-spacing: var(--writ-ui-tracking);
-  color: var(--writ-fg-muted);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  letter-spacing: var(--jotra-ui-tracking);
+  color: var(--jotra-fg-muted);
   text-align: left;
   cursor: pointer;
 }
 
 .right-panel-section-toggle:hover {
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
 }
 
 .right-panel-section-toggle:focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
   outline-offset: -2px;
 }
 
 .right-panel-list {
   margin: 0;
-  padding: var(--writ-space-1) 0;
+  padding: var(--jotra-space-1) 0;
   list-style: none;
 }
 
@@ -146,18 +146,18 @@
 .right-panel-row {
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-1);
+  gap: var(--jotra-space-1);
   width: 100%;
-  min-height: var(--writ-sidebar-row-fill);
+  min-height: var(--jotra-sidebar-row-fill);
   margin: 1px 0;
-  padding: var(--writ-space-2) var(--writ-space-3);
+  padding: var(--jotra-space-2) var(--jotra-space-3);
   border: none;
-  border-radius: var(--writ-r-row);
+  border-radius: var(--jotra-r-row);
   background: transparent;
   font: inherit;
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  color: var(--writ-fg);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  color: var(--jotra-fg);
   text-align: left;
   cursor: pointer;
   /* A flex item is as wide as its content unless it is told otherwise, and a
@@ -179,18 +179,18 @@
 }
 
 .right-panel-row:hover {
-  background: var(--writ-bg-hover);
+  background: var(--jotra-bg-hover);
 }
 
 .right-panel-row:focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
-  outline-offset: var(--writ-focus-offset-inset, -2px);
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
+  outline-offset: var(--jotra-focus-offset-inset, -2px);
 }
 
 /* A heading is one line of the note: it is truncated rather than wrapped, so
    the indentation stays legible as the note's shape. */
 .right-panel-heading {
-  min-height: var(--writ-sidebar-row-pitch);
+  min-height: var(--jotra-sidebar-row-pitch);
   justify-content: center;
   padding-top: 0;
   padding-bottom: 0;
@@ -199,14 +199,14 @@
 /* The heading the caret is under, drawn the way the file tree draws the file
    in front. */
 .right-panel-heading.is-current {
-  background: var(--writ-bg-selected);
+  background: var(--jotra-bg-selected);
   font-weight: 500;
 }
 
 .right-panel-row-context {
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-fg-muted);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -216,55 +216,55 @@
    second lines. */
 .right-panel-graph-open {
   align-self: flex-start;
-  margin: 0 var(--writ-space-2) var(--writ-space-2);
-  font-size: var(--writ-ui-sm);
+  margin: 0 var(--jotra-space-2) var(--jotra-space-2);
+  font-size: var(--jotra-ui-sm);
 }
 
 /* Under the link's own words, and as small as the line naming what else it
    could mean. */
 .right-panel-row-create {
   align-self: flex-start;
-  margin-top: var(--writ-space-1);
-  font-size: var(--writ-ui-sm);
+  margin-top: var(--jotra-space-1);
+  font-size: var(--jotra-ui-sm);
 }
 
 /* Set off from the quoted sentence above it: that line is the note's words,
    this one is the app naming what else the link could mean. */
 .right-panel-row-marker {
-  margin-top: var(--writ-space-1);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-fg-muted);
+  margin-top: var(--jotra-space-1);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-fg-muted);
 }
 
 .right-panel-properties {
   margin: 0;
-  padding: var(--writ-space-1) var(--writ-space-3);
+  padding: var(--jotra-space-1) var(--jotra-space-3);
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
 }
 
 .right-panel-property {
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-1);
+  gap: var(--jotra-space-1);
 }
 
 .right-panel-property-key {
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-fg-muted);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-fg-muted);
 }
 
 .right-panel-property-value {
   margin: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--writ-space-2);
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  color: var(--writ-fg);
+  gap: var(--jotra-space-2);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  color: var(--jotra-fg);
 }
 
 .right-panel-property-text {
@@ -272,12 +272,12 @@
 }
 
 .right-panel-pill {
-  padding: 1px var(--writ-space-3);
-  border-radius: var(--writ-r-pill);
-  background: var(--writ-bg-sunken);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-fg-muted);
+  padding: 1px var(--jotra-space-3);
+  border-radius: var(--jotra-r-pill);
+  background: var(--jotra-bg-sunken);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-fg-muted);
 }
 
 /* Windows paints the chrome as part of the window backdrop, GNOME as a
@@ -288,26 +288,26 @@
 }
 
 :root[data-platform="win"] .right-panel-scroll {
-  padding-top: var(--writ-space-2);
+  padding-top: var(--jotra-space-2);
 }
 
 :root[data-platform="win"] .right-panel-section-toggle {
-  padding: var(--writ-space-4-5) var(--writ-space-5) var(--writ-space-2-5);
+  padding: var(--jotra-space-4-5) var(--jotra-space-5) var(--jotra-space-2-5);
 }
 
 :root[data-platform="linux"] .right-panel {
   border-left: 0;
-  box-shadow: inset 1px 0 var(--writ-border-soft);
+  box-shadow: inset 1px 0 var(--jotra-border-soft);
 }
 
 :root[data-platform="linux"] .right-panel-scroll {
-  padding-top: var(--writ-space-2-5);
+  padding-top: var(--jotra-space-2-5);
 }
 
 :root[data-platform="linux"] .right-panel-section-toggle {
-  padding: var(--writ-space-3-5) var(--writ-space-4-5) var(--writ-space-2);
+  padding: var(--jotra-space-3-5) var(--jotra-space-4-5) var(--jotra-space-2);
   font-weight: 700;
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
   opacity: 0.55;
 }
 
@@ -322,5 +322,5 @@
 }
 
 .right-panel-row-unsettled {
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
 }

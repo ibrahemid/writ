@@ -1,0 +1,123 @@
+//! Persistence layer for the Jotra editor.
+//!
+//! `jotra-storage` owns every disk interaction Jotra performs: the SQLite
+//! database, on-disk buffer content files, TOML configuration, session
+//! snapshots, and the search index over the notes folder. It depends on
+//! `jotra-core` for domain types and exposes higher-level stores that the Tauri
+//! adapter composes into IPC commands.
+//!
+//! # Module layout
+//!
+//! - [`atomic`]: temp-file + fsync + rename helper for crash-safe writes.
+//! - [`database`]: raw connection management, migrations, and query
+//!   primitives.
+//! - [`buffer_store`]: high-level buffer CRUD on top of `database`.
+//! - [`chat_store`]: the conversation files the chat pane reads and writes.
+//! - [`guarded`]: the one way a note's file is written.
+//! - [`config_store`]: TOML config load and save.
+//! - [`consistency`]: startup checks that reconcile the database with the
+//!   files the notes live in.
+//! - [`data_folder`]: the data folder and its index, found on disk.
+//! - [`notes_index`]: the path-keyed index over the notes folder, and the
+//!   walk that reconciles it with what is on disk.
+//! - [`paths`]: the one spelling of a path the stores hand over.
+//! - [`maintenance`]: WAL checkpointing and freelist reclamation.
+//! - [`note_ops`]: creating, renaming, trashing and copying note files.
+//! - [`name_migration`]: the record of the rename's one-time steps.
+//! - [`notes_migration`]: the one-time pass that turns every note into a
+//!   file.
+//! - [`recovery`]: session snapshots and dirty-shutdown detection.
+//! - [`rollback`]: the copy of the database taken before the notes
+//!   migration writes anything.
+//! - [`schema_meta`]: key/value rows recording what a one-time schema pass
+//!   did.
+//! - [`errors`]: crate-wide [`errors::StorageError`] /
+//!   [`errors::StorageResult`].
+
+// Denied rather than forbidden: `atomic::metadata` lifts it for the handful
+// of `libc` calls that carry a file's extended attributes and creation date
+// across the rename a save performs, `identity` for the one Windows call
+// that reads a file's id, and `note_ops` for the rename that refuses to
+// replace a file. Nothing else in the crate may.
+#![deny(unsafe_code)]
+#![warn(missing_docs)]
+#![warn(rustdoc::broken_intra_doc_links)]
+
+/// Append-only JSONL log of what the harness did.
+pub mod activity_log;
+/// Crash-safe file writes via temp-file + fsync + rename.
+pub mod atomic;
+/// High-level buffer CRUD built on top of [`database`].
+pub mod buffer_store;
+/// Conversation files under the data directory (ADR-040 section 8).
+pub mod chat_store;
+/// How often each palette command ran (ADR-048).
+pub mod command_usage;
+/// TOML configuration load and save.
+pub mod config_store;
+/// Startup consistency checker reconciling the database with the files.
+pub mod consistency;
+/// Finding and reading the files of a context pack.
+pub mod context_pack;
+/// The data folder and its index, found on disk (ADR-059).
+pub mod data_folder;
+/// Raw connection management, migrations, and query primitives.
+pub mod database;
+/// Crate-wide error and result types.
+pub mod errors;
+/// The one way a note's file is written (ADR-028 section 5).
+pub mod guarded;
+/// What the filesystem calls a file, independently of its path.
+pub mod identity;
+/// Saving an image pasted or dropped into a Markdown file.
+pub mod image_store;
+/// Watched-inbox file listing.
+pub mod inbox_store;
+/// The data-folder lock and the requests a second launch leaves.
+pub mod instance;
+/// Per-buffer preview layout persistence (ADR-009).
+pub mod layout_state;
+/// WAL checkpointing and freelist reclamation.
+pub mod maintenance;
+/// The desktop extension bundle Claude Desktop installs Jotra from.
+pub mod mcp_bundle;
+/// Whether a client's entry for the server launches the `jotra` command.
+pub mod mcp_registration;
+/// The per-user record of the rename's one-time steps (ADR-059).
+pub mod name_migration;
+/// The texts a note used to hold, and the index over them — spec H1.
+pub mod note_history;
+/// The one implementation of the capability-scoped note host surface.
+pub mod note_host;
+/// Creating, renaming, trashing and copying the files notes live in.
+pub mod note_ops;
+/// The path-keyed index over the notes folder (ADR-028 section 7).
+pub mod notes_index;
+/// The one-time pass that turns every note into a file (ADR-028).
+pub mod notes_migration;
+/// Moving the notes folder, and emptying the archive into it.
+pub mod notes_move;
+/// The last program that called while Connected programs was off.
+pub mod off_calls;
+/// The answers the app leaves for a `get_context` call (ADR-053).
+pub mod open_context;
+/// The one spelling of a path the stores hand over.
+pub mod paths;
+/// Programs the harness has seen and the user has not decided on.
+pub mod pending_clients;
+/// Session snapshots and dirty-shutdown detection.
+pub mod recovery;
+/// The copy of the database taken before the notes migration (ADR-028).
+pub mod rollback;
+/// Key/value rows recording what a one-time schema pass did.
+pub mod schema_meta;
+/// On-demand content grep over the workspace folder (ADR-026).
+pub mod workspace_grep;
+/// Workspace file-name index walk and the shared search ignore policy.
+pub mod workspace_search;
+/// Workspace directory listing with traversal safety.
+pub mod workspace_store;
+/// The lock Jotra's processes hold around the compare and rename of a write.
+pub mod write_lock;
+/// The files a held write travels in between `jotra mcp` and the app (ADR-053).
+pub mod write_review;

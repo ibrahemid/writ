@@ -5,6 +5,7 @@ import { join, relative, resolve } from "node:path";
 import allowlistJson from "./banned-words.allowlist.json";
 import { MENU_COMMANDS } from "../../commands/menu-commands";
 import { SETTINGS_INDEX } from "../../settings";
+import { KEPT_CONFIG_IDS, LEGACY_PRODUCT_NAME } from "../../lib/legacy-names";
 
 // Known limits. A prop whose value is a const identifier rather than a literal
 // escapes the scan: only literals carry the word. The Rust half stops reading a
@@ -18,7 +19,7 @@ const SETTINGS_INDEX_FILE = resolve(SRC, "settings", "index.ts");
 // second brain) are the first four; the three after them are spec H1's, which
 // names what a note used to hold a version and nothing else.
 //
-// `note` is the eighth: Writ is a text editor, so a file is a file everywhere a
+// `note` is the eighth: Jotra is a text editor, so a file is a file everywhere a
 // person can read the word (C1). One entry covers the plural — `patternFor`
 // inflects every banned word, so "notes", "noted" and "noting" match too.
 const BANNED = [
@@ -594,5 +595,44 @@ describe("banned words", () => {
       stale,
       `these allowlist records no longer match a live string; delete them in the same change: ${stale.join(", ")}`,
     ).toEqual([]);
+  });
+});
+
+// ADR-059 decision 13: the product's old name is gone from every string a user
+// reads. The kept config ids carry it in their serialized value only.
+const LEGACY_NAMES_FILE = resolve(SRC, "lib", "legacy-names.ts");
+const OLD_PRODUCT_NAME = new RegExp(`(?<![A-Za-z])${LEGACY_PRODUCT_NAME}(?![a-z])`, "i");
+
+function namesOldProduct(text: string): boolean {
+  const withoutKeptIds = KEPT_CONFIG_IDS.reduce((rest, id) => rest.split(id).join(""), text);
+  return OLD_PRODUCT_NAME.test(withoutKeptIds);
+}
+
+describe("the product's old name", () => {
+  it("finds the old name in a string a user reads", () => {
+    const strings = domStrings("probe.tsx", `<p>Open the file in ${LEGACY_PRODUCT_NAME}.</p>`);
+    expect(strings.some((candidate) => namesOldProduct(candidate.text))).toBe(true);
+  });
+
+  it("leaves the kept ids and words that only contain the name alone", () => {
+    for (const text of [...KEPT_CONFIG_IDS, "Rewrite the file.", "Writer mode", "Written on disk."]) {
+      expect(namesOldProduct(text), text).toBe(false);
+    }
+  });
+
+  it("is in no string a user reads", () => {
+    const found: string[] = [];
+    for (const file of walk(SRC)) {
+      if (resolve(file) === LEGACY_NAMES_FILE) continue;
+      const text = readFileSync(file, "utf8");
+      const relPath = relative(REPO_ROOT, file).split("\\").join("/");
+      for (const candidate of domStrings(file, text)) {
+        if (namesOldProduct(candidate.text)) found.push(`${relPath}:${lineOf(text, candidate.index)}`);
+      }
+    }
+    for (const entry of MENU_COMMANDS) {
+      if (namesOldProduct(entry.label)) found.push(`${entry.id}`);
+    }
+    expect(found).toEqual([]);
   });
 });

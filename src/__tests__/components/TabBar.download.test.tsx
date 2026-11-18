@@ -83,7 +83,7 @@ vi.mock("../../components/ContextMenu/ContextMenu", () => ({
 import TabBar from "../../components/Editor/TabBar";
 
 const NOTE = {
-  path: "/home/user/Writ/away.md",
+  path: "/home/user/Jotra/away.md",
   title: "away.md",
   provider: "iCloud Drive",
 };

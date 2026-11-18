@@ -262,7 +262,7 @@ describe("findLinkTargets over wikilinks", () => {
     expect(wikilinks("[[unclosed")).toEqual([]);
   });
 
-  // The target ends at the first `]]`, which is what writ-core's scanner does,
+  // The target ends at the first `]]`, which is what jotra-core's scanner does,
   // so a bracket written inside one is part of the name in both.
   it("ends a target at the first close, as the index does", () => {
     expect(wikilinks("[[a]b]]")).toEqual(["a]b"]);
@@ -280,7 +280,7 @@ describe("findLinkTargets over wikilinks", () => {
     expect(wikilinks("`code` then [[Note]]")).toEqual(["Note"]);
   });
 
-  // Frontmatter is a note's properties. writ-core leaves the block out of its
+  // Frontmatter is a note's properties. jotra-core leaves the block out of its
   // scan, so a link written in a property value is one the index never held.
   it("finds nothing inside frontmatter", () => {
     expect(wikilinks('---\nsee: "[[Note]]"\n---\nbody')).toEqual([]);
@@ -380,7 +380,7 @@ describe("linkLayer", () => {
 
   it("decorates the url in the mounted document", () => {
     mount("go to https://example.com/x now");
-    expect(view.dom.querySelector(".writ-link")?.textContent).toBe("https://example.com/x");
+    expect(view.dom.querySelector(".jotra-link")?.textContent).toBe("https://example.com/x");
   });
 
   it("does not open on a plain click", () => {
@@ -459,7 +459,7 @@ describe("linkLayer", () => {
 
     pressModifier("keydown", true);
     expect(modifierIsHeld(view.state)).toBe(true);
-    expect(view.dom.classList.contains("writ-link-active")).toBe(true);
+    expect(view.dom.classList.contains("jotra-link-active")).toBe(true);
 
     pressModifier("keyup", false);
     expect(modifierIsHeld(view.state)).toBe(false);
@@ -468,7 +468,7 @@ describe("linkLayer", () => {
     expect(modifierIsHeld(view.state)).toBe(true);
     view.contentDOM.dispatchEvent(new FocusEvent("blur", { bubbles: false }));
     expect(modifierIsHeld(view.state)).toBe(false);
-    expect(view.dom.classList.contains("writ-link-active")).toBe(false);
+    expect(view.dom.classList.contains("jotra-link-active")).toBe(false);
   });
 
   function pressEnter(): KeyboardEvent {
@@ -503,7 +503,7 @@ describe("linkLayer", () => {
     expect(view.state.doc.lines).toBe(2);
   });
 
-  // A note documenting Writ's own link syntax writes `[[…]]` inside a fence.
+  // A note documenting Jotra's own link syntax writes `[[…]]` inside a fence.
   // Enter there adds a line; taking the keystroke would lose it and open the
   // picker over what is being written.
   it.each([

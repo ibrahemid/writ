@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+Writ is now called Jotra. An existing install keeps its files, settings and connected programs.
+
+### Changed
+
+- The app is named Jotra and its command is `jotra`. `writ` runs the same command.
+- An install that started as Writ keeps its data folder `~/.writ` and its notes folder `~/Writ`; a new install uses `~/.jotra` and `~/Jotra`. Nothing is moved.
+- `jotra://` links and `JOTRA_*` variables work, and `writ://` links and `WRIT_*` variables keep working.
+- A program connected under the name `writ` keeps that name and the tool `open_in_writ`; a new connection is named `jotra`.
+- The Homebrew cask is `jotra` in the same tap (`brew install --cask ibrahemid/writ/jotra`), and `brew update` moves an installed `writ` cask to it. The winget id `ibrahemid.Writ` and the AUR package `writ-bin` stay.
+
 ## [1.0.1] - 2026-10-27
 
 The cursor and the selection follow a text-size change at once.

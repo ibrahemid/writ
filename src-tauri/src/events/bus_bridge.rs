@@ -1,34 +1,34 @@
-//! Bridge between the in-process `writ-core` event bus and the
+//! Bridge between the in-process `jotra-core` event bus and the
 //! Tauri-frontend event channel.
 //!
-//! The bus carries [`WritEvent`] payloads from code that has no
-//! Tauri dependency (writ-core `BufferManager`, the watcher in
+//! The bus carries [`JotraEvent`] payloads from code that has no
+//! Tauri dependency (jotra-core `BufferManager`, the watcher in
 //! `src-tauri/watcher/handler.rs`, the menu callback in `lib.rs`).
 //! This module subscribes once at app startup, maps each supported
-//! variant to its [`WritFrontendEvent`] counterpart, and hands the
+//! variant to its [`JotraFrontendEvent`] counterpart, and hands the
 //! result to the supplied emit closure. Splitting the emit side from
 //! the translation side keeps the bridge unit-testable without an
 //! `AppHandle`.
 //!
 //! Variants without a frontend mapping are intentionally dropped:
-//! [`WritEvent::HotkeyToggle`] and [`WritEvent::PluginEvent`] are
+//! [`JotraEvent::HotkeyToggle`] and [`JotraEvent::PluginEvent`] are
 //! domain-only signals with no current frontend consumer, and
-//! [`WritEvent::McpPendingChanged`] is answered by a subscriber of its own in
+//! [`JotraEvent::McpPendingChanged`] is answered by a subscriber of its own in
 //! `lib.rs`, which reads the waiting list with the app's state in hand.
 
 use std::sync::Arc;
 
-use writ_core::events::bus::{EventBus, WritEvent};
-use writ_core::watcher::change_event::ExternalChange;
-use writ_storage::notes_index::NotesIndexStore;
-use writ_storage::paths::file_name_only;
+use jotra_core::events::bus::{EventBus, JotraEvent};
+use jotra_core::watcher::change_event::ExternalChange;
+use jotra_storage::notes_index::NotesIndexStore;
+use jotra_storage::paths::file_name_only;
 
-use crate::events::WritFrontendEvent;
+use crate::events::JotraFrontendEvent;
 
 /// Subscribes a bridge handler to `bus`.
 pub fn attach_bridge<F>(bus: &EventBus, on_emit: F)
 where
-    F: Fn(WritFrontendEvent) + Send + Sync + 'static,
+    F: Fn(JotraFrontendEvent) + Send + Sync + 'static,
 {
     bus.subscribe(move |event| {
         if let Some(frontend_event) = translate(event) {
@@ -46,17 +46,17 @@ where
 /// before the change, with nothing after it to say they moved.
 ///
 /// The subscriber patches the one path and nothing else. It must never reload
-/// the document registry: that recreates a loaded `writ-preview://` iframe and
+/// the document registry: that recreates a loaded `jotra-preview://` iframe and
 /// hard-freezes the macOS webview (PR #127).
 pub fn attach_bridge_behind_notes_index<F>(
     bus: &EventBus,
     notes_index: Arc<NotesIndexStore>,
     on_emit: F,
 ) where
-    F: Fn(WritFrontendEvent) + Send + Sync + 'static,
+    F: Fn(JotraFrontendEvent) + Send + Sync + 'static,
 {
     bus.subscribe(move |event| {
-        let WritEvent::NotesChanged { path, removed } = event else {
+        let JotraEvent::NotesChanged { path, removed } = event else {
             return;
         };
         let path = std::path::Path::new(path);
@@ -79,19 +79,19 @@ pub fn attach_bridge_behind_notes_index<F>(
     attach_bridge(bus, on_emit);
 }
 
-fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
+fn translate(event: &JotraEvent) -> Option<JotraFrontendEvent> {
     match event {
-        WritEvent::ConfigChanged { keys } => {
-            Some(WritFrontendEvent::ConfigChanged { keys: keys.clone() })
+        JotraEvent::ConfigChanged { keys } => {
+            Some(JotraFrontendEvent::ConfigChanged { keys: keys.clone() })
         }
-        WritEvent::BufferExternal {
+        JotraEvent::BufferExternal {
             buffer_id,
             path,
             change,
             new_path,
             disk_hash,
             writer,
-        } => Some(WritFrontendEvent::BufferExternal {
+        } => Some(JotraFrontendEvent::BufferExternal {
             buffer_id: buffer_id.clone(),
             path: path.clone(),
             change: match change {
@@ -103,37 +103,37 @@ fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
             disk_hash: disk_hash.clone(),
             writer: writer.clone(),
         }),
-        WritEvent::MenuAction { action } => Some(WritFrontendEvent::MenuAction {
+        JotraEvent::MenuAction { action } => Some(JotraFrontendEvent::MenuAction {
             action: action.clone(),
         }),
-        WritEvent::WorkspaceChanged { path, removed } => {
-            Some(WritFrontendEvent::WorkspaceChanged {
+        JotraEvent::WorkspaceChanged { path, removed } => {
+            Some(JotraFrontendEvent::WorkspaceChanged {
                 path: path.clone(),
                 removed: *removed,
             })
         }
-        WritEvent::NotesChanged { path, removed } => Some(WritFrontendEvent::NotesChanged {
+        JotraEvent::NotesChanged { path, removed } => Some(JotraFrontendEvent::NotesChanged {
             path: path.clone(),
             removed: *removed,
         }),
-        WritEvent::WorkspaceSwept { root } => {
-            Some(WritFrontendEvent::WorkspaceSwept { root: root.clone() })
+        JotraEvent::WorkspaceSwept { root } => {
+            Some(JotraFrontendEvent::WorkspaceSwept { root: root.clone() })
         }
-        WritEvent::NotesSwept { root } => {
-            Some(WritFrontendEvent::NotesSwept { root: root.clone() })
+        JotraEvent::NotesSwept { root } => {
+            Some(JotraFrontendEvent::NotesSwept { root: root.clone() })
         }
-        WritEvent::NotesIndexed { paths } => Some(WritFrontendEvent::NotesIndexed {
+        JotraEvent::NotesIndexed { paths } => Some(JotraFrontendEvent::NotesIndexed {
             paths: paths.clone(),
         }),
-        WritEvent::InboxFileArrived { path } => {
-            Some(WritFrontendEvent::InboxFileArrived { path: path.clone() })
+        JotraEvent::InboxFileArrived { path } => {
+            Some(JotraFrontendEvent::InboxFileArrived { path: path.clone() })
         }
-        WritEvent::FlushBeforeQuit => Some(WritFrontendEvent::FlushBeforeQuit {}),
-        WritEvent::BufferOpened { .. }
-        | WritEvent::HotkeyToggle
-        | WritEvent::PluginEvent { .. }
-        | WritEvent::McpPendingChanged
-        | WritEvent::McpCalledWhileOff => None,
+        JotraEvent::FlushBeforeQuit => Some(JotraFrontendEvent::FlushBeforeQuit {}),
+        JotraEvent::BufferOpened { .. }
+        | JotraEvent::HotkeyToggle
+        | JotraEvent::PluginEvent { .. }
+        | JotraEvent::McpPendingChanged
+        | JotraEvent::McpCalledWhileOff => None,
     }
 }
 
@@ -142,8 +142,8 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
 
-    fn capture(bus: &EventBus) -> Arc<Mutex<Vec<WritFrontendEvent>>> {
-        let captured: Arc<Mutex<Vec<WritFrontendEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    fn capture(bus: &EventBus) -> Arc<Mutex<Vec<JotraFrontendEvent>>> {
+        let captured: Arc<Mutex<Vec<JotraFrontendEvent>>> = Arc::new(Mutex::new(Vec::new()));
         let captured_clone = captured.clone();
         attach_bridge(bus, move |event| {
             captured_clone.lock().unwrap().push(event);
@@ -156,7 +156,7 @@ mod tests {
         let bus = EventBus::new();
         let captured = capture(&bus);
 
-        bus.emit(WritEvent::ConfigChanged {
+        bus.emit(JotraEvent::ConfigChanged {
             keys: vec!["theme".to_string(), "font_size".to_string()],
         });
 
@@ -164,7 +164,7 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0],
-            WritFrontendEvent::ConfigChanged {
+            JotraFrontendEvent::ConfigChanged {
                 keys: vec!["theme".to_string(), "font_size".to_string()],
             }
         );
@@ -175,7 +175,7 @@ mod tests {
         let bus = EventBus::new();
         let captured = capture(&bus);
 
-        bus.emit(WritEvent::BufferExternal {
+        bus.emit(JotraEvent::BufferExternal {
             buffer_id: "draft-1.txt".to_string(),
             path: "/repo/draft-1.txt".to_string(),
             change: ExternalChange::Modified,
@@ -188,7 +188,7 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0],
-            WritFrontendEvent::BufferExternal {
+            JotraFrontendEvent::BufferExternal {
                 buffer_id: "draft-1.txt".to_string(),
                 path: "/repo/draft-1.txt".to_string(),
                 change: "modified".to_string(),
@@ -204,7 +204,7 @@ mod tests {
         let bus = EventBus::new();
         let captured = capture(&bus);
 
-        bus.emit(WritEvent::BufferExternal {
+        bus.emit(JotraEvent::BufferExternal {
             buffer_id: "draft-2.txt".to_string(),
             path: "/repo/draft-2.txt".to_string(),
             change: ExternalChange::Removed,
@@ -217,7 +217,7 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0],
-            WritFrontendEvent::BufferExternal {
+            JotraFrontendEvent::BufferExternal {
                 buffer_id: "draft-2.txt".to_string(),
                 path: "/repo/draft-2.txt".to_string(),
                 change: "removed".to_string(),
@@ -233,7 +233,7 @@ mod tests {
         let bus = EventBus::new();
         let captured = capture(&bus);
 
-        bus.emit(WritEvent::BufferExternal {
+        bus.emit(JotraEvent::BufferExternal {
             buffer_id: "draft-3.txt".to_string(),
             path: "/repo/draft-3.txt".to_string(),
             change: ExternalChange::Moved,
@@ -246,7 +246,7 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0],
-            WritFrontendEvent::BufferExternal {
+            JotraFrontendEvent::BufferExternal {
                 buffer_id: "draft-3.txt".to_string(),
                 path: "/repo/draft-3.txt".to_string(),
                 change: "moved".to_string(),
@@ -270,7 +270,7 @@ mod tests {
         ] {
             let bus = EventBus::new();
             let captured = capture(&bus);
-            bus.emit(WritEvent::BufferExternal {
+            bus.emit(JotraEvent::BufferExternal {
                 buffer_id: "note-1".to_string(),
                 path: "/notes/one.md".to_string(),
                 change: variant.clone(),
@@ -293,7 +293,7 @@ mod tests {
         // would name them `buffer_id` and `disk_hash` by default, and the
         // mismatch is silent: every field arrives as `undefined` and the
         // handler drops the event.
-        let json = serde_json::to_value(WritFrontendEvent::BufferExternal {
+        let json = serde_json::to_value(JotraFrontendEvent::BufferExternal {
             buffer_id: "note-1".to_string(),
             path: "/repo/one.md".to_string(),
             change: "modified".to_string(),
@@ -317,7 +317,7 @@ mod tests {
         let bus = EventBus::new();
         let captured = capture(&bus);
 
-        bus.emit(WritEvent::MenuAction {
+        bus.emit(JotraEvent::MenuAction {
             action: "file.open".to_string(),
         });
 
@@ -325,7 +325,7 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0],
-            WritFrontendEvent::MenuAction {
+            JotraFrontendEvent::MenuAction {
                 action: "file.open".to_string(),
             }
         );
@@ -336,7 +336,7 @@ mod tests {
         let bus = EventBus::new();
         let received = capture(&bus);
 
-        bus.emit(WritEvent::WorkspaceChanged {
+        bus.emit(JotraEvent::WorkspaceChanged {
             path: "/ws/src/main.rs".to_string(),
             removed: false,
         });
@@ -344,7 +344,7 @@ mod tests {
         let events = received.lock().unwrap();
         assert_eq!(
             events.as_slice(),
-            [WritFrontendEvent::WorkspaceChanged {
+            [JotraFrontendEvent::WorkspaceChanged {
                 path: "/ws/src/main.rs".to_string(),
                 removed: false,
             }]
@@ -356,14 +356,14 @@ mod tests {
         let bus = EventBus::new();
         let received = capture(&bus);
 
-        bus.emit(WritEvent::InboxFileArrived {
+        bus.emit(JotraEvent::InboxFileArrived {
             path: "/inbox/report.md".to_string(),
         });
 
         let events = received.lock().unwrap();
         assert_eq!(
             events.as_slice(),
-            [WritFrontendEvent::InboxFileArrived {
+            [JotraFrontendEvent::InboxFileArrived {
                 path: "/inbox/report.md".to_string(),
             }]
         );
@@ -374,14 +374,14 @@ mod tests {
         let bus = EventBus::new();
         let received = capture(&bus);
 
-        bus.emit(WritEvent::NotesIndexed {
+        bus.emit(JotraEvent::NotesIndexed {
             paths: vec!["/notes/Old.md".to_string(), "/notes/New.md".to_string()],
         });
 
         let events = received.lock().unwrap();
         assert_eq!(
             events.as_slice(),
-            [WritFrontendEvent::NotesIndexed {
+            [JotraFrontendEvent::NotesIndexed {
                 paths: vec!["/notes/Old.md".to_string(), "/notes/New.md".to_string()],
             }]
         );
@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn notes_indexed_serialises_under_the_kind_and_payload_the_frontend_reads() {
-        let json = serde_json::to_value(WritFrontendEvent::NotesIndexed {
+        let json = serde_json::to_value(JotraFrontendEvent::NotesIndexed {
             paths: vec!["/notes/Plan.md".to_string()],
         })
         .expect("serialise");
@@ -403,12 +403,12 @@ mod tests {
         let bus = EventBus::new();
         let captured = capture(&bus);
 
-        bus.emit(WritEvent::HotkeyToggle);
-        bus.emit(WritEvent::BufferOpened {
+        bus.emit(JotraEvent::HotkeyToggle);
+        bus.emit(JotraEvent::BufferOpened {
             id: "id-1".to_string(),
             title: "draft".to_string(),
         });
-        bus.emit(WritEvent::PluginEvent {
+        bus.emit(JotraEvent::PluginEvent {
             plugin_id: "plg".to_string(),
             data: serde_json::Value::Null,
         });
@@ -421,17 +421,17 @@ mod tests {
         let bus = EventBus::new();
         let captured = capture(&bus);
 
-        bus.emit(WritEvent::FlushBeforeQuit);
+        bus.emit(JotraEvent::FlushBeforeQuit);
 
         assert_eq!(
             captured.lock().unwrap().as_slice(),
-            [WritFrontendEvent::FlushBeforeQuit {}]
+            [JotraFrontendEvent::FlushBeforeQuit {}]
         );
     }
 
     #[test]
     fn flush_before_quit_serialises_with_the_payload_key_the_frontend_unwraps() {
-        let json = serde_json::to_value(WritFrontendEvent::FlushBeforeQuit {}).expect("serialise");
+        let json = serde_json::to_value(JotraFrontendEvent::FlushBeforeQuit {}).expect("serialise");
 
         assert_eq!(json["kind"], "quit:flush");
         assert!(

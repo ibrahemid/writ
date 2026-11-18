@@ -54,7 +54,7 @@ import type { Command } from "../../types/commands";
 import "./ShortcutEditor.css";
 
 /** Why the window's row refused a chord: the rule it breaks, another app
- * holding it, or a key Writ cannot register. */
+ * holding it, or a key Jotra cannot register. */
 interface WindowChordProblem {
   state: "rule" | "refused" | "unusable";
   text: string;
@@ -83,7 +83,7 @@ interface AnyAppRow {
 
 /**
  * The row for the chord that shows and hides the window. Not a command: it is
- * registered with the OS rather than with Writ's own key map, which is why it
+ * registered with the OS rather than with Jotra's own key map, which is why it
  * is the one row that can come back "taken".
  */
 const GLOBAL_TOGGLE_ROW = "hotkey.toggle";
@@ -97,7 +97,7 @@ const CAPTURE_ROW_DESC = "Adds a line to today's file";
 
 export { WAYLAND_LINE, windowChordRule };
 
-// Singleton state — Writ is single-window. The list lives in Settings, and
+// Singleton state — Jotra is single-window. The list lives in Settings, and
 // moving to another section or typing a search takes it off screen: the rows
 // recorded and not saved stay here until Save, or until Settings closes.
 const [drafts, setDrafts] = createSignal<Record<string, DraftEntry>>({});
@@ -230,7 +230,7 @@ export default function ShortcutEditor() {
   }
 
   const conflicts = createMemo(() => findConflicts(effectiveDraftMap(), platform));
-  // The macOS menu bar answers Quit, Hide, Copy and the rest before Writ sees
+  // The macOS menu bar answers Quit, Hide, Copy and the rest before Jotra sees
   // the key, so a command bound to one of them would never run.
   const fixedConflicts = createMemo(() =>
     findFixedConflicts(effectiveDraftMap(), fixedMenuChords(platform), platform),
@@ -578,7 +578,7 @@ export default function ShortcutEditor() {
           <input
             type="text"
             class="shortcut-editor-filter-input"
-            data-writ-focus-silent
+            data-jotra-focus-silent
             placeholder="Filter shortcuts"
             aria-label="Filter shortcuts"
             value={filter()}

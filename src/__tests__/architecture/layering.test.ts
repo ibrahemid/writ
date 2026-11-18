@@ -157,7 +157,7 @@ describe("frontend layering", () => {
 
   // A notes:changed handler patches the notes tree and the index and nothing
   // else. Reloading the document registry from a watcher event recreates a
-  // loaded writ-preview:// iframe, and removing a loaded one hard-freezes the
+  // loaded jotra-preview:// iframe, and removing a loaded one hard-freezes the
   // macOS webview (PR #127).
   it("no notes:changed handler reaches the buffer registry", () => {
     const offenders: string[] = [];

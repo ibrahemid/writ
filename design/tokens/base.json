@@ -7,10 +7,10 @@
         "$description": "System UI stack. The Arabic families sit after the Latin faces and before the generic keyword so per-glyph fallback reaches them before the platform default."
       },
       "prose": {
-        "$value": "var(--writ-font-ui)"
+        "$value": "var(--jotra-font-ui)"
       },
       "prose-alt": {
-        "$value": "\"iA Writer Quattro S\", var(--writ-font-ui)"
+        "$value": "\"iA Writer Quattro S\", var(--jotra-font-ui)"
       },
       "mono": {
         "$value": "ui-monospace, SFMono-Regular, \"JetBrains Mono\", \"SF Mono\", \"SF Arabic\", \"Geeza Pro\", \"Noto Naskh Arabic\", Menlo, Consolas, monospace"
@@ -92,7 +92,7 @@
         "$value": 1.6
       },
       "measure": {
-        "$description": "44rem at a 16px root. The app root is --writ-ui-md (13px), which would resolve 44rem to 572px, so the measure is absolute.",
+        "$description": "44rem at a 16px root. The app root is --jotra-ui-md (13px), which would resolve 44rem to 572px, so the measure is absolute.",
         "$value": {
           "value": 704,
           "unit": "px"
@@ -129,7 +129,7 @@
       },
       "formatting": {
         "$type": "color",
-        "$value": "var(--writ-fg-faint)",
+        "$value": "var(--jotra-fg-faint)",
         "$description": "The hung markdown markers."
       }
     },
@@ -316,7 +316,7 @@
       },
       "color": {
         "$type": "color",
-        "$value": "var(--writ-fg-muted)"
+        "$value": "var(--jotra-fg-muted)"
       },
       "opacity": {
         "$type": "number",
@@ -456,7 +456,7 @@
     "ease-linear": {
       "$type": "other",
       "$value": "linear",
-      "$description": "Constant rate. What a spinner and a determinate progress fill need; every other motion takes --writ-ease."
+      "$description": "Constant rate. What a spinner and a determinate progress fill need; every other motion takes --jotra-ease."
     },
     "motion": {
       "$type": "duration",
@@ -487,10 +487,10 @@
       },
       "shorthand": {
         "$type": "other",
-        "$value": "var(--writ-motion-duration) var(--writ-ease)",
+        "$value": "var(--jotra-motion-duration) var(--jotra-ease)",
         "$extensions": {
-          "writ": {
-            "cssName": "--writ-motion"
+          "jotra": {
+            "cssName": "--jotra-motion"
           }
         }
       }
@@ -528,7 +528,7 @@
     "editor": {
       "$type": "other",
       "font-size": {
-        "$value": "var(--writ-prose-size)",
+        "$value": "var(--jotra-prose-size)",
         "$description": "Pre-zoom default. editorZoom overwrites it on the root from editor.font_size."
       }
     },
@@ -548,13 +548,13 @@
     },
     "selection": {
       "$type": "other",
-      "$value": "color-mix(in srgb, var(--writ-accent) 30%, transparent)",
+      "$value": "color-mix(in srgb, var(--jotra-accent) 30%, transparent)",
       "$description": "Host text selection in chrome surfaces."
     },
     "selection-match": {
       "$type": "other",
-      "$value": "color-mix(in srgb, var(--writ-accent) 18%, transparent)",
-      "$description": "The other occurrences of what is selected. Weaker than --writ-selection so the active one still reads as the active one."
+      "$value": "color-mix(in srgb, var(--jotra-accent) 18%, transparent)",
+      "$description": "The other occurrences of what is selected. Weaker than --jotra-selection so the active one still reads as the active one."
     }
   }
 }

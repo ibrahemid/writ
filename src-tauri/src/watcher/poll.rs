@@ -81,7 +81,7 @@ impl Watcher for MetadataPollWatcher {
         let (stop, stopped) = mpsc::channel::<()>();
         let polled = folders.clone();
         std::thread::Builder::new()
-            .name("writ metadata poll".to_string())
+            .name("jotra metadata poll".to_string())
             .spawn(move || {
                 while let Err(mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(interval) {
                     let watched: Vec<PathBuf> =

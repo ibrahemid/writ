@@ -1,6 +1,6 @@
 [package]
-name = "writ-tauri"
-description = "Tauri application shell and IPC adapter for the Writ editor."
+name = "jotra-tauri"
+description = "Tauri application shell and IPC adapter for the Jotra editor."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,20 +10,20 @@ authors.workspace = true
 publish = false
 
 [lib]
-name = "writ_tauri_lib"
+name = "jotra_tauri_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-writ-ai = { path = "../crates/writ-ai" }
-writ-audio = { path = "../crates/writ-audio" }
-writ-core = { path = "../crates/writ-core" }
-writ-lint = { path = "../crates/writ-lint" }
-writ-render = { path = "../crates/writ-render" }
-writ-storage = { path = "../crates/writ-storage", features = ["bundled"] }
-writ-plugin = { path = "../crates/writ-plugin" }
+jotra-ai = { path = "../crates/jotra-ai" }
+jotra-audio = { path = "../crates/jotra-audio" }
+jotra-core = { path = "../crates/jotra-core" }
+jotra-lint = { path = "../crates/jotra-lint" }
+jotra-render = { path = "../crates/jotra-render" }
+jotra-storage = { path = "../crates/jotra-storage", features = ["bundled"] }
+jotra-plugin = { path = "../crates/jotra-plugin" }
 tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-global-shortcut = "2"
@@ -45,7 +45,7 @@ thiserror = "2"
 url = "2"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 # The client type the OpenRouter connect flow and the chat wrappers name; the
-# client itself is built by writ-ai, which also installs the rustls provider.
+# client itself is built by jotra-ai, which also installs the rustls provider.
 reqwest = { version = "0.13", default-features = false, features = [
     "stream",
     "json",
@@ -107,13 +107,20 @@ objc2-app-kit = { version = "0.3", features = [
 # The title-bar double-click setting lives in the global defaults domain.
 objc2-foundation = { version = "0.3", default-features = false, features = [
     "std",
+    "NSError",
+    "NSFileManager",
     "block2",
     "NSNotification",
     "NSOperation",
     "NSString",
+    "NSURL",
     "NSUserDefaults",
 ] }
 dispatch2 = "0.3"
+# The bundle rename: reading Info.plist, and lchflags(2) for the hidden link.
+# Both already resolve in the lock.
+plist = "1"
+libc = "0.2"
 # Observes AppKit's miniaturize notification, which tao does not forward.
 block2 = "0.6"
 
@@ -130,6 +137,7 @@ windows = { version = "0.62", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+windows-registry = "0.6"
 
 [dev-dependencies]
 tempfile = "3"
@@ -141,20 +149,20 @@ tauri = { version = "2", features = ["test"] }
 # Test-only. The write half of the harness runs in the client's own process,
 # and the one thing a unit test cannot prove is that a write from there reaches
 # a tab in this one. Not a runtime dependency: nothing in `src/` names it, and
-# `writ-mcp` still links no tauri.
-writ-mcp = { path = "../crates/writ-mcp" }
+# `jotra-mcp` still links no tauri.
+jotra-mcp = { path = "../crates/jotra-mcp" }
 # Test-only, for the engine exfil probe (tests/engine_probe.rs): a real webview
 # loading the corpus behind a local sink. The same wry (the pinned nil-safe
 # fork, via the workspace patch) and tao the app already resolves, so no new
 # package enters the lock — only a dev-dep edge. The probe opens a window, so it
-# runs only under WRIT_ENGINE_PROBE=1 on a CI leg with a display, never in the
+# runs only under JOTRA_ENGINE_PROBE=1 on a CI leg with a display, never in the
 # ordinary unit gate.
 wry = "0.57"
 tao = "0.37"
 
 # harness = false so the probe's own main() runs on the main thread (tao/wry
 # need it; libtest runs tests on worker threads). With no harness #[ignore] does
-# not apply, so the probe gates itself on WRIT_ENGINE_PROBE and exits 0 when
+# not apply, so the probe gates itself on JOTRA_ENGINE_PROBE and exits 0 when
 # unset — `cargo test --workspace` compiles it and runs a no-op.
 [[test]]
 name = "engine_probe"

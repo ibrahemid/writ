@@ -179,7 +179,7 @@ describe("today's file answers like any open", () => {
     }
   });
 
-  it("asks about a day's file over the size Writ opens without asking, then opens it", async () => {
+  it("asks about a day's file over the size Jotra opens without asking, then opens it", async () => {
     mockedApi.todaysNote.mockResolvedValue({
       path: PATH,
       opened: { doc: null, mode: { kind: "LargeFileConfirm" }, size_bytes: SIXTY_MB },
@@ -207,7 +207,7 @@ describe("today's file answers like any open", () => {
     expect(tabs.activeTabId()).toBe("today-big");
   });
 
-  it("says once why a day's file over the size Writ opens was not opened", async () => {
+  it("says once why a day's file over the size Jotra opens was not opened", async () => {
     mockedApi.todaysNote.mockResolvedValue({
       path: PATH,
       opened: {
@@ -222,7 +222,7 @@ describe("today's file answers like any open", () => {
 
     expect(showToast).toHaveBeenCalledTimes(1);
     expect(showToast).toHaveBeenCalledWith(
-      "Could not open 2026-10-13.txt: it is 600 MB, and Writ opens files up to 524 MB.",
+      "Could not open 2026-10-13.txt: it is 600 MB, and Jotra opens files up to 524 MB.",
       "error",
     );
     expect(tabs.activeTabId()).toBeNull();

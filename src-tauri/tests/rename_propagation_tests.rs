@@ -8,61 +8,61 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
-use tempfile::TempDir;
-use writ_core::config::WritConfig;
-use writ_core::events::bus::EventBus;
-use writ_core::preview::ContentRendererRegistry;
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::EventBus;
+use jotra_core::preview::ContentRendererRegistry;
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::notes_index::NotesIndexStore;
 #[cfg(unix)]
-use writ_tauri_lib::commands::buffer::ERR_READ_ONLY_DESTINATION;
-use writ_tauri_lib::commands::buffer::{save_buffer_content_inner, ERR_FILE_CHANGED_ON_DISK};
-use writ_tauri_lib::commands::notes::{
+use jotra_tauri_lib::commands::buffer::ERR_READ_ONLY_DESTINATION;
+use jotra_tauri_lib::commands::buffer::{save_buffer_content_inner, ERR_FILE_CHANGED_ON_DISK};
+use jotra_tauri_lib::commands::notes::{
     count_links_to_inner, new_note_named_inner, rename_note_with_links_inner,
     undo_rename_with_links_inner, ERR_LINK_NAME_NOT_UNIQUE, ERR_LINK_NOT_FOUND,
     NOT_IN_FOLDER_TO_RENAME, NO_RENAME_TO_UNDO,
 };
-use writ_tauri_lib::preview::handler::RenderCache;
-use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::{AuthorizedPaths, RenameUndo};
-use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::create_ignore_set;
+use jotra_tauri_lib::preview::handler::RenderCache;
+use jotra_tauri_lib::quit::QuitState;
+use jotra_tauri_lib::security::{AuthorizedPaths, RenameUndo};
+use jotra_tauri_lib::state::AppState;
+use jotra_tauri_lib::watcher::handler::create_ignore_set;
+use tempfile::TempDir;
 
 fn make_state(dir: &TempDir) -> AppState {
-    let writ_dir = dir.path().to_path_buf();
-    let buffers_dir = writ_dir.join("buffers");
+    let jotra_dir = dir.path().to_path_buf();
+    let buffers_dir = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
 
-    let notes_root = writ_dir.join("Writ");
+    let notes_root = jotra_dir.join("Jotra");
     std::fs::create_dir_all(&notes_root).expect("notes folder");
-    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+    let notes_root = jotra_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
 
     let note_history = Arc::new(
-        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+        jotra_storage::note_history::NoteHistoryStore::open(&jotra_dir).expect("version store"),
     );
 
     AppState {
         store: Mutex::new(BufferStore::new(conn, buffers_dir.clone())),
-        config_store: ConfigStore::new(writ_dir.join("config.toml")),
-        config: Mutex::new(WritConfig::default()),
-        writ_dir,
+        config_store: ConfigStore::new(jotra_dir.join("config.toml")),
+        config: Mutex::new(JotraConfig::default()),
+        jotra_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: std::sync::atomic::AtomicBool::new(false),
         menu_apps: std::sync::Mutex::new(None),
-        retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+        retitle_watch: std::sync::Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -88,7 +88,7 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
-        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+        command_usage: jotra_storage::command_usage::CommandUsageStore::new(
             open_database(&db_path).expect("usage db"),
         ),
         config_diagnostics: std::sync::Mutex::new(Vec::new()),
@@ -98,9 +98,9 @@ fn make_state(dir: &TempDir) -> AppState {
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
-        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(
-            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+            jotra_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
@@ -232,7 +232,7 @@ fn a_file_that_cannot_be_read_is_named_rather_than_rewritten() {
     // The file goes between the index naming it and the rewrite reaching it.
     // A file that is not downloaded is refused the same way, one layer down,
     // where the eviction flag can be simulated on every platform:
-    // `writ-storage`'s `note_link_rewrite_tests`.
+    // `jotra-storage`'s `note_link_rewrite_tests`.
     std::fs::remove_file(note(&state, "First.md")).expect("remove");
 
     let outcome =
@@ -714,7 +714,7 @@ fn a_note_something_else_rewrote_is_named_rather_than_rewritten() {
     assert_eq!(
         std::fs::read_to_string(&path).expect("read"),
         "somebody else wrote this, and [[Old note]]\n",
-        "the rewrite carried text Writ had never seen"
+        "the rewrite carried text Jotra had never seen"
     );
 }
 
@@ -726,7 +726,7 @@ enum RenameDuringWalk {
     /// The walk reached this note, and it was renamed with its links.
     Renamed(
         std::path::PathBuf,
-        writ_tauri_lib::commands::notes::RenamePropagationDto,
+        jotra_tauri_lib::commands::notes::RenamePropagationDto,
     ),
     /// The walk moved on, and the rename was undone.
     Undone(std::path::PathBuf),
@@ -743,10 +743,10 @@ enum RenameDuringWalk {
 /// reaches first, so the walk always reaches the other one after it.
 #[test]
 fn a_rename_and_its_undo_during_a_walk_leave_the_walk_running_and_the_note_indexed() {
+    use jotra_core::notes::links::Resolution;
+    use jotra_storage::notes_index::index_key;
     use std::cell::RefCell;
     use std::sync::atomic::Ordering;
-    use writ_core::notes::links::Resolution;
-    use writ_storage::notes_index::index_key;
 
     let (_dir, state) = seeded(&[
         ("Home.md", "see [[Plan]] and [[Kestrel]]\n"),

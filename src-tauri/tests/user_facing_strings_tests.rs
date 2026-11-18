@@ -38,7 +38,7 @@ const BANNED: &[&str] = &[
     "MiB",
     "syntax highlighting",
     "typography",
-    // ADR-041 §1 and decision C1: Writ is a text app, so a message names a
+    // ADR-041 §1 and decision C1: Jotra is a text app, so a message names a
     // file. `word_forms` inflects the stem, so "notes" is this entry too.
     "note",
 ];
@@ -49,21 +49,21 @@ const BANNED: &[&str] = &[
 /// is named in an allowlist record, relative to the workspace root.
 const SCANNED_ROOTS: &[(&str, &str)] = &[
     ("src", "src-tauri/src"),
-    ("../crates/writ-core/src", "crates/writ-core/src"),
-    ("../crates/writ-storage/src", "crates/writ-storage/src"),
-    ("../crates/writ-render/src", "crates/writ-render/src"),
-    ("../crates/writ-cli/src", "crates/writ-cli/src"),
-    ("../crates/writ-mcp/src", "crates/writ-mcp/src"),
-    ("../crates/writ-ai/src", "crates/writ-ai/src"),
-    ("../crates/writ-plugin/src", "crates/writ-plugin/src"),
-    ("../crates/writ-lint/src", "crates/writ-lint/src"),
+    ("../crates/jotra-core/src", "crates/jotra-core/src"),
+    ("../crates/jotra-storage/src", "crates/jotra-storage/src"),
+    ("../crates/jotra-render/src", "crates/jotra-render/src"),
+    ("../crates/jotra-cli/src", "crates/jotra-cli/src"),
+    ("../crates/jotra-mcp/src", "crates/jotra-mcp/src"),
+    ("../crates/jotra-ai/src", "crates/jotra-ai/src"),
+    ("../crates/jotra-plugin/src", "crates/jotra-plugin/src"),
+    ("../crates/jotra-lint/src", "crates/jotra-lint/src"),
 ];
 
 /// Directories inside a scanned root that hold no user message.
 const SKIPPED_DIRS: &[&str] = &["tests", "benches", "target", "fixtures"];
 
 /// A test module kept in a file of its own: its strings are fixtures, such as
-/// the British spellings writ-lint's dictionary tests feed it.
+/// the British spellings jotra-lint's dictionary tests feed it.
 const SKIPPED_FILES: &[&str] = &["tests.rs"];
 
 /// One string that already says a retired word. The file can only shrink: a
@@ -78,116 +78,116 @@ struct AllowedString {
 
 const RUST_ALLOWLIST: &[AllowedString] = &[
     AllowedString {
-        file: "crates/writ-core/src/default_app.rs",
+        file: "crates/jotra-core/src/default_app.rs",
         line: 80,
         word: "source",
         note: "file-association group label, release 0.6",
     },
     AllowedString {
-        file: "crates/writ-core/src/errors.rs",
+        file: "crates/jotra-core/src/errors.rs",
         line: 12,
         word: "buffer",
         note: "BufferNotFound message, release 0.6",
     },
     AllowedString {
-        file: "crates/writ-core/src/errors.rs",
+        file: "crates/jotra-core/src/errors.rs",
         line: 19,
         word: "buffer",
         note: "BufferAlreadyExists message, release 0.6",
     },
     AllowedString {
-        file: "crates/writ-core/src/errors.rs",
+        file: "crates/jotra-core/src/errors.rs",
         line: 37,
         word: "buffer",
         note: "InvalidTitle message, release 0.6",
     },
     AllowedString {
-        file: "crates/writ-core/src/file_ops.rs",
+        file: "crates/jotra-core/src/file_ops.rs",
         line: 205,
         word: "MiB",
         note: "size formatter unit, release 0.6",
     },
     AllowedString {
-        file: "crates/writ-storage/src/database/queries.rs",
+        file: "crates/jotra-storage/src/database/queries.rs",
         line: 108,
         word: "buffer",
         note: "row lookup error, release 0.6",
     },
     AllowedString {
-        file: "crates/writ-core/src/chat/prompt.rs",
+        file: "crates/jotra-core/src/chat/prompt.rs",
         line: 30,
         word: "note",
         note: "model-facing system prompt, not app copy",
     },
     AllowedString {
-        file: "crates/writ-core/src/chat/prompt.rs",
+        file: "crates/jotra-core/src/chat/prompt.rs",
         line: 39,
         word: "note",
         note: "model-facing body placeholder, not app copy",
     },
     AllowedString {
-        file: "crates/writ-core/src/chat/prompt.rs",
+        file: "crates/jotra-core/src/chat/prompt.rs",
         line: 43,
         word: "note",
         note: "the body placeholder older conversations were written with",
     },
     AllowedString {
-        file: "crates/writ-core/src/chat/prompt.rs",
+        file: "crates/jotra-core/src/chat/prompt.rs",
         line: 46,
         word: "note",
         note: "example path inside the model-facing prompt",
     },
     AllowedString {
-        file: "crates/writ-core/src/chat/prompt.rs",
+        file: "crates/jotra-core/src/chat/prompt.rs",
         line: 60,
         word: "note",
         note: "model-facing offer instructions, not app copy",
     },
     AllowedString {
-        file: "crates/writ-core/src/chat/prompt.rs",
+        file: "crates/jotra-core/src/chat/prompt.rs",
         line: 64,
         word: "note",
         note: "model-facing offer instructions, not app copy",
     },
     AllowedString {
-        file: "crates/writ-core/src/chat/prompt.rs",
+        file: "crates/jotra-core/src/chat/prompt.rs",
         line: 84,
         word: "note",
         note: "model-facing offer instructions, not app copy",
     },
     AllowedString {
-        file: "crates/writ-core/src/chat/prompt.rs",
+        file: "crates/jotra-core/src/chat/prompt.rs",
         line: 111,
         word: "note",
         note: "attachment tag the model reads; renaming it breaks parsing",
     },
     AllowedString {
-        file: "crates/writ-core/src/polish.rs",
+        file: "crates/jotra-core/src/polish.rs",
         line: 247,
         word: "note",
         note: "model-facing rewrite prompt: \"notes\" means asides in the answer",
     },
     AllowedString {
-        file: "crates/writ-mcp/src/server.rs",
-        line: 41,
+        file: "crates/jotra-mcp/src/server.rs",
+        line: 53,
         word: "note",
         note: "MCP server instructions, out of the copy sweep (decision C1)",
     },
     AllowedString {
-        file: "crates/writ-ai/src/chat.rs",
+        file: "crates/jotra-ai/src/chat.rs",
         line: 987,
         word: "note",
         note: "debug_assert text, never rendered",
     },
     AllowedString {
         file: "src-tauri/src/state.rs",
-        line: 448,
+        line: 456,
         word: "note",
         note: "log line the prefix test misses inside a multi-line macro",
     },
     AllowedString {
         file: "src-tauri/src/state.rs",
-        line: 643,
+        line: 651,
         word: "note",
         note: "log line the prefix test misses inside a multi-line macro",
     },

@@ -1,4 +1,4 @@
-//! Fuzz target for the `writ-preview://` URL parser — the chrome↔document
+//! Fuzz target for the `jotra-preview://` URL parser — the chrome↔document
 //! scope boundary.
 //!
 //! The parser is the security gate that decides whether a request crosses
@@ -24,7 +24,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use writ_core::preview::protocol::{parse, split_asset_request, PreviewScope};
+use jotra_core::preview::protocol::{parse, split_asset_request, PreviewScope};
 
 fuzz_target!(|data: &[u8]| {
     // The handler only ever receives valid UTF-8 URLs from the webview;

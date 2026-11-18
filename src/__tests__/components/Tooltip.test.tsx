@@ -226,7 +226,7 @@ describe("Tooltip dark surface", () => {
   });
 
   it("selects the dark tip through the attribute the theme store writes", () => {
-    const selector = /(:root\[[a-z-]+="dark"\])\s+\.writ-tooltip\b/.exec(TOOLTIP_CSS)?.[1];
+    const selector = /(:root\[[a-z-]+="dark"\])\s+\.jotra-tooltip\b/.exec(TOOLTIP_CSS)?.[1];
     expect(selector, "Tooltip.css declares no dark rule").toBeDefined();
 
     themeStore.setAppearance({
@@ -252,7 +252,7 @@ describe("Tooltip with a shortcut", () => {
   });
 
   function hover(container: HTMLElement) {
-    fireEvent.pointerEnter(container.querySelector(".writ-tooltip-anchor")!);
+    fireEvent.pointerEnter(container.querySelector(".jotra-tooltip-anchor")!);
     vi.advanceTimersByTime(HOVER_DELAY_MS);
   }
 
@@ -272,7 +272,7 @@ describe("Tooltip with a shortcut", () => {
     ));
 
     hover(container);
-    expect(tip()?.querySelector(".writ-tooltip-kbd")?.textContent).toBe("Ctrl+\\");
+    expect(tip()?.querySelector(".jotra-tooltip-kbd")?.textContent).toBe("Ctrl+\\");
 
     setKeybindingOverrides({ "test.sidebar": "CmdOrCtrl+Shift+B" });
     rebuildKeyMap();

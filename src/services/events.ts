@@ -1,39 +1,39 @@
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export type { UnlistenFn };
-import type { WritEvent } from "../types/events";
+import type { JotraEvent } from "../types/events";
 
-type EventKind = WritEvent["kind"];
-type PayloadFor<K extends EventKind> = Extract<WritEvent, { kind: K }>["payload"];
+type EventKind = JotraEvent["kind"];
+type PayloadFor<K extends EventKind> = Extract<JotraEvent, { kind: K }>["payload"];
 type EventHandler<K extends EventKind> = (payload: PayloadFor<K>) => void;
 
 const EVENT_MAP: Record<EventKind, string> = {
-  "pending:opens": "writ://pending-opens",
-  "files:dropped": "writ://files-dropped",
-  "link:new": "writ://link-new",
-  "context:asked": "writ://context-asked",
-  "review:asked": "writ://review-asked",
-  "window:shown": "writ://window-shown",
-  "config:changed": "writ://config-changed",
-  "buffer:external": "writ://buffer-external",
-  "menu:action": "writ://menu-action",
-  "hotkey:status": "writ://hotkey-status",
-  "hotkey:capture-status": "writ://hotkey-capture-status",
-  "workspace:changed": "writ://workspace-changed",
-  "workspace:swept": "writ://workspace-swept",
-  "notes:changed": "writ://notes-changed",
-  "notes:swept": "writ://notes-swept",
-  "notes:indexed": "writ://notes-indexed",
-  "inbox:file-arrived": "writ://inbox-file-arrived",
-  "note:download": "writ://note-download",
-  "update:status": "writ://update-status",
-  "ai:rewrite": "writ://ai-rewrite",
-  "ai:chat": "writ://ai-chat",
-  "quit:flush": "writ://flush-before-quit",
-  "activity:changed": "writ://activity",
-  "mcp:pending": "writ://mcp-pending",
-  "mcp:off-call": "writ://mcp-off-call",
-  "titlebar:maximize-hit": "writ://titlebar-maximize-hit",
+  "pending:opens": "jotra://pending-opens",
+  "files:dropped": "jotra://files-dropped",
+  "link:new": "jotra://link-new",
+  "context:asked": "jotra://context-asked",
+  "review:asked": "jotra://review-asked",
+  "window:shown": "jotra://window-shown",
+  "config:changed": "jotra://config-changed",
+  "buffer:external": "jotra://buffer-external",
+  "menu:action": "jotra://menu-action",
+  "hotkey:status": "jotra://hotkey-status",
+  "hotkey:capture-status": "jotra://hotkey-capture-status",
+  "workspace:changed": "jotra://workspace-changed",
+  "workspace:swept": "jotra://workspace-swept",
+  "notes:changed": "jotra://notes-changed",
+  "notes:swept": "jotra://notes-swept",
+  "notes:indexed": "jotra://notes-indexed",
+  "inbox:file-arrived": "jotra://inbox-file-arrived",
+  "note:download": "jotra://note-download",
+  "update:status": "jotra://update-status",
+  "ai:rewrite": "jotra://ai-rewrite",
+  "ai:chat": "jotra://ai-chat",
+  "quit:flush": "jotra://flush-before-quit",
+  "activity:changed": "jotra://activity",
+  "mcp:pending": "jotra://mcp-pending",
+  "mcp:off-call": "jotra://mcp-off-call",
+  "titlebar:maximize-hit": "jotra://titlebar-maximize-hit",
 };
 
 export async function onEvent<K extends EventKind>(

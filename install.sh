@@ -3,13 +3,19 @@ set -eu
 
 REPO="ibrahemid/writ"
 BIN_DIR="${HOME}/.local/bin"
-LIB_DIR="${HOME}/.local/share/writ"
+LIB_DIR="${HOME}/.local/share/jotra"
+LEGACY_LIB_DIR="${HOME}/.local/share/writ"
+LEGACY_APP_NAME="Writ.AppImage"
+LEGACY_COMMAND="writ"
+LEGACY_GUI_VARIABLE="WRIT_GUI_BIN"
+LEGACY_SKIP_SIGNATURE_NAME="WRIT_INSTALL_SKIP_SIGNATURE"
+LEGACY_SKIP_SIGNATURE="${WRIT_INSTALL_SKIP_SIGNATURE:-}"
 
 # Base64-decoded from the updater pubkey at src-tauri/tauri.conf.json ("plugins.updater.pubkey").
 MINISIGN_PUBKEY="RWT2Ic6WHdF65qf9kASdZd1XZWkUJbTZGCCEcnYK5DlCSDbKNEQX/OHk"
 
 fail() {
-  echo "writ install: $1" >&2
+  echo "jotra install: $1" >&2
   exit 1
 }
 
@@ -157,6 +163,15 @@ verify_signature() {
   esac
 }
 
+# Prints the name of the variable that turns the signature check off, when one is set to 1.
+get_signature_skip_variable() {
+  if [ "${JOTRA_INSTALL_SKIP_SIGNATURE:-}" = 1 ]; then
+    echo JOTRA_INSTALL_SKIP_SIGNATURE
+  elif [ "${LEGACY_SKIP_SIGNATURE}" = 1 ]; then
+    echo "${LEGACY_SKIP_SIGNATURE_NAME}"
+  fi
+}
+
 # Removing first: install(1) into a path that is currently executing fails with ETXTBSY.
 install_bin() {
   rm -f "$2"
@@ -175,7 +190,7 @@ main() {
   case "${ARCH}" in
     x86_64 | amd64) ;;
     *)
-      echo "writ install: unsupported architecture ${ARCH}." >&2
+      echo "jotra install: unsupported architecture ${ARCH}." >&2
       echo "Only x86_64 Linux is built today. Track aarch64 at https://github.com/${REPO}/issues" >&2
       exit 1
       ;;
@@ -187,10 +202,11 @@ main() {
 
   VERIFIER="$(pick_verifier)"
   if [ "${VERIFIER}" = none ]; then
-    if [ "${WRIT_INSTALL_SKIP_SIGNATURE:-}" != 1 ]; then
-      fail "cannot check the release signature: install minisign or OpenSSL 3.0 or later and run this again. To install without checking the signature, run it with WRIT_INSTALL_SKIP_SIGNATURE=1."
+    SKIP_VARIABLE="$(get_signature_skip_variable)"
+    if [ -z "${SKIP_VARIABLE}" ]; then
+      fail "cannot check the release signature: install minisign or OpenSSL 3.0 or later and run this again. To install without checking the signature, run it with JOTRA_INSTALL_SKIP_SIGNATURE=1."
     fi
-    echo "writ install: WRIT_INSTALL_SKIP_SIGNATURE=1 is set, so the release signature is not checked." >&2
+    echo "jotra install: ${SKIP_VARIABLE}=1 is set, so the release signature is not checked." >&2
   else
     need base64
   fi
@@ -202,14 +218,14 @@ main() {
   esac
   VERSION="${TAG#v}"
 
-  ASSET="Writ_${VERSION}_amd64.AppImage"
+  ASSET="Jotra_${VERSION}_amd64.AppImage"
   BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
 
-  TMP="$(mktemp -d 2>/dev/null || mktemp -d -t writ)"
+  TMP="$(mktemp -d 2>/dev/null || mktemp -d -t jotra)"
   trap 'rm -rf "${TMP}"' EXIT INT TERM
   DOWNLOAD="${TMP}/${ASSET}"
 
-  echo "writ install: downloading ${ASSET} (${TAG})"
+  echo "jotra install: downloading ${ASSET} (${TAG})"
   curl -fL --progress-bar -o "${DOWNLOAD}" "${BASE_URL}/${ASSET}" ||
     fail "could not download ${ASSET}. Check your connection and retry."
   curl -fsSL -o "${TMP}/SHA256SUMS.txt" "${BASE_URL}/SHA256SUMS.txt" ||
@@ -219,7 +235,7 @@ main() {
     curl -fsSL -o "${TMP}/SHA256SUMS.txt.minisig" "${BASE_URL}/SHA256SUMS.txt.minisig" ||
       fail "could not download SHA256SUMS.txt.minisig. Check your connection and retry."
     verify_signature "${VERIFIER}" "${TMP}/SHA256SUMS.txt" "${TMP}/SHA256SUMS.txt.minisig" "${TMP}/verify-sums" ||
-      fail "the signature on SHA256SUMS.txt does not match Writ's release key. Nothing was installed."
+      fail "the signature on SHA256SUMS.txt does not match Jotra's release key. Nothing was installed."
   fi
 
   SHA_RC=0
@@ -239,41 +255,61 @@ main() {
   fi
 
   chmod 0755 "${DOWNLOAD}"
-  (cd "${TMP}" && "./${ASSET}" --appimage-extract usr/bin/writ >/dev/null 2>&1) || true
-  if [ ! -f "${TMP}/squashfs-root/usr/bin/writ" ]; then
+  (cd "${TMP}" && "./${ASSET}" --appimage-extract usr/bin/jotra >/dev/null 2>&1) || true
+  if [ ! -f "${TMP}/squashfs-root/usr/bin/jotra" ]; then
     (cd "${TMP}" && "./${ASSET}" --appimage-extract >/dev/null 2>&1) || true
   fi
-  [ -f "${TMP}/squashfs-root/usr/bin/writ" ] ||
-    fail "could not unpack the writ command from ${ASSET}. Nothing was installed."
+  [ -f "${TMP}/squashfs-root/usr/bin/jotra" ] ||
+    fail "could not unpack the jotra command from ${ASSET}. Nothing was installed."
 
-  mkdir -p "${LIB_DIR}" "${BIN_DIR}"
-
-  APP_PATH="${LIB_DIR}/Writ.AppImage"
-  CLI_PATH="${LIB_DIR}/writ-cli"
+  if [ -f "${LEGACY_LIB_DIR}/${LEGACY_APP_NAME}" ]; then
+    LAYOUT_DIR="${LEGACY_LIB_DIR}"
+    APP_PATH="${LEGACY_LIB_DIR}/${LEGACY_APP_NAME}"
+    CLI_PATH="${LEGACY_LIB_DIR}/${LEGACY_COMMAND}-cli"
+    UNPACKED_GUI_PATH="${LEGACY_LIB_DIR}/${LEGACY_COMMAND}-gui"
+  else
+    LAYOUT_DIR="${LIB_DIR}"
+    APP_PATH="${LIB_DIR}/Jotra.AppImage"
+    CLI_PATH="${LIB_DIR}/jotra-cli"
+    UNPACKED_GUI_PATH="${LIB_DIR}/jotra-gui"
+  fi
   GUI_PATH="${APP_PATH}"
 
+  mkdir -p "${LAYOUT_DIR}" "${BIN_DIR}"
+
   install_bin "${DOWNLOAD}" "${APP_PATH}"
-  install_bin "${TMP}/squashfs-root/usr/bin/writ" "${CLI_PATH}"
+  install_bin "${TMP}/squashfs-root/usr/bin/jotra" "${CLI_PATH}"
 
   if ! have fusermount; then
-    echo "writ install: fusermount not found, so Writ will run from an unpacked copy. Install the 'fuse' package and re-run this installer to change that." >&2
-    GUI_PATH="${LIB_DIR}/writ-gui"
-    cat >"${TMP}/writ-gui" <<EOF
+    echo "jotra install: fusermount not found, so Jotra will run from an unpacked copy. Install the 'fuse' package and re-run this installer to change that." >&2
+    GUI_PATH="${UNPACKED_GUI_PATH}"
+    cat >"${TMP}/gui-launcher" <<EOF
 #!/bin/sh
 exec "${APP_PATH}" --appimage-extract-and-run "\$@"
 EOF
-    install_bin "${TMP}/writ-gui" "${GUI_PATH}"
+    install_bin "${TMP}/gui-launcher" "${GUI_PATH}"
   fi
 
-  cat >"${TMP}/writ" <<EOF
+  cat >"${TMP}/command-wrapper" <<EOF
 #!/bin/sh
-WRIT_GUI_BIN="${GUI_PATH}"; export WRIT_GUI_BIN
+JOTRA_GUI_BIN="\${JOTRA_GUI_BIN:-\${${LEGACY_GUI_VARIABLE}:-}}"
+[ -n "\${JOTRA_GUI_BIN}" ] || JOTRA_GUI_BIN="${GUI_PATH}"
+export JOTRA_GUI_BIN
 exec "${CLI_PATH}" "\$@"
 EOF
-  install_bin "${TMP}/writ" "${BIN_DIR}/writ"
+  install_bin "${TMP}/command-wrapper" "${BIN_DIR}/jotra"
+  cat >"${TMP}/legacy-command-wrapper" <<EOF
+#!/bin/sh
+JOTRA_GUI_BIN="\${JOTRA_GUI_BIN:-\${${LEGACY_GUI_VARIABLE}:-}}"
+[ -n "\${JOTRA_GUI_BIN}" ] || JOTRA_GUI_BIN="${GUI_PATH}"
+export JOTRA_GUI_BIN
+JOTRA_COMMAND_NAME="${LEGACY_COMMAND}"; export JOTRA_COMMAND_NAME
+exec "${CLI_PATH}" "\$@"
+EOF
+  install_bin "${TMP}/legacy-command-wrapper" "${BIN_DIR}/${LEGACY_COMMAND}"
 
-  echo "writ install: installed ${VERSION}"
-  echo "  command: ${BIN_DIR}/writ"
+  echo "jotra install: installed ${VERSION}"
+  echo "  command: ${BIN_DIR}/jotra"
   echo "  app:     ${APP_PATH}"
 
   case ":${PATH}:" in

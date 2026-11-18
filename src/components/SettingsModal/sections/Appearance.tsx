@@ -26,7 +26,7 @@ const POLARITY_OPTIONS: { id: Polarity; label: string }[] = [
 
 const ACCENT_OPTIONS: { id: AccentId; label: string }[] = [
   { id: "pine", label: "Pine" },
-  { id: "writ-blue", label: "Writ blue" },
+  { id: "writ-blue", label: "Jotra blue" },
   { id: "terracotta", label: "Terracotta" },
   { id: "slate", label: "Slate" },
   { id: "plum", label: "Plum" },
@@ -40,7 +40,7 @@ const PROSE_FACE_OPTIONS: { id: ProseFaceId; label: string }[] = [
 
 export default function AppearanceSection() {
   // Not the stored preset: polarity picks which half of a pair renders, and a
-  // row that named the stored half read "Writ Light" over a dark app.
+  // row that named the stored half read "Jotra Light" over a dark app.
   const renderedPreset = () => themeStore.activePreset().id;
   const appearance = () => configStore.config().appearance;
 
@@ -141,7 +141,7 @@ export default function AppearanceSection() {
                 onClick={() => patchAppearance({ accent: option.id })}
               >
                 {/* The swatch has to show its own colour, so the fill comes from
-                    the generated map rather than from --writ-accent, which is
+                    the generated map rather than from --jotra-accent, which is
                     whichever one is already chosen. */}
                 <span style={{ background: ACCENTS[option.id][themeStore.polarity()].base }} />
               </button>

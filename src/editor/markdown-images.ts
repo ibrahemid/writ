@@ -265,7 +265,7 @@ function actionButton(
 ): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "writ-btn writ-btn-secondary cm-md-image-download";
+  button.className = "jotra-btn jotra-btn-secondary cm-md-image-download";
   button.textContent = text;
   button.addEventListener("click", () => {
     view.dispatch({ effects: effect });

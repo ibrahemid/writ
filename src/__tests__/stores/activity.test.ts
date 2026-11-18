@@ -108,21 +108,21 @@ describe("activityStore", () => {
   it("reads the log, the approvals and the command on load", async () => {
     h.activityRecent.mockResolvedValue([record()]);
     h.mcpClients.mockResolvedValue(answer([approval("Claude Code", true, false)]));
-    h.mcpServerCommand.mockResolvedValue({ path: "/usr/local/bin/writ", command: '"/usr/local/bin/writ" mcp' });
+    h.mcpServerCommand.mockResolvedValue({ path: "/usr/local/bin/jotra", command: '"/usr/local/bin/jotra" mcp' });
 
     await activityStore.load();
 
     expect(h.activityRecent).toHaveBeenCalledWith(ACTIVITY_LIMIT);
     expect(activityStore.records()).toHaveLength(1);
     expect(activityStore.clients()[0].name).toBe("Claude Code");
-    expect(activityStore.serverCommand()?.command).toBe('"/usr/local/bin/writ" mcp');
+    expect(activityStore.serverCommand()?.command).toBe('"/usr/local/bin/jotra" mcp');
   });
 
   // Each takes its own copy of the module: the command is read once per
   // session, and an earlier test's command would stand.
   it("asks for the install while the command is not there yet, and reads it again", async () => {
     const activityStore = await freshStore();
-    const path = "/home/a/.local/bin/writ";
+    const path = "/home/a/.local/bin/jotra";
     h.mcpServerCommand.mockResolvedValueOnce({
       path,
       command: `"${path}" mcp`,
@@ -131,7 +131,7 @@ describe("activityStore", () => {
     });
     await activityStore.loadCommand();
     expect(activityStore.commandCaution()).toBe(
-      "Install the writ command first, under Settings, Integrations, Terminal command.",
+      "Install the jotra command first, under Settings, Integrations, Terminal command.",
     );
 
     h.mcpServerCommand.mockResolvedValueOnce({
@@ -147,7 +147,7 @@ describe("activityStore", () => {
   it("asks for a translocated app to be moved first", async () => {
     const activityStore = await freshStore();
     h.mcpServerCommand.mockResolvedValueOnce({
-      path: "/private/var/folders/x/AppTranslocation/1/d/Writ.app/Contents/MacOS/writ",
+      path: "/private/var/folders/x/AppTranslocation/1/d/Jotra.app/Contents/MacOS/jotra",
       command: "x",
       needs_install: true,
       needs_move: true,
@@ -295,14 +295,14 @@ describe("activityStore", () => {
 
   it("copying puts the whole command on the clipboard", async () => {
     h.mcpServerCommand.mockResolvedValue({
-      path: "/usr/local/bin/writ",
-      command: '"/usr/local/bin/writ" mcp',
+      path: "/usr/local/bin/jotra",
+      command: '"/usr/local/bin/jotra" mcp',
     });
     await activityStore.loadCommand();
 
     await activityStore.copyCommand();
 
-    expect(h.writeClipboardText).toHaveBeenCalledWith('"/usr/local/bin/writ" mcp');
+    expect(h.writeClipboardText).toHaveBeenCalledWith('"/usr/local/bin/jotra" mcp');
   });
 });
 
@@ -374,12 +374,12 @@ describe("a program calling while Connected programs is off", () => {
     return { store: fresh.activityStore, send };
   }
 
-  it("reads the call that came while Writ was closed", async () => {
+  it("reads the call that came while Jotra was closed", async () => {
     const { store } = await watching({ name: "claude-code", at: "2026-10-15T09:00:00Z" });
     expect(store.offCall()?.name).toBe("claude-code");
   });
 
-  it("takes a call that comes while Writ runs", async () => {
+  it("takes a call that comes while Jotra runs", async () => {
     const { store, send } = await watching(null);
     expect(store.offCall()).toBeNull();
 

@@ -6,18 +6,18 @@
 //! note that ended without a newline gained one. The reply is read against the
 //! bytes the request attached, and Apply writes the text the card showed.
 
+use jotra_core::chat::{parse_proposals, AttachedNote};
+use jotra_tauri_lib::commands::chat::apply_proposal_inner;
+use jotra_tauri_lib::watcher::open_files::NoOpenNotes;
 use tempfile::TempDir;
-use writ_core::chat::{parse_proposals, AttachedNote};
-use writ_tauri_lib::commands::chat::apply_proposal_inner;
-use writ_tauri_lib::watcher::open_files::NoOpenNotes;
 
 /// Attaches `original` as a note, reads a reply proposing `proposed` for it,
 /// applies that proposal, and answers the bytes the note then holds.
 fn propose_and_apply(original: &[u8], proposed: &str) -> Vec<u8> {
     let dir = TempDir::new().expect("temp dir");
     let notes = std::fs::canonicalize(dir.path()).expect("canonical root");
-    let writ = notes.join(".writ");
-    std::fs::create_dir_all(&writ).expect("writ folder");
+    let jotra = notes.join(".jotra");
+    std::fs::create_dir_all(&jotra).expect("jotra folder");
 
     let note = notes.join("Plan.md");
     std::fs::write(&note, original).expect("seed a note");
@@ -26,9 +26,9 @@ fn propose_and_apply(original: &[u8], proposed: &str) -> Vec<u8> {
         path: "Plan.md".to_string(),
         prompt_path: "Plan.md".to_string(),
         text: String::from_utf8(original.to_vec()).expect("text"),
-        before_hash: writ_core::hash::sha256_hex(original),
+        before_hash: jotra_core::hash::sha256_hex(original),
     };
-    let reply = format!("Here it is.\n\n```writ-proposal path=\"Plan.md\"\n{proposed}```\n");
+    let reply = format!("Here it is.\n\n```jotra-proposal path=\"Plan.md\"\n{proposed}```\n");
     let parsed = parse_proposals(&reply, &[attached], false);
     assert_eq!(parsed.proposals.len(), 1, "dropped: {:?}", parsed.dropped);
     let proposal = &parsed.proposals[0];
@@ -36,7 +36,7 @@ fn propose_and_apply(original: &[u8], proposed: &str) -> Vec<u8> {
     let outcome = apply_proposal_inner(
         &notes,
         &NoOpenNotes,
-        &writ,
+        &jotra,
         "probe-host",
         &note.to_string_lossy(),
         &proposal.new_content,
@@ -52,7 +52,7 @@ fn propose_and_apply(original: &[u8], proposed: &str) -> Vec<u8> {
         "Apply wrote other bytes than the card showed"
     );
     assert_eq!(outcome.bytes, written.len() as u64);
-    assert_eq!(outcome.hash, writ_core::hash::sha256_hex(&written));
+    assert_eq!(outcome.hash, jotra_core::hash::sha256_hex(&written));
     written
 }
 

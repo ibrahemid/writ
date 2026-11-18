@@ -1,81 +1,81 @@
-.writ-btn {
+.jotra-btn {
   min-height: 28px;
   display: inline-flex;
   align-items: center;
-  gap: var(--writ-space-2-5);
-  padding: 0 var(--writ-space-4);
+  gap: var(--jotra-space-2-5);
+  padding: 0 var(--jotra-space-4);
   border: 0;
-  border-radius: var(--writ-r-control);
+  border-radius: var(--jotra-r-control);
   font-family: inherit;
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
   cursor: pointer;
-  transition: background var(--writ-motion), color var(--writ-motion);
+  transition: background var(--jotra-motion), color var(--jotra-motion);
 }
 
-.writ-btn .writ-icon {
+.jotra-btn .jotra-icon {
   color: currentColor;
   opacity: 1;
 }
 
-.writ-btn-primary {
-  background: var(--writ-accent);
-  color: var(--writ-accent-fg);
+.jotra-btn-primary {
+  background: var(--jotra-accent);
+  color: var(--jotra-accent-fg);
 }
 
-.writ-btn-primary:hover:not(:disabled) {
-  background: var(--writ-accent-hover);
+.jotra-btn-primary:hover:not(:disabled) {
+  background: var(--jotra-accent-hover);
 }
 
-.writ-btn-secondary {
-  background: var(--writ-bg-sunken);
-  color: var(--writ-fg);
+.jotra-btn-secondary {
+  background: var(--jotra-bg-sunken);
+  color: var(--jotra-fg);
 }
 
-.writ-btn-secondary:hover:not(:disabled) {
-  background: var(--writ-bg-hover);
+.jotra-btn-secondary:hover:not(:disabled) {
+  background: var(--jotra-bg-hover);
 }
 
-.writ-btn-ghost {
+.jotra-btn-ghost {
   background: transparent;
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
 }
 
-.writ-btn-ghost:hover:not(:disabled) {
-  background: var(--writ-bg-hover);
-  color: var(--writ-fg);
+.jotra-btn-ghost:hover:not(:disabled) {
+  background: var(--jotra-bg-hover);
+  color: var(--jotra-fg);
 }
 
-.writ-btn[aria-pressed="true"] {
-  background: var(--writ-bg-selected);
-  color: var(--writ-fg);
+.jotra-btn[aria-pressed="true"] {
+  background: var(--jotra-bg-selected);
+  color: var(--jotra-fg);
 }
 
-.writ-btn-danger {
-  color: var(--writ-danger);
+.jotra-btn-danger {
+  color: var(--jotra-danger);
 }
 
 /* A destructive primary: the red carries the weight the accent would, and the
    accent foreground already follows the polarity the danger tier does. */
-.writ-btn-primary.writ-btn-danger {
-  background: var(--writ-danger);
-  color: var(--writ-accent-fg);
+.jotra-btn-primary.jotra-btn-danger {
+  background: var(--jotra-danger);
+  color: var(--jotra-accent-fg);
 }
 
-.writ-btn-primary.writ-btn-danger:hover:not(:disabled) {
-  background: var(--writ-danger-hover);
+.jotra-btn-primary.jotra-btn-danger:hover:not(:disabled) {
+  background: var(--jotra-danger-hover);
 }
 
-.writ-btn:disabled {
-  opacity: var(--writ-disabled-opacity);
+.jotra-btn:disabled {
+  opacity: var(--jotra-disabled-opacity);
   cursor: default;
 }
 
-:root[data-platform="win"] .writ-btn {
+:root[data-platform="win"] .jotra-btn {
   min-height: 32px;
 }
 
-:root[data-platform="linux"] .writ-btn {
+:root[data-platform="linux"] .jotra-btn {
   min-height: 34px;
   padding: 0 17px;
   font-weight: 700;

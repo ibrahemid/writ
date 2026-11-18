@@ -109,7 +109,7 @@ function on(platform: Platform) {
 }
 
 function bar(container: HTMLElement): HTMLElement {
-  return container.querySelector<HTMLElement>(".writ-toolbar")!;
+  return container.querySelector<HTMLElement>(".jotra-toolbar")!;
 }
 
 function control(container: HTMLElement, name: string): HTMLButtonElement {
@@ -134,7 +134,7 @@ describe("Toolbar shape", () => {
   it("carries the sidebar toggle, New note, connections and search", () => {
     const { container } = render(() => <Toolbar />);
     expect(control(container, "Toggle sidebar")).not.toBeNull();
-    expect(container.querySelector(".writ-toolbar-compose")!.textContent).toContain("New file");
+    expect(container.querySelector(".jotra-toolbar-compose")!.textContent).toContain("New file");
     expect(container.querySelector("input.search-input")).not.toBeNull();
     expect(control(container, "Connections")).not.toBeNull();
   });
@@ -145,10 +145,10 @@ describe("Toolbar shape", () => {
     for (const [, label] of FORMAT_COMMANDS) {
       expect(container.querySelector(`button[aria-label="${label}"]`), label).toBeNull();
     }
-    expect(container.querySelector(".writ-toolbar-cluster")).toBeNull();
-    expect(container.querySelector(".writ-toolbar-format")).toBeNull();
-    expect(TOOLBAR_CSS).not.toContain("writ-toolbar-cluster");
-    expect(TOOLBAR_CSS).not.toContain("writ-toolbar-format");
+    expect(container.querySelector(".jotra-toolbar-cluster")).toBeNull();
+    expect(container.querySelector(".jotra-toolbar-format")).toBeNull();
+    expect(TOOLBAR_CSS).not.toContain("jotra-toolbar-cluster");
+    expect(TOOLBAR_CSS).not.toContain("jotra-toolbar-format");
   });
 
   it("names every icon-only control without a title attribute", () => {
@@ -165,9 +165,9 @@ describe("Toolbar shape", () => {
     expect(bar(container).dataset.platform).toBe("win");
     expect(container.querySelector("input.search-input")).not.toBeNull();
     // jsdom loads no stylesheet, so the rule itself is what the test can read.
-    expect(TOOLBAR_CSS).toMatch(/\.writ-toolbar\s*\{[^}]*height:\s*44px/);
+    expect(TOOLBAR_CSS).toMatch(/\.jotra-toolbar\s*\{[^}]*height:\s*44px/);
     expect(TOOLBAR_CSS).toMatch(
-      /\.writ-toolbar\[data-platform="win"\]\s*\{[^}]*height:\s*48px/,
+      /\.jotra-toolbar\[data-platform="win"\]\s*\{[^}]*height:\s*48px/,
     );
   });
 
@@ -177,17 +177,17 @@ describe("Toolbar shape", () => {
     expect(bar(container).dataset.platform).toBe("linux");
     expect(container.querySelector("input.search-input")).toBeNull();
     expect(TOOLBAR_CSS).toMatch(
-      /\.writ-toolbar\[data-platform="linux"\]\s*\{[^}]*gap:\s*var\(--writ-toolbar-tight, var\(--writ-space-2-5\)\)[^}]*padding:\s*var\(--writ-toolbar-tight, var\(--writ-space-2-5\)\)/,
+      /\.jotra-toolbar\[data-platform="linux"\]\s*\{[^}]*gap:\s*var\(--jotra-toolbar-tight, var\(--jotra-space-2-5\)\)[^}]*padding:\s*var\(--jotra-toolbar-tight, var\(--jotra-space-2-5\)\)/,
     );
-    expect(TOOLBAR_CSS).toMatch(/--writ-toolbar-tight:\s*var\(--writ-space-2-5\)/);
+    expect(TOOLBAR_CSS).toMatch(/--jotra-toolbar-tight:\s*var\(--jotra-space-2-5\)/);
   });
 
   it("keeps New note on the baseline gap and out of the GNOME bold rule", () => {
-    const compose = /\.writ-toolbar-compose\s*\{([^}]*)\}/.exec(TOOLBAR_CSS)![1];
-    expect(compose).toMatch(/gap:\s*var\(--writ-toolbar-tight, var\(--writ-space-2-5\)\)/);
+    const compose = /\.jotra-toolbar-compose\s*\{([^}]*)\}/.exec(TOOLBAR_CSS)![1];
+    expect(compose).toMatch(/gap:\s*var\(--jotra-toolbar-tight, var\(--jotra-space-2-5\)\)/);
     expect(compose).toMatch(/font-weight:\s*400/);
     expect(TOOLBAR_CSS).toMatch(
-      /\[data-platform="win"\] \.writ-toolbar-compose\s*\{[^}]*gap:\s*var\(--writ-space-3\)/,
+      /\[data-platform="win"\] \.jotra-toolbar-compose\s*\{[^}]*gap:\s*var\(--jotra-space-3\)/,
     );
   });
 });
@@ -246,9 +246,9 @@ describe("Toolbar commands", () => {
     const button = control(container, "Chat");
     expect(button).not.toBeNull();
 
-    fireEvent.pointerEnter(button.closest(".writ-tooltip-anchor") as Element);
+    fireEvent.pointerEnter(button.closest(".jotra-tooltip-anchor") as Element);
     vi.advanceTimersByTime(500);
-    expect(document.querySelector(".writ-tooltip-kbd")?.textContent).toBe(
+    expect(document.querySelector(".jotra-tooltip-kbd")?.textContent).toBe(
       formatKeybinding("CmdOrCtrl+Shift+A"),
     );
 
@@ -260,7 +260,7 @@ describe("Toolbar commands", () => {
   it("runs note.new from New note", () => {
     const run = stub("note.new", "New file");
     const { container } = render(() => <Toolbar />);
-    fireEvent.click(container.querySelector<HTMLButtonElement>(".writ-toolbar-compose")!);
+    fireEvent.click(container.querySelector<HTMLButtonElement>(".jotra-toolbar-compose")!);
     expect(run).toHaveBeenCalledOnce();
   });
 
@@ -338,7 +338,7 @@ describe("Toolbar keyboard", () => {
 
 describe("Toolbar programs mark", () => {
   const mark = (container: HTMLElement) =>
-    container.querySelector<HTMLButtonElement>(".writ-toolbar-programs");
+    container.querySelector<HTMLButtonElement>(".jotra-toolbar-programs");
 
   it("is in the toolbar while Connected programs is on", () => {
     const { container } = render(() => <Toolbar />);
@@ -356,7 +356,7 @@ describe("Toolbar programs mark", () => {
 
     waitingList.setPending([{ name: "Claude Code" }]);
     expect(mark(container)?.getAttribute("aria-label")).toBe("Program activity, 1 program waiting");
-    expect(mark(container)?.querySelector(".writ-toolbar-dot[data-waiting]")).not.toBeNull();
+    expect(mark(container)?.querySelector(".jotra-toolbar-dot[data-waiting]")).not.toBeNull();
 
     waitingList.setPending([{ name: "Claude Code" }, { name: "Cursor" }]);
     expect(mark(container)?.getAttribute("aria-label")).toBe("Program activity, 2 programs waiting");

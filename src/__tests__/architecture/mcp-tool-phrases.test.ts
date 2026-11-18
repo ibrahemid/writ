@@ -14,11 +14,11 @@ import {
 // registers has to be named here. A tool added to the server and missing from
 // the tables fails this, rather than reaching the user as a bare id.
 
-const TOOLS_RS = readFileSync(resolve(process.cwd(), "crates/writ-core/src/tools.rs"), "utf8");
+const TOOLS_RS = readFileSync(resolve(process.cwd(), "crates/jotra-core/src/tools.rs"), "utf8");
 
 function constantList(name: string): string[] {
   const match = TOOLS_RS.match(new RegExp(`${name}:\\s*&\\[&str\\]\\s*=\\s*&\\[([^\\]]*)\\]`));
-  expect(match, `${name} is declared in crates/writ-core/src/tools.rs`).toBeTruthy();
+  expect(match, `${name} is declared in crates/jotra-core/src/tools.rs`).toBeTruthy();
   return [...match![1]!.matchAll(/"([^"]+)"/g)].map((m) => m[1]!);
 }
 
@@ -71,7 +71,7 @@ describe("the tool table names every tool the server registers", () => {
       "replace a file's text, make a new file, rename a file, add to the end of a file, replace a passage in a file, make or add to today's file",
     );
     expect(describeContextTools(SERVER_CONTEXT)).toBe(
-      "see the file open in Writ and the text you selected",
+      "see the file open in Jotra and the text you selected",
     );
   });
 

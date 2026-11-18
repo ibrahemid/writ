@@ -1,5 +1,5 @@
 // The connection rules behind Chat, Rewrite and Connected programs, from
-// writ_core::ai::providers, writ_core::polish, writ_core::chat and the ai,
+// jotra_core::ai::providers, jotra_core::polish, jotra_core::chat and the ai,
 // chat and activity commands. A web page reaches no model server and no
 // program reaches a web page, so every request that would leave the machine
 // fails the way the app's own does when nothing answers: at the address, as a
@@ -20,7 +20,7 @@ import type {
 } from "../../src/services/tauri";
 import type { AiConfig } from "../../src/types/config";
 
-/** writ_core::ai::providers::PROVIDERS. */
+/** jotra_core::ai::providers::PROVIDERS. */
 export const PROVIDERS: readonly AiProviderInfo[] = [
   { id: "ollama", label: "Ollama", group: "local", wire: "openai", base_url: "http://localhost:11434/v1", models_url: "http://localhost:11434/api/tags", key_page_url: null, default_model: "", needs_key: false, supports_connect: false, probe_port: 11434, curated_models: ["qwen3:4b", "qwen3:8b", "gemma3:4b", "llama3.2:3b"] },
   { id: "lmstudio", label: "LM Studio", group: "local", wire: "openai", base_url: "http://localhost:1234/v1", models_url: "http://localhost:1234/v1/models", key_page_url: null, default_model: "", needs_key: false, supports_connect: false, probe_port: 1234, curated_models: [] },
@@ -40,16 +40,16 @@ export const PROVIDERS: readonly AiProviderInfo[] = [
   { id: "apple", label: "Apple Intelligence", group: "on_device", wire: "openai", base_url: "", models_url: "", key_page_url: null, default_model: "", needs_key: false, supports_connect: false, probe_port: null, curated_models: [] },
 ];
 
-/** writ_core::tools::{READ_TOOLS, WRITE_TOOLS, CONTEXT_TOOLS}. */
+/** jotra_core::tools::{READ_TOOLS, WRITE_TOOLS, CONTEXT_TOOLS}. */
 export const MCP_TOOLS: McpTools = {
-  read: ["list_notes", "search_notes", "read_note", "note_links", "note_backlinks", "note_properties", "note_tags", "folder_tags", "open_in_writ", "reveal"],
+  read: ["list_notes", "search_notes", "read_note", "note_links", "note_backlinks", "note_properties", "note_tags", "folder_tags", "open_in_jotra", "reveal"],
   write: ["write_note", "create_note", "rename_note", "append_note", "replace_in_note", "today"],
   context: ["get_context"],
 };
 
-/** activity::server_command_for over the `writ` binary bundled beside the app on macOS. */
+/** activity::server_command_for over the `jotra` binary bundled beside the app on macOS. */
 export function getMcpServerCommand(): McpServerCommand {
-  const path = "/Applications/Writ.app/Contents/MacOS/writ";
+  const path = "/Applications/Jotra.app/Contents/MacOS/jotra";
   return { path, command: `"${path}" mcp`, needs_install: false, needs_move: false };
 }
 

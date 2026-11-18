@@ -18,7 +18,7 @@ export interface FileLanguageInputs {
  * The language the editor shows a file in, or null for plain text.
  *
  * A language chosen for the file wins; `plaintext` is a choice too. Otherwise
- * the name decides: Writ's own map, plain text for `.txt` and `.text`, then
+ * the name decides: Jotra's own map, plain text for `.txt` and `.text`, then
  * the editor's language table. Only a name with no extension lets the text
  * speak, through a shebang. An id nobody knows is no choice.
  */

@@ -1,7 +1,7 @@
 /**
  * A preset's colour groups, in the ADR-030 vocabulary. The leaf named `default`
  * collapses onto the bare group name when the store flattens a preset, so
- * `fg.default` becomes the token `fg` and the custom property `--writ-fg`.
+ * `fg.default` becomes the token `fg` and the custom property `--jotra-fg`.
  * `tokenKey` is that rule; nothing else may build a key by hand.
  */
 export interface ThemeTokens {
@@ -88,7 +88,7 @@ export const GROUP_LABELS: Readonly<Record<TokenGroup, string>> = {
 
 /**
  * The token a group's leaf resolves to. `default` is the group itself, so the
- * store, the editor and an override all address `--writ-fg` by the same name.
+ * store, the editor and an override all address `--jotra-fg` by the same name.
  */
 export function tokenKey(group: string, leaf: string): string {
   return leaf === "default" ? group : `${group}.${leaf}`;
@@ -96,7 +96,7 @@ export function tokenKey(group: string, leaf: string): string {
 
 /**
  * Tokens a preset still carries that the editor does not offer. Nothing reads
- * `var(--writ-status-foreground)` in the app or the site, so a row for it would
+ * `var(--jotra-status-foreground)` in the app or the site, so a row for it would
  * be a picker that repaints nothing.
  */
 export const NON_EDITABLE_TOKENS: ReadonlySet<string> = new Set(["status.foreground"]);
@@ -137,7 +137,7 @@ export const TOKEN_LABELS: Readonly<Record<string, string>> = {
 
 /**
  * The token keys a per-token override may name, in the ADR-030 vocabulary.
- * Each becomes `--writ-<key with dots as dashes>`, so this list is also the
+ * Each becomes `--jotra-<key with dots as dashes>`, so this list is also the
  * set of custom properties a user is allowed to repaint.
  */
 export const OVERRIDE_KEYS = [

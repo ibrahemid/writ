@@ -15,7 +15,7 @@ const MAX_LOG_FILES: usize = 14;
 const RELEASE_DIRECTIVES: &str = "info";
 
 /// What a debug build logs.
-const DEBUG_DIRECTIVES: &str = "info,writ_core=debug,writ_storage=debug,writ_tauri_lib=debug";
+const DEBUG_DIRECTIVES: &str = "info,jotra_core=debug,jotra_storage=debug,jotra_tauri_lib=debug";
 
 /// Holds the log file writer open. Dropping it, or calling [`LogGuard::flush`],
 /// writes the lines still queued.
@@ -76,8 +76,8 @@ fn filter_directives(env: Option<&str>, release: bool) -> String {
 /// directory cannot take a log file.
 ///
 /// The convenience constructor (`rolling::daily`) panics in that case, which
-/// aborted the process before Writ could report why — and the likeliest
-/// reason for it is the same unwritable `~/.writ` that makes startup fail.
+/// aborted the process before Jotra could report why — and the likeliest
+/// reason for it is the same unwritable `~/.jotra` that makes startup fail.
 fn file_layer<S>(logs_dir: &Path) -> Option<(impl Layer<S>, WorkerGuard)>
 where
     S: tracing::Subscriber + for<'a> LookupSpan<'a>,
@@ -90,13 +90,13 @@ where
     ))
 }
 
-/// Opens `writ.log.<date>` in `logs_dir`, deleting the oldest files past
+/// Opens `jotra.log.<date>` in `logs_dir`, deleting the oldest files past
 /// [`MAX_LOG_FILES`]. Returns `None` on any failure.
 fn build_appender(logs_dir: &Path) -> Option<RollingFileAppender> {
     std::fs::create_dir_all(logs_dir).ok()?;
     RollingFileAppender::builder()
         .rotation(Rotation::DAILY)
-        .filename_prefix("writ.log")
+        .filename_prefix("jotra.log")
         .max_log_files(MAX_LOG_FILES)
         .build(logs_dir)
         .ok()
@@ -149,8 +149,8 @@ mod tests {
     #[test]
     fn rust_log_turns_debug_on_in_a_release_build() {
         assert_eq!(
-            filter_directives(Some("writ_tauri_lib=debug"), true),
-            "writ_tauri_lib=debug"
+            filter_directives(Some("jotra_tauri_lib=debug"), true),
+            "jotra_tauri_lib=debug"
         );
         assert_eq!(filter_directives(Some("  "), true), RELEASE_DIRECTIVES);
     }
@@ -161,14 +161,14 @@ mod tests {
         // Pruning orders by creation time; the pause keeps the order strict.
         for day in 1..=20 {
             std::fs::write(
-                logs.path().join(format!("writ.log.2000-01-{day:02}")),
+                logs.path().join(format!("jotra.log.2000-01-{day:02}")),
                 "old\n",
             )
             .unwrap();
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
         std::fs::write(
-            logs.path().join("writ-crash-20000101-000000.log"),
+            logs.path().join("jotra-crash-20000101-000000.log"),
             "report\n",
         )
         .unwrap();
@@ -178,12 +178,12 @@ mod tests {
         let log_files = std::fs::read_dir(logs.path())
             .unwrap()
             .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
-            .filter(|name| name.starts_with("writ.log"))
+            .filter(|name| name.starts_with("jotra.log"))
             .count();
         assert_eq!(log_files, MAX_LOG_FILES);
-        assert!(!logs.path().join("writ.log.2000-01-01").exists());
-        assert!(logs.path().join("writ.log.2000-01-20").exists());
-        assert!(logs.path().join("writ-crash-20000101-000000.log").exists());
+        assert!(!logs.path().join("jotra.log.2000-01-01").exists());
+        assert!(logs.path().join("jotra.log.2000-01-20").exists());
+        assert!(logs.path().join("jotra-crash-20000101-000000.log").exists());
     }
 
     #[test]

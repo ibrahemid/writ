@@ -1,0 +1,581 @@
+use jotra_core::config::{
+    Accent, ClientApproval, DefaultLayout, FileExtension, FilesConfig, JotraConfig, MarkdownLayout,
+    Polarity, ProseFace, SidebarPosition, SidebarSection,
+};
+
+#[test]
+fn default_config_has_expected_values() {
+    let config = JotraConfig::default();
+
+    assert_eq!(config.hotkey.toggle, "CmdOrCtrl+Shift+Space");
+
+    assert_eq!(config.sidebar.toggle, "CmdOrCtrl+\\");
+    assert!(!config.sidebar.default_visible);
+    // ADR-030: a first launch shows the notes list, not an empty canvas.
+    assert!(config.sidebar.open);
+    assert_eq!(config.sidebar.position, SidebarPosition::Left);
+    assert_eq!(config.sidebar.width, 240);
+    assert!(config.sidebar.collapsed.is_empty());
+    // ADR-042: a fresh sidebar is the file tree and search.
+    assert_eq!(config.sidebar.hidden, vec![SidebarSection::Recent]);
+    assert!(config.apps_on().is_empty());
+
+    assert_eq!(config.editor.font_size, 16);
+    assert!(config.editor.word_wrap);
+    assert_eq!(config.editor.tab_size, 2);
+    assert_eq!(config.editor.autosave_debounce_ms, 1000);
+
+    assert_eq!(config.window.width, 1100);
+    assert_eq!(config.window.height, 720);
+
+    assert!(config.keybindings.is_empty());
+
+    assert_eq!(config.history.max_entries, 500);
+
+    // ADR-041: a new file is plain text.
+    assert_eq!(config.files.default_extension, FileExtension::Txt);
+    assert_eq!(
+        config.preview.default_layout_markdown,
+        MarkdownLayout::Inline
+    );
+}
+
+#[test]
+fn config_serializes_to_toml() {
+    let config = JotraConfig::default();
+    let toml_str = toml::to_string(&config).expect("serialization failed");
+
+    assert!(toml_str.contains("[hotkey]"));
+    assert!(toml_str.contains("[sidebar]"));
+    assert!(toml_str.contains("[editor]"));
+    assert!(toml_str.contains("[window]"));
+    assert!(toml_str.contains("[keybindings]"));
+    assert!(toml_str.contains("[history]"));
+    assert!(!toml_str.contains("[storage]"), "{toml_str}");
+    assert!(!toml_str.contains("[commands"), "{toml_str}");
+    assert!(toml_str.contains("[files]"), "{toml_str}");
+    assert!(toml_str.contains("collapsed = []"), "{toml_str}");
+    assert!(toml_str.contains("hidden = [\"recent\"]"), "{toml_str}");
+    assert!(toml_str.contains("[apps]"), "{toml_str}");
+}
+
+#[test]
+fn config_roundtrips_through_toml() {
+    let original = JotraConfig::default();
+    let toml_str = toml::to_string(&original).expect("serialization failed");
+    let restored: JotraConfig = toml::from_str(&toml_str).expect("deserialization failed");
+    assert_eq!(original, restored);
+}
+
+#[test]
+fn sidebar_open_defaults_when_missing_from_toml() {
+    let toml_str = "[sidebar]\ntoggle = \"CmdOrCtrl+S\"\n";
+    let parsed: JotraConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert!(parsed.sidebar.open);
+}
+
+#[test]
+fn sidebar_open_serde_roundtrip() {
+    let mut config = JotraConfig::default();
+    config.sidebar.open = true;
+    let toml_str = toml::to_string(&config).expect("serialization failed");
+    let restored: JotraConfig = toml::from_str(&toml_str).expect("deserialization failed");
+    assert!(restored.sidebar.open);
+}
+
+#[test]
+fn legacy_sidebar_mode_field_is_silently_ignored() {
+    let toml_str = "[sidebar]\nmode = \"floating\"\nopen = true\n";
+    let parsed: JotraConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert!(parsed.sidebar.open);
+}
+
+#[test]
+fn theme_defaults_to_jotra_light() {
+    let config = JotraConfig::default();
+    assert_eq!(config.theme.preset, "writ-light");
+    assert!(config.theme.overrides.is_empty());
+}
+
+#[test]
+fn kept_config_ids_round_trip_in_old_and_new_configs() {
+    let old_config = "[theme]\npreset = \"writ-dark\"\n\n[appearance]\naccent = \"writ-blue\"\n";
+    let parsed = JotraConfig::parse(old_config).expect("an old config reads");
+    assert_eq!(parsed.theme.preset, "writ-dark");
+    assert_eq!(parsed.appearance.accent, Accent::WritBlue);
+
+    let written = toml::to_string(&parsed).expect("serialization failed");
+    assert!(written.contains("preset = \"writ-dark\""), "{written}");
+    assert!(written.contains("accent = \"writ-blue\""), "{written}");
+    let reread = JotraConfig::parse(&written).expect("the written config reads");
+    assert_eq!(reread, parsed);
+
+    let mut new_config = JotraConfig::default();
+    assert_eq!(new_config.theme.preset, "writ-light");
+    new_config.appearance.accent = Accent::WritBlue;
+    let written = toml::to_string(&new_config).expect("serialization failed");
+    assert!(written.contains("preset = \"writ-light\""), "{written}");
+    assert!(written.contains("accent = \"writ-blue\""), "{written}");
+    assert_eq!(
+        JotraConfig::parse(&written).expect("the new config reads"),
+        new_config
+    );
+}
+
+#[test]
+fn theme_section_round_trips() {
+    let mut config = JotraConfig::default();
+    config.theme.preset = "dracula".to_string();
+    config
+        .theme
+        .overrides
+        .insert("accent.default".to_string(), "#ff7b00".to_string());
+    let toml_str = toml::to_string(&config).expect("serialization failed");
+    let restored: JotraConfig = toml::from_str(&toml_str).expect("deserialization failed");
+    assert_eq!(restored.theme.preset, "dracula");
+    assert_eq!(
+        restored.theme.overrides.get("accent.default"),
+        Some(&"#ff7b00".to_string()),
+    );
+}
+
+#[test]
+fn missing_theme_section_uses_defaults() {
+    let toml_str = "[sidebar]\ntoggle = \"CmdOrCtrl+S\"\n";
+    let parsed: JotraConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert_eq!(parsed.theme.preset, "writ-light");
+}
+
+#[test]
+fn config_serialization_emits_theme_section() {
+    let toml_str = toml::to_string(&JotraConfig::default()).expect("serialization failed");
+    assert!(toml_str.contains("[theme]"));
+}
+
+#[test]
+fn config_round_trip_preserves_appearance_and_status_bar() {
+    // The IPC surface is get_config / set_config over this same serialization,
+    // so a round trip is what the frontend gets back after saving.
+    let mut config = JotraConfig::default();
+    config.appearance.polarity = Polarity::Dark;
+    config.appearance.accent = Accent::Terracotta;
+    config.appearance.prose_face = ProseFace::Quattro;
+    // The default is on, so off is the value a round trip has to carry.
+    config.editor.status_bar = false;
+
+    let toml_str = toml::to_string(&config).expect("serialization failed");
+    assert!(toml_str.contains("[appearance]"), "{toml_str}");
+    let restored: JotraConfig = toml::from_str(&toml_str).expect("deserialization failed");
+    assert_eq!(restored.appearance, config.appearance);
+    assert!(!restored.editor.status_bar);
+}
+
+/// `storage.path` was read by nothing (TS-27) and command usage moved to the
+/// database (ADR-048): a file that still carries either reads as before, and
+/// the next write leaves both tables out.
+#[test]
+fn a_config_with_storage_and_command_usage_reads_and_drops_them_on_write() {
+    let text = "[storage]\npath = \"~/elsewhere\"\n\n\
+                [commands.usage.\"palette.open\"]\ncount = 3\nlast_used_ms = 9\n\n\
+                [editor]\nfont_size = 20\n";
+    let parsed = JotraConfig::parse(text).expect("an older file still reads");
+    assert_eq!(parsed.editor.font_size, 20);
+
+    let written = toml::to_string(&parsed).expect("serialization failed");
+    assert!(!written.contains("storage"), "{written}");
+    assert!(!written.contains("commands"), "{written}");
+    assert!(!written.contains("palette.open"), "{written}");
+}
+
+#[test]
+fn window_position_defaults_to_none() {
+    let config = JotraConfig::default();
+    assert_eq!(config.window.x, None);
+    assert_eq!(config.window.y, None);
+}
+
+#[test]
+fn window_position_missing_from_toml_defaults_to_none() {
+    let toml_str = "[window]\nwidth = 1100\nheight = 720\n";
+    let parsed: JotraConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert_eq!(parsed.window.x, None);
+    assert_eq!(parsed.window.y, None);
+}
+
+#[test]
+fn window_position_round_trips_through_toml() {
+    let mut config = JotraConfig::default();
+    config.window.x = Some(240);
+    config.window.y = Some(-120);
+    let toml_str = toml::to_string(&config).expect("serialization failed");
+    let restored: JotraConfig = toml::from_str(&toml_str).expect("deserialization failed");
+    assert_eq!(restored.window.x, Some(240));
+    assert_eq!(restored.window.y, Some(-120));
+}
+
+#[test]
+fn window_position_omitted_from_toml_when_unset() {
+    let toml_str = toml::to_string(&JotraConfig::default()).expect("serialization failed");
+    let window_section = toml_str
+        .split("[window]")
+        .nth(1)
+        .and_then(|rest| rest.split('[').next())
+        .unwrap_or("");
+    assert!(!window_section.contains("x ="));
+    assert!(!window_section.contains("y ="));
+}
+
+#[test]
+fn window_maximized_defaults_to_false() {
+    let config = JotraConfig::default();
+    assert!(!config.window.maximized);
+}
+
+#[test]
+fn window_maximized_missing_from_toml_defaults_to_false() {
+    let toml_str = "[window]\nwidth = 1100\nheight = 720\nx = 240\ny = 120\n";
+    let parsed: JotraConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert!(!parsed.window.maximized);
+    assert_eq!(parsed.window.x, Some(240));
+}
+
+#[test]
+fn window_maximized_round_trips_through_toml() {
+    let mut config = JotraConfig::default();
+    config.window.maximized = true;
+    config.window.x = Some(240);
+    config.window.y = Some(-120);
+    let toml_str = toml::to_string(&config).expect("serialization failed");
+    let restored: JotraConfig = toml::from_str(&toml_str).expect("deserialization failed");
+    assert!(restored.window.maximized);
+    assert_eq!(restored.window.width, config.window.width);
+    assert_eq!(restored.window.height, config.window.height);
+    assert_eq!(restored.window.x, Some(240));
+    assert_eq!(restored.window.y, Some(-120));
+}
+
+#[test]
+fn a_config_with_the_retired_editor_keys_still_loads() {
+    let toml_str = "[editor]\nfont_family = \"Menlo\"\nmarkdown_typography = false\nword_wrap = false\ntab_size = 8\n";
+    let config: JotraConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert!(!config.editor.word_wrap);
+    assert_eq!(config.editor.tab_size, 8);
+
+    let serialized = toml::to_string(&config).expect("serialization failed");
+    assert!(!serialized.contains("font_family"));
+    assert!(!serialized.contains("markdown_typography"));
+}
+
+#[test]
+fn markdown_editing_defaults_to_true() {
+    let config = JotraConfig::default();
+    assert!(config.editor.markdown_editing);
+}
+
+#[test]
+fn markdown_editing_false_roundtrips_through_toml() {
+    let toml_str = "[editor]\nmarkdown_editing = false\n";
+    let config: JotraConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert!(!config.editor.markdown_editing);
+    let serialized = toml::to_string(&config).expect("serialization failed");
+    let restored: JotraConfig = toml::from_str(&serialized).expect("deserialization failed");
+    assert!(!restored.editor.markdown_editing);
+}
+
+#[test]
+fn markdown_editing_missing_from_toml_uses_default() {
+    let toml_str = "[editor]\nfont_size = 16\n";
+    let config: JotraConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert!(config.editor.markdown_editing);
+}
+
+#[test]
+fn sidebar_width_defaults_when_the_section_is_absent() {
+    // A config written before the sidebar could be resized has no width, and
+    // may have no [sidebar] table at all.
+    let config: JotraConfig = toml::from_str("[editor]\nfont_size = 16\n").expect("no [sidebar]");
+    assert_eq!(config.sidebar.width, 240);
+
+    let partial: JotraConfig =
+        toml::from_str("[sidebar]\nopen = false\n").expect("[sidebar] without width");
+    assert_eq!(partial.sidebar.width, 240);
+    assert!(!partial.sidebar.open);
+}
+
+#[test]
+fn sidebar_sections_default_when_the_table_predates_them() {
+    let parsed: JotraConfig =
+        toml::from_str("[sidebar]\nopen = true\nwidth = 240\n").expect("deserialization failed");
+    assert!(parsed.sidebar.collapsed.is_empty());
+    assert!(parsed.sidebar.hidden.is_empty());
+}
+
+#[test]
+fn sidebar_sections_round_trip_through_toml() {
+    let mut config = JotraConfig::default();
+    config.sidebar.collapsed = vec![SidebarSection::Tags];
+    config.sidebar.hidden = vec![SidebarSection::Inbox, SidebarSection::Recent];
+    let toml_str = toml::to_string(&config).expect("serialization failed");
+    let restored: JotraConfig = toml::from_str(&toml_str).expect("deserialization failed");
+    assert_eq!(restored.sidebar, config.sidebar);
+}
+
+#[test]
+fn a_section_id_from_another_version_does_not_fail_the_config() {
+    let toml_str =
+        "[sidebar]\nhidden = [\"graph\", \"inbox\"]\ncollapsed = [\"Recent\", \"recent\"]\n";
+    let parsed: JotraConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert_eq!(parsed.sidebar.hidden, vec![SidebarSection::Inbox]);
+    assert_eq!(parsed.sidebar.collapsed, vec![SidebarSection::Recent]);
+}
+
+#[test]
+fn sidebar_width_round_trips_through_toml() {
+    let toml_str = "[sidebar]\nwidth = 312\n";
+    let config: JotraConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert_eq!(config.sidebar.width, 312);
+
+    let serialized = toml::to_string(&config).expect("serialization failed");
+    let restored: JotraConfig = toml::from_str(&serialized).expect("deserialization failed");
+    assert_eq!(restored.sidebar.width, 312);
+}
+
+#[test]
+fn missing_notes_section_defaults_to_none_root() {
+    let config: JotraConfig = toml::from_str("").expect("deserialization failed");
+    assert_eq!(config.notes.root, None);
+    assert_eq!(JotraConfig::default().notes.root, None);
+}
+
+#[test]
+fn notes_section_round_trips_through_toml() {
+    let toml_str = "[notes]\nroot = \"/home/tester/Documents/Notes\"\n";
+    let config: JotraConfig = toml::from_str(toml_str).expect("deserialization failed");
+    assert_eq!(
+        config.notes.root.as_deref(),
+        Some("/home/tester/Documents/Notes")
+    );
+
+    let serialized = toml::to_string(&config).expect("serialization failed");
+    let restored: JotraConfig = toml::from_str(&serialized).expect("deserialization failed");
+    assert_eq!(restored.notes, config.notes);
+}
+
+#[test]
+fn panel_starts_closed_at_the_sidebar_width() {
+    let config = JotraConfig::default();
+    assert!(!config.panel.open);
+    assert_eq!(config.panel.width, 240);
+}
+
+#[test]
+fn panel_defaults_when_the_section_is_absent() {
+    // Every config written before the panel existed has no [panel] table.
+    let config: JotraConfig = toml::from_str("[editor]\nfont_size = 16\n").expect("no [panel]");
+    assert!(!config.panel.open);
+    assert_eq!(config.panel.width, 240);
+
+    let partial: JotraConfig =
+        toml::from_str("[panel]\nopen = true\n").expect("[panel] without width");
+    assert!(partial.panel.open);
+    assert_eq!(partial.panel.width, 240);
+}
+
+#[test]
+fn panel_state_round_trips_through_toml() {
+    let toml_str = "[panel]\nopen = true\nwidth = 312\n";
+    let config: JotraConfig = toml::from_str(toml_str).expect("deserialization failed");
+
+    let serialized = toml::to_string(&config).expect("serialization failed");
+    let restored: JotraConfig = toml::from_str(&serialized).expect("deserialization failed");
+    assert!(restored.panel.open);
+    assert_eq!(restored.panel.width, 312);
+}
+
+/// The live config as it stands after the commands that own these fields have
+/// written them: a consent, an approved program, a word added to the
+/// dictionary, and the folders picked through a dialog.
+fn live_with_rust_owned() -> JotraConfig {
+    let mut live = JotraConfig::default();
+    live.ai.consented_hosts = vec!["api.deepseek.com".to_string()];
+    live.dictation.consented_hosts = vec!["api.groq.com".to_string()];
+    live.mcp.approved_clients = vec![ClientApproval {
+        name: "Zed".to_string(),
+        first_seen: chrono::Utc::now(),
+        read: true,
+        write: false,
+        context: false,
+        review: false,
+    }];
+    live.spelling.ignored_words = vec!["jotra".to_string()];
+    live.workspace.root = Some("/notes/work".to_string());
+    live.notes.root = Some("/notes".to_string());
+    live.inbox.path = Some("/inbox".to_string());
+    live
+}
+
+#[test]
+fn a_stale_copy_carries_the_fields_only_rust_writes() {
+    let live = live_with_rust_owned();
+
+    // What the frontend holds: a copy read before any of those writes, with a
+    // geometry change of its own.
+    let mut stale = JotraConfig::default();
+    stale.window.width = 900;
+
+    stale.carry_rust_owned(&live);
+
+    assert_eq!(stale.ai.consented_hosts, ["api.deepseek.com"]);
+    assert_eq!(stale.dictation.consented_hosts, ["api.groq.com"]);
+    assert_eq!(stale.mcp.approved_clients.len(), 1);
+    assert_eq!(stale.spelling.ignored_words, ["jotra"]);
+    assert_eq!(stale.workspace.root.as_deref(), Some("/notes/work"));
+    assert_eq!(stale.notes.root.as_deref(), Some("/notes"));
+    assert_eq!(stale.inbox.path.as_deref(), Some("/inbox"));
+    // The write's own change survives the carry.
+    assert_eq!(stale.window.width, 900);
+}
+
+#[test]
+fn the_carry_leaves_the_fields_a_settings_panel_owns() {
+    let mut live = live_with_rust_owned();
+    live.spelling.enabled = false;
+    live.spelling.dialect = "american".to_string();
+    live.mcp.enabled = false;
+    live.inbox.focus = false;
+    live.first_run.hint_dismissed = false;
+    live.ai.provider = "ollama".to_string();
+    live.ai.model = "qwen3:4b".to_string();
+    live.dictation.enabled = false;
+    live.dictation.model = "whisper-1".to_string();
+
+    let mut incoming = JotraConfig::default();
+    incoming.spelling.enabled = true;
+    incoming.spelling.dialect = "british".to_string();
+    incoming.mcp.enabled = true;
+    incoming.inbox.focus = true;
+    incoming.first_run.hint_dismissed = true;
+    incoming.ai.provider = "deepseek".to_string();
+    incoming.ai.model = "deepseek-flash".to_string();
+    incoming.dictation.enabled = true;
+    incoming.dictation.model = "gpt-transcribe".to_string();
+
+    incoming.carry_rust_owned(&live);
+
+    assert!(incoming.spelling.enabled);
+    assert_eq!(incoming.spelling.dialect, "british");
+    assert!(incoming.mcp.enabled);
+    assert!(incoming.inbox.focus);
+    assert!(incoming.first_run.hint_dismissed);
+    assert_eq!(incoming.ai.provider, "deepseek");
+    assert_eq!(incoming.ai.model, "deepseek-flash");
+    assert!(incoming.dictation.enabled);
+    assert_eq!(incoming.dictation.model, "gpt-transcribe");
+}
+
+#[test]
+fn the_files_table_names_the_format_new_files_carry() {
+    let parsed: JotraConfig =
+        toml::from_str("[files]\ndefault_extension = \"md\"\n").expect("deserialization failed");
+    assert_eq!(parsed.files.default_extension, FileExtension::Md);
+}
+
+#[test]
+fn a_config_with_no_files_table_reads_as_plain_text() {
+    let parsed: JotraConfig =
+        toml::from_str("[sidebar]\nwidth = 300\n").expect("deserialization failed");
+    assert_eq!(parsed.files, FilesConfig::default());
+    assert_eq!(parsed.files.default_extension, FileExtension::Txt);
+}
+
+#[test]
+fn a_format_jotra_does_not_mint_is_refused_rather_than_ignored() {
+    assert!(toml::from_str::<JotraConfig>("[files]\ndefault_extension = \"rtf\"\n").is_err());
+}
+
+#[test]
+fn the_files_table_roundtrips_through_toml() {
+    let mut config = JotraConfig::default();
+    config.files.default_extension = FileExtension::Md;
+    let restored: JotraConfig =
+        toml::from_str(&toml::to_string(&config).expect("serialization failed"))
+            .expect("deserialization failed");
+    assert_eq!(restored.files.default_extension, FileExtension::Md);
+    assert_eq!(config, restored);
+}
+
+#[test]
+fn a_markdown_layout_of_split_reads_as_inline() {
+    let config: JotraConfig = toml::from_str("[preview]\ndefault_layout_markdown = \"split\"\n")
+        .expect("deserialization failed");
+    assert_eq!(
+        config.preview.default_layout_markdown,
+        MarkdownLayout::Inline
+    );
+}
+
+#[test]
+fn a_markdown_layout_of_preview_reads_as_inline() {
+    let config: JotraConfig = toml::from_str("[preview]\ndefault_layout_markdown = \"preview\"\n")
+        .expect("deserialization failed");
+    assert_eq!(
+        config.preview.default_layout_markdown,
+        MarkdownLayout::Inline
+    );
+}
+
+#[test]
+fn a_markdown_layout_round_trips_as_inline_not_split() {
+    let config: JotraConfig = toml::from_str("[preview]\ndefault_layout_markdown = \"split\"\n")
+        .expect("deserialization failed");
+    let toml_str = toml::to_string(&config).expect("serialization failed");
+    assert!(
+        toml_str.contains("default_layout_markdown = \"inline\""),
+        "{toml_str}"
+    );
+    let restored: JotraConfig = toml::from_str(&toml_str).expect("deserialization failed");
+    assert_eq!(
+        restored.preview.default_layout_markdown,
+        MarkdownLayout::Inline
+    );
+}
+
+#[test]
+fn markdown_layout_defaults_to_inline_and_html_keeps_split() {
+    let config = JotraConfig::default();
+    assert_eq!(
+        config.preview.default_layout_markdown,
+        MarkdownLayout::Inline
+    );
+    assert_eq!(config.preview.default_layout_html, DefaultLayout::Split);
+}
+
+#[test]
+fn a_fresh_install_opens_at_login() {
+    assert!(JotraConfig::default().general.launch_at_login);
+}
+
+#[test]
+fn a_config_written_before_general_existed_adds_no_login_item() {
+    let cfg = JotraConfig::parse("[hotkey]\ntoggle = \"CmdOrCtrl+Shift+Space\"\n").unwrap();
+    assert!(!cfg.general.launch_at_login);
+}
+
+#[test]
+fn launch_at_login_round_trips_through_toml() {
+    let mut cfg = JotraConfig::default();
+    cfg.general.launch_at_login = false;
+    let text = toml::to_string(&cfg).unwrap();
+    assert!(text.contains("[general]"), "{text}");
+    assert!(!JotraConfig::parse(&text).unwrap().general.launch_at_login);
+}
+
+#[test]
+fn a_stale_frontend_write_keeps_the_login_item_choice() {
+    let mut live = JotraConfig::default();
+    live.general.launch_at_login = false;
+    let mut stale = JotraConfig::default();
+    stale.general.launch_at_login = true;
+    stale.carry_rust_owned(&live);
+    assert!(!stale.general.launch_at_login);
+}

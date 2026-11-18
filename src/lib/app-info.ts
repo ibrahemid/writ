@@ -10,5 +10,5 @@ export const APP_VERSION: string = version;
  */
 export function failureDetails(error: string): string {
   const agent = typeof navigator === "undefined" ? "" : ` (${navigator.userAgent})`;
-  return [`Writ ${APP_VERSION}`, `Platform: ${resolvePlatform()}${agent}`, "", error].join("\n");
+  return [`Jotra ${APP_VERSION}`, `Platform: ${resolvePlatform()}${agent}`, "", error].join("\n");
 }

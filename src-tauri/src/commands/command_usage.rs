@@ -1,15 +1,15 @@
 //! IPC for how often each palette command ran (ADR-048). The counts live in
-//! writ.db ([`writ_storage::command_usage`]), so running a command writes a
+//! jotra.db ([`jotra_storage::command_usage`]), so running a command writes a
 //! row there and never touches config.toml.
 
 use std::collections::{HashMap, HashSet};
 
+use jotra_core::command::usage::{CommandUsage, CommandUse};
 use tauri::State;
-use writ_core::command::usage::{CommandUsage, CommandUse};
 
 use crate::state::AppState;
 
-/// Longest command id a write accepts. Writ's own ids are a few dozen bytes.
+/// Longest command id a write accepts. Jotra's own ids are a few dozen bytes.
 const MAX_COMMAND_ID_LEN: usize = 256;
 
 fn check_id(id: &str) -> Result<(), String> {

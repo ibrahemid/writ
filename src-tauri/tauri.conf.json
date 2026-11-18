@@ -1,6 +1,6 @@
 {
     "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
-    "productName": "Writ",
+    "productName": "Jotra",
     "version": "1.0.1",
     "identifier": "com.writ.editor",
     "build": {
@@ -14,7 +14,7 @@
         "macOSPrivateApi": true,
         "windows": [
             {
-                "title": "Writ",
+                "title": "Jotra",
                 "width": 1100,
                 "height": 720,
                 "minWidth": 720,
@@ -28,13 +28,14 @@
             }
         ],
         "security": {
-            "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data: writ-preview:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-src writ-preview:; form-action 'none'; frame-ancestors 'none'"
+            "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data: jotra-preview:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-src jotra-preview:; form-action 'none'; frame-ancestors 'none'"
         }
     },
     "plugins": {
         "deep-link": {
             "desktop": {
                 "schemes": [
+                    "jotra",
                     "writ"
                 ]
             }
@@ -49,6 +50,7 @@
     "bundle": {
         "active": true,
         "externalBin": [
+            "binaries/jotra",
             "binaries/writ"
         ],
         "targets": [
@@ -71,9 +73,9 @@
         },
         "category": "Productivity",
         "shortDescription": "Light text editor for any text file, with full-text search and inline Markdown",
-        "longDescription": "Writ opens any text file and searches every file in its folder. A Markdown file renders inline as you type, with the markup shown on the line you are editing. Chat, rewriting, dictation, connected programs, connections, the graph and tags are apps, each switched on in Settings. Writ needs no account and sends no telemetry.",
+        "longDescription": "Jotra opens any text file and searches every file in its folder. A Markdown file renders inline as you type, with the markup shown on the line you are editing. Chat, rewriting, dictation, connected programs, connections, the graph and tags are apps, each switched on in Settings. Jotra needs no account and sends no telemetry.",
         "publisher": "Ibrahem ID",
-        "copyright": "Copyright (c) 2026 Writ Contributors",
+        "copyright": "Copyright (c) 2026 Jotra Contributors",
         "macOS": {
             "minimumSystemVersion": "12.0",
             "entitlements": "entitlements.plist",
@@ -94,14 +96,20 @@
         },
         "windows": {
             "wix": {
+                "upgradeCode": "ab97cc4d-eea3-53ee-90d8-3c2767967676",
                 "language": [
                     "en-US"
                 ],
                 "fragmentPaths": [
-                    "wix/cli-path.wxs"
+                    "wix/cli-path.wxs",
+                    "wix/legacy-install.wxs",
+                    "wix/legacy-progids.wxs"
                 ],
                 "componentRefs": [
-                    "WritCommandOnPath"
+                    "JotraCommandOnPath",
+                    "LegacyShortcuts",
+                    "LegacyLauncher",
+                    "LegacyProgIds"
                 ]
             }
         },
@@ -111,6 +119,15 @@
                     "libwebkit2gtk-4.1-0",
                     "libgtk-3-0",
                     "libasound2t64 | libasound2"
+                ],
+                "conflicts": [
+                    "writ"
+                ],
+                "replaces": [
+                    "writ"
+                ],
+                "provides": [
+                    "writ"
                 ]
             },
             "appimage": {

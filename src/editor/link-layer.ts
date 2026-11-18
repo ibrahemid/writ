@@ -79,7 +79,7 @@ export interface LinkDeps {
 const URL_RUN = /(?:https?:\/\/|mailto:)[^\s<>"'`\\]{1,2048}/g;
 // The inside of a `[[…]]`, length-bounded for the same reason as the URL run.
 // The candidate ends at the first `]]`, which is what `scan_segment` in
-// writ-core's link parser does, so the editor names the same targets the index
+// jotra-core's link parser does, so the editor names the same targets the index
 // stores. A newline ends it, so an unclosed `[[` cannot swallow the document.
 const WIKILINK_RUN = /\[\[([^\n]{1,512}?)\]\]/g;
 // Two or more characters before the colon: a single letter is a Windows drive
@@ -90,14 +90,14 @@ const TRAILING_PUNCTUATION = ".,;:!?*_~'\"";
 const CLOSERS: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
 
 // Code is not prose, so a wikilink written inside it is an example rather than
-// a destination. writ-core's scanner and the preview renderer both leave code
+// a destination. jotra-core's scanner and the preview renderer both leave code
 // literal; the editor scanning it would paint and follow links the index does
 // not hold. These are the container nodes the markdown grammar gives fenced,
 // indented and inline code — the fence and backtick marks sit inside them, so
 // the whole node range is what the scan skips.
 const CODE_NODES = new Set(["FencedCode", "CodeBlock", "InlineCode"]);
 
-// Frontmatter is the note's properties, not its prose. writ-core leaves the
+// Frontmatter is the note's properties, not its prose. jotra-core leaves the
 // block out of its scan and the preview renderer drops it before rendering, so
 // a `[[…]]` written in a property value is text the index never held a link
 // for. The markdown grammar the editor loads gives no node for the block, so
@@ -186,7 +186,7 @@ function frontmatterEndOf(state: EditorState): number {
   return end;
 }
 
-const linkMark = Decoration.mark({ class: "writ-link" });
+const linkMark = Decoration.mark({ class: "jotra-link" });
 
 const setModifier = StateEffect.define<boolean>();
 
@@ -578,7 +578,7 @@ export function linkLayer(deps: LinkDeps): Extension {
           above: true,
           create: () => {
             const dom = document.createElement("div");
-            dom.className = "writ-link-hint";
+            dom.className = "jotra-link-hint";
             dom.textContent = text;
             return { dom };
           },
@@ -588,7 +588,7 @@ export function linkLayer(deps: LinkDeps): Extension {
     ),
     EditorView.editorAttributes.compute([modifierField], (state) =>
       state.field(modifierField, false)
-        ? { class: "writ-link-active" }
+        ? { class: "jotra-link-active" }
         : ({} as Record<string, string>),
     ),
     EditorView.domEventHandlers({

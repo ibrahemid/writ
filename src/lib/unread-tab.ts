@@ -5,11 +5,11 @@ import { MAX_OPEN_BYTES, tooLargeReason } from "./open-failure";
 import { describeUnopenedFile } from "./read-failure";
 
 /**
- * A tab the last session left open whose file Writ has not read.
+ * A tab the last session left open whose file Jotra has not read.
  *
- * - `waiting`: the file is over the size Writ opens without asking. Showing
+ * - `waiting`: the file is over the size Jotra opens without asking. Showing
  *   the tab measures it again and asks; `sizeBytes` is the last size measured.
- * - `refused`: the file is over the size Writ opens. `reason` is the second
+ * - `refused`: the file is over the size Jotra opens. `reason` is the second
  *   half of "Could not open this file: ".
  */
 export type UnreadTab =
@@ -18,7 +18,7 @@ export type UnreadTab =
 
 /**
  * Whether a tab restored at launch stays unread until its open answers, from
- * the size Rust measured while listing it. The tiers are writ-core's
+ * the size Rust measured while listing it. The tiers are jotra-core's
  * `classify_size`: a read-only tab under the limit is a hex view, which opens
  * without asking, and a note with no file has nothing to measure.
  */

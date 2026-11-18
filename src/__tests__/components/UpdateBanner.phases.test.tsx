@@ -101,7 +101,7 @@ describe("the banner's own controls", () => {
       { status: "failed", message: "no" },
     ] as UpdatePhase[]) {
       fixtures.setPhase(phase);
-      const ghosts = [...container.querySelectorAll(".writ-btn-ghost")].map((b) =>
+      const ghosts = [...container.querySelectorAll(".jotra-btn-ghost")].map((b) =>
         b.textContent!.trim(),
       );
       labels.push(ghosts.filter((label) => label !== "What's new").join("|"));
@@ -113,7 +113,7 @@ describe("the banner's own controls", () => {
     const { container } = render(() => <UpdateBanner />);
     fixtures.setPhase({ status: "available", version: "0.3.5" });
 
-    expect(container.querySelectorAll(".writ-btn")).toHaveLength(3);
+    expect(container.querySelectorAll(".jotra-btn")).toHaveLength(3);
     expect(container.textContent).toContain("Update available: v0.3.5");
     expect(container.textContent).not.toContain("—");
   });
@@ -125,10 +125,10 @@ describe("an install a package manager owns", () => {
     fixtures.setPhase({ status: "managed", version: "0.7.0" });
 
     expect(container.textContent).toContain("v0.7.0 is available. Update with your package manager.");
-    expect([...container.querySelectorAll(".writ-btn")].map((b) => b.textContent!.trim())).toEqual([
+    expect([...container.querySelectorAll(".jotra-btn")].map((b) => b.textContent!.trim())).toEqual([
       "What's new",
       "Later",
     ]);
-    expect(container.querySelector(".writ-btn-primary")).toBeNull();
+    expect(container.querySelector(".jotra-btn-primary")).toBeNull();
   });
 });

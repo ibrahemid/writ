@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { BufferDocument, FileOpenResult } from "../../types/buffer";
 
 // The tabs the last session left open come back at launch, and each file is
-// measured before anything reads it. A file over the size Writ opens without
+// measured before anything reads it. A file over the size Jotra opens without
 // asking waits unread until its tab is shown, then answers as reopening it
 // from History does: the question with its size, and the read only after Open.
-// A file past the size Writ opens keeps its tab and says why.
+// A file past the size Jotra opens keeps its tab and says why.
 
 const SIXTY_MB = 60_000_000;
 const SIXTY_ONE_MB = 61_000_000;
@@ -116,7 +116,7 @@ afterEach(() => {
   for (const id of ALL_IDS) unreadTabs.clear(id);
 });
 
-describe("the session Writ restores at launch", () => {
+describe("the session Jotra restores at launch", () => {
   it("keeps a tab whose file is over 50 MiB unread, with its size", async () => {
     await bufferRegistry.loadSession();
 
@@ -125,12 +125,12 @@ describe("the session Writ restores at launch", () => {
     expect(mockedApi.readBufferContent).not.toHaveBeenCalled();
   });
 
-  it("keeps a tab whose file is past the size Writ opens unread, with the reason", async () => {
+  it("keeps a tab whose file is past the size Jotra opens unread, with the reason", async () => {
     await bufferRegistry.loadSession();
 
     expect(unreadTabs.stateOf(huge.id)).toEqual({
       kind: "refused",
-      reason: "it is 600 MB, and Writ opens files up to 524 MB.",
+      reason: "it is 600 MB, and Jotra opens files up to 524 MB.",
     });
     await expect(bufferRegistry.readContent(huge.id)).rejects.toThrow();
     expect(mockedApi.readBufferContent).not.toHaveBeenCalled();
@@ -228,7 +228,7 @@ describe("an unread tab, when it is shown", () => {
     expect(outcome.kind).toBe("refused");
     expect(unreadTabs.stateOf(big.id)).toEqual({
       kind: "refused",
-      reason: "it is 600 MB, and Writ opens files up to 524 MB.",
+      reason: "it is 600 MB, and Jotra opens files up to 524 MB.",
     });
     expect(largeFileOpen.state()).toBeNull();
     expect(showToast).not.toHaveBeenCalled();
@@ -406,7 +406,7 @@ describe("an open of an unread tab's file by another spelling", () => {
     expect(outcome.kind).toBe("refused");
     expect(unreadTabs.stateOf(big.id)).toEqual({
       kind: "refused",
-      reason: "it is 600 MB, and Writ opens files up to 524 MB.",
+      reason: "it is 600 MB, and Jotra opens files up to 524 MB.",
     });
     expect(mockedApi.readBufferContent).not.toHaveBeenCalled();
   });
@@ -432,11 +432,11 @@ describe("an open of an unread tab's file by another spelling", () => {
   });
 });
 
-// The launch measured a file under the size Writ opens and it grew past it
+// The launch measured a file under the size Jotra opens and it grew past it
 // before anything read it. Rust measures before it reads, records the size it
 // found on the row and answers with the refusal's code instead of the text.
 describe("a read Rust declines for the size", () => {
-  const tooLarge = "ERR_OPEN_TOO_LARGE: the file is 600000000 bytes, over the size Writ opens";
+  const tooLarge = "ERR_OPEN_TOO_LARGE: the file is 600000000 bytes, over the size Jotra opens";
 
   it("leaves the tab unread, refused with the size on its row", async () => {
     restored = [small];
@@ -449,7 +449,7 @@ describe("a read Rust declines for the size", () => {
     expect(mockedApi.getBuffer).toHaveBeenCalledWith(small.id);
     expect(unreadTabs.stateOf(small.id)).toEqual({
       kind: "refused",
-      reason: "it is 600 MB, and Writ opens files up to 524 MB.",
+      reason: "it is 600 MB, and Jotra opens files up to 524 MB.",
     });
     expect(bufferRegistry.buffers().find((b) => b.id === small.id)?.size_bytes).toBe(
       SIX_HUNDRED_MB,

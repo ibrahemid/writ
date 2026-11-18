@@ -52,9 +52,9 @@ describe("LinkAmbiguityPicker", () => {
   });
 
   it("names each folder inside the notes folder rather than from the disk root", async () => {
-    notesRoot.set("/Users/me/Writ");
+    notesRoot.set("/Users/me/Jotra");
     render(() => <LinkAmbiguityPicker />);
-    showLinkCandidates("Note", ["/Users/me/Writ/api/Note.md", "/Users/me/Writ/Note.md"], vi.fn());
+    showLinkCandidates("Note", ["/Users/me/Jotra/api/Note.md", "/Users/me/Jotra/Note.md"], vi.fn());
 
     await screen.findByText(/More than one file is called/);
     const folders = [...document.querySelectorAll(".link-picker-row")].map(
@@ -122,19 +122,19 @@ describe("LinkAmbiguityPicker", () => {
   });
 
   it("sits on the modal layer with the modal sheet's radius and shadow", () => {
-    expect(rule(".link-picker-scrim")).toMatch(/z-index:\s*var\(--writ-z-modal\)/);
-    expect(rule(".link-picker")).toMatch(/border-radius:\s*var\(--writ-r-modal\)/);
-    expect(rule(".link-picker")).toMatch(/box-shadow:\s*var\(--writ-shadow-modal\)/);
+    expect(rule(".link-picker-scrim")).toMatch(/z-index:\s*var\(--jotra-z-modal\)/);
+    expect(rule(".link-picker")).toMatch(/border-radius:\s*var\(--jotra-r-modal\)/);
+    expect(rule(".link-picker")).toMatch(/box-shadow:\s*var\(--jotra-shadow-modal\)/);
   });
 
   // A weight change on focus reflows the row under the pointer.
   it("selects a row with the neutral fill, and never cancels its focus ring", () => {
     expect(CSS).not.toMatch(/outline:\s*none/);
-    expect(rule(".link-picker-row:hover")).toMatch(/background:\s*var\(--writ-bg-hover\)/);
+    expect(rule(".link-picker-row:hover")).toMatch(/background:\s*var\(--jotra-bg-hover\)/);
     expect(rule(".link-picker-row:focus-visible")).toMatch(
-      /background:\s*var\(--writ-bg-selected\)/,
+      /background:\s*var\(--jotra-bg-selected\)/,
     );
     expect(rule(".link-picker-row:focus-visible")).not.toMatch(/font-weight/);
-    expect(CSS).not.toMatch(/background:\s*var\(--writ-accent\)/);
+    expect(CSS).not.toMatch(/background:\s*var\(--jotra-accent\)/);
   });
 });

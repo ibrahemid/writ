@@ -681,7 +681,7 @@ describe("autosave", () => {
 
     it("does not try a save the write guard stopped again until the document changes", async () => {
       mockedSave.mockRejectedValueOnce(
-        new Error("ERR_FILE_CHANGED_ON_DISK: the file changed on disk: /Users/x/Writ/shared.md"),
+        new Error("ERR_FILE_CHANGED_ON_DISK: the file changed on disk: /Users/x/Jotra/shared.md"),
       );
 
       debouncedSave("guarded", "mine", 300);

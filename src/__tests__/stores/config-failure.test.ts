@@ -12,13 +12,13 @@ vi.mock("../../stores/global/notifications", () => ({
 import { configStore } from "../../stores/global/config";
 import { getConfig, updateConfig } from "../../services/tauri";
 import { showToast } from "../../stores/global/notifications";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 
 const mockedGetConfig = vi.mocked(getConfig);
 const mockedUpdateConfig = vi.mocked(updateConfig);
 const mockedToast = vi.mocked(showToast);
 
-const STORED = {} as WritConfig;
+const STORED = {} as JotraConfig;
 
 describe("configStore failures reach the user", () => {
   beforeEach(async () => {

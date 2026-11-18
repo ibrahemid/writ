@@ -1,0 +1,865 @@
+//! Workspace-level policy for Jotra.
+//!
+//! This module defines the domain types and pure policy functions for the
+//! workspace file tree: what entries look like, which names are ignored by
+//! default, and how entries are ordered for display.
+
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
+
+pub mod file_search;
+
+/// A single entry (file or directory) in a workspace directory listing.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkspaceEntry {
+    /// File or directory name (not a full path).
+    pub name: String,
+    /// Absolute path to this entry.
+    pub path: String,
+    /// Whether this entry is a directory.
+    pub is_dir: bool,
+    /// Set when the name says a sync client, or Jotra itself, kept a second
+    /// copy of another file here. Such a file is listed like any other and
+    /// carries the flag with it; hiding it would hide the only copy of text
+    /// somebody wrote.
+    pub conflict_copy: Option<ConflictCopyKind>,
+}
+
+impl WorkspaceEntry {
+    /// Describes one listed entry, deciding [`WorkspaceEntry::conflict_copy`]
+    /// from the name so every listing flags a copy the same way.
+    pub fn new(name: String, path: String, is_dir: bool) -> Self {
+        let conflict_copy = if is_dir {
+            None
+        } else {
+            is_conflict_copy(&name)
+        };
+        Self {
+            name,
+            path,
+            is_dir,
+            conflict_copy,
+        }
+    }
+}
+
+/// One folder's listing: the entries it holds, and how many entries the read
+/// handed over that could not be described.
+///
+/// An entry the directory read fails on is left out rather than failing the
+/// folder, so one bad entry never hides the rest; the count lets the tree say
+/// that something is missing.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct DirListing {
+    /// The entries, in [`sort_entries`] order.
+    pub entries: Vec<WorkspaceEntry>,
+    /// Entries left out because they could not be read.
+    pub unreadable: u32,
+}
+
+impl DirListing {
+    /// A listing of `entries` with `unreadable` entries left out, sorted for
+    /// display.
+    pub fn new(mut entries: Vec<WorkspaceEntry>, unreadable: u32) -> Self {
+        sort_entries(&mut entries);
+        Self {
+            entries,
+            unreadable,
+        }
+    }
+}
+
+/// Who wrote a second copy of a file beside the original.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictCopyKind {
+    /// A sync client kept both sides:
+    /// `<stem>.sync-conflict-<date>-<time>-<device>.<ext>`.
+    SyncClient,
+    /// Jotra kept the text a stopped save was carrying:
+    /// `<stem> (conflict YYYY-MM-DD HH.MM.SS).<ext>`, the name
+    /// `crate::notes::conflict_file_name` writes.
+    Jotra,
+}
+
+const DEFAULT_IGNORES: &[&str] = &[
+    ".git",
+    "node_modules",
+    "target",
+    "dist",
+    ".DS_Store",
+    ".next",
+    "build",
+    "__pycache__",
+    ".cache",
+    "coverage",
+    "vendor",
+    ".obsidian",
+    ".trash",
+    ".stfolder",
+    ".stversions",
+    // Environments and build output another tool fills by the thousand: a
+    // `pip install` into `.venv` raises an event per file it writes (TS-12).
+    ".venv",
+    "venv",
+    "Pods",
+    "out",
+    ".gradle",
+    ".idea",
+    ".terraform",
+    "DerivedData",
+];
+
+/// Name patterns for the files a sync client, another editor or Jotra's own
+/// atomic write leaves in a notes folder. Unlike [`DEFAULT_IGNORES`], which
+/// holds whole names, these carry `*` (any run of characters, including none)
+/// and `?` (exactly one character).
+///
+/// Every entry is a file nobody wrote on purpose: a half-downloaded browser
+/// file, a placeholder standing in for a file the provider has not fetched, an
+/// editor swap or backup file, or the temp file `write_atomic` renames into
+/// place. A conflict copy is deliberately not here: it holds text somebody
+/// wrote, so it is listed and flagged instead ([`is_conflict_copy`]).
+const IGNORE_GLOBS: &[&str] = &[
+    // Obsidian's key map, which sits beside the notes rather than in
+    // `.obsidian`.
+    ".obsidian.vimrc",
+    // Syncthing's in-flight temp files, both spellings it has shipped.
+    ".syncthing.*.tmp",
+    "~syncthing~*.tmp",
+    // An iCloud placeholder: the name of a file that is not downloaded.
+    ".*.icloud",
+    // A download still arriving.
+    "*.crdownload",
+    "*.partial",
+    // Dropbox's own bookkeeping files (`.dropbox`, `.dropbox.cache`).
+    ".dropbox*",
+    // vim swap files: `.note.md.swp`, `.swo`, `.swn`.
+    ".*.sw?",
+    // Emacs and friends: a backup of the file next to it.
+    "*~",
+    // The temp file `write_atomic` creates beside its target. The first is
+    // Jotra's own, named from `TEMP_FILE_PREFIX`; the other two are the shapes
+    // other tools leave behind.
+    ".jotra-tmp-*",
+    ".tmp*",
+    "*.tmp",
+];
+
+/// The start of the name of every temp file Jotra writes beside a note.
+///
+/// `write_atomic` writes a sibling and renames it into place, so the notes
+/// folder sees a create and a delete on every save. A random `.tmpXXXXXX`
+/// cannot be matched by anyone: with a fixed prefix, the ignore rules for the
+/// user's sync client can skip it as well as [`is_ignored_name`] does, and the
+/// churn stops being uploaded.
+pub const TEMP_FILE_PREFIX: &str = ".jotra-tmp-";
+
+/// The names the notes walk leaves out: git's own folder, the folders another
+/// note app or sync client keeps for itself inside a notes folder, and the
+/// file Finder keeps in every folder it has shown.
+///
+/// A notes folder holds writing, not a build. A folder called `vendor`,
+/// `build` or `coverage` in it holds notes like any other, and a `.gitignore`
+/// there, or the person's global one, says what to commit rather than what to
+/// read, so neither hides anything from the index (ADR-028 section 7).
+const NOTES_IGNORED_NAMES: &[&str] = &[
+    ".git",
+    ".obsidian",
+    ".trash",
+    ".stfolder",
+    ".stversions",
+    ".DS_Store",
+];
+
+/// Returns `true` if `name` is in the default ignore set and should be
+/// excluded from workspace directory listings.
+pub fn is_ignored(name: &str) -> bool {
+    DEFAULT_IGNORES.contains(&name)
+}
+
+/// Returns `true` when a file or directory called `name` is one the workspace
+/// tree and the watched inbox never list: a [`DEFAULT_IGNORES`] name, or a
+/// temp-file name ([`is_temp_file_name`]).
+///
+/// The notes folder asks [`is_notes_ignored_name`] instead, which leaves the
+/// build-directory names out.
+///
+/// Matching folds ASCII case, because the filesystems Jotra runs on mostly do
+/// and a `.CRDOWNLOAD` is the same file as a `.crdownload`.
+pub fn is_ignored_name(name: &str) -> bool {
+    is_ignored(name) || is_temp_file_name(name)
+}
+
+/// Returns `true` when `name` matches one of [`IGNORE_GLOBS`]: a file nobody
+/// wrote on purpose, such as a download still arriving, a sync client's
+/// in-flight copy, an editor swap file or the temp file a save renames into
+/// place. A temp file a save made before the rename, under
+/// [`crate::legacy_names::TEMP_FILE_PREFIX`], counts the same way.
+pub fn is_temp_file_name(name: &str) -> bool {
+    IGNORE_GLOBS
+        .iter()
+        .any(|pattern| glob_matches(pattern, name))
+        || starts_with_folding_case(name, crate::legacy_names::TEMP_FILE_PREFIX)
+}
+
+fn starts_with_folding_case(name: &str, prefix: &str) -> bool {
+    name.get(..prefix.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+}
+
+/// Returns `true` when a file or directory called `name` inside the notes
+/// folder is one Jotra never lists, indexes or reports a change for: one of
+/// [`NOTES_IGNORED_NAMES`], or a temp-file name ([`is_temp_file_name`]).
+///
+/// This is the one answer the notes index walk, the notes watcher and the
+/// listing a connected program reads share, so a note that is visible in one
+/// is visible in all of them (ADR-028 sections 6 and 7).
+pub fn is_notes_ignored_name(name: &str) -> bool {
+    NOTES_IGNORED_NAMES.contains(&name) || is_temp_file_name(name)
+}
+
+/// Returns `true` when any component of `path` below `root` is a name
+/// [`is_notes_ignored_name`] answers for: a file inside `.obsidian` is as
+/// invisible as the folder is, and a file inside `vendor` is not.
+pub fn path_has_notes_ignored_name(root: &Path, path: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+    relative
+        .components()
+        .any(|c| is_notes_ignored_name(&c.as_os_str().to_string_lossy()))
+}
+
+/// What the folder opened as the workspace is, which decides what its tree and
+/// its watcher leave out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkspaceKind {
+    /// Any folder but the notes folder: what a code checkout keeps out of
+    /// sight is left out ([`is_ignored_name`], [`path_has_ignored_component`]).
+    Code,
+    /// The notes folder itself: only what the notes walk skips is left out
+    /// ([`is_notes_ignored_name`], [`path_has_notes_ignored_name`]), so the
+    /// tree shows every note search and backlinks reach (ADR-028 section 7).
+    Notes,
+}
+
+impl WorkspaceKind {
+    /// Returns `true` when a change to `path`, below the workspace `root`, is
+    /// one the tree of this kind of folder does not show.
+    pub fn hides_change(self, root: &Path, path: &Path) -> bool {
+        match self {
+            Self::Code => path_has_ignored_component(root, path),
+            Self::Notes => path_has_notes_ignored_name(root, path),
+        }
+    }
+}
+
+/// Matches `name` against a `*`/`?` pattern, folding ASCII case.
+///
+/// `*` matches any run of characters including none, `?` exactly one. The walk
+/// is the standard backtracking one: on a mismatch it returns to the last `*`
+/// and lets it consume one more character, which is linear in practice for the
+/// short patterns in [`IGNORE_GLOBS`] and needs no allocation beyond the two
+/// character vectors.
+fn glob_matches(pattern: &str, name: &str) -> bool {
+    let pattern: Vec<char> = pattern.chars().collect();
+    let name: Vec<char> = name.chars().collect();
+
+    let (mut p, mut n) = (0usize, 0usize);
+    // Where the last `*` sits, and how much of `name` it has consumed.
+    let mut star: Option<usize> = None;
+    let mut consumed = 0usize;
+
+    while n < name.len() {
+        let matched =
+            p < pattern.len() && (pattern[p] == '?' || pattern[p].eq_ignore_ascii_case(&name[n]));
+        if matched {
+            p += 1;
+            n += 1;
+        } else if p < pattern.len() && pattern[p] == '*' {
+            star = Some(p);
+            consumed = n;
+            p += 1;
+        } else if let Some(star) = star {
+            consumed += 1;
+            n = consumed;
+            p = star + 1;
+        } else {
+            return false;
+        }
+    }
+
+    pattern[p..].iter().all(|c| *c == '*')
+}
+
+/// Names the file `name` is a second copy of, or `None` when it is not a copy.
+///
+/// Two producers are recognised: a sync client's
+/// `<stem>.sync-conflict-<date>-<time>-<device>.<ext>`, and Jotra's own
+/// `<stem> (conflict YYYY-MM-DD HH.MM.SS).<ext>` from
+/// [`crate::notes::conflict_file_name`]. Both are matched on the timestamp that
+/// follows the marker, so a note somebody named `merge (conflict notes).md`
+/// stays an ordinary note.
+pub fn is_conflict_copy(name: &str) -> Option<ConflictCopyKind> {
+    if let Some(rest) = name.split_once(".sync-conflict-").map(|(_, rest)| rest) {
+        if has_sync_client_stamp(rest) {
+            return Some(ConflictCopyKind::SyncClient);
+        }
+    }
+    if let Some((_, rest)) = name.rsplit_once(" (conflict ") {
+        if let Some((stamp, after)) = rest.split_once(')') {
+            if is_jotra_stamp(stamp) && (after.is_empty() || after.starts_with('.')) {
+                return Some(ConflictCopyKind::Jotra);
+            }
+        }
+    }
+    None
+}
+
+/// `YYYYMMDD-HHMMSS-` at the front of what follows a sync client's marker.
+fn has_sync_client_stamp(rest: &str) -> bool {
+    let mut chars = rest.chars();
+    (0..8).all(|_| chars.next().is_some_and(|c| c.is_ascii_digit()))
+        && chars.next() == Some('-')
+        && (0..6).all(|_| chars.next().is_some_and(|c| c.is_ascii_digit()))
+        && chars.next() == Some('-')
+}
+
+/// `YYYY-MM-DD HH.MM.SS`, the stamp [`crate::notes::conflict_file_name`] writes.
+fn is_jotra_stamp(stamp: &str) -> bool {
+    const SHAPE: &str = "dddd-dd-dd dd.dd.dd";
+    stamp.len() == SHAPE.len()
+        && stamp
+            .chars()
+            .zip(SHAPE.chars())
+            .all(|(c, shape)| match shape {
+                'd' => c.is_ascii_digit(),
+                other => c == other,
+            })
+}
+
+/// The directory names Jotra ignores by default, independent of any git ignore
+/// configuration. The workspace search walker (in `jotra-storage`) hands these
+/// to a `filter_entry` closure on the walk builder, so the name index and the
+/// content grep apply the same union of Jotra ignores and gitignore (ADR-026).
+/// `.git` is part of the set and is therefore always excluded even though
+/// hidden files are otherwise included in search.
+///
+/// The set also carries the folders a note folder imported from another tool
+/// or synced by another client leaves behind — `.obsidian`, `.trash`,
+/// `.stfolder`, `.stversions` — so the workspace tree and the workspace walk
+/// skip them too. The notes folder has its own, shorter list
+/// ([`is_notes_ignored_name`]).
+pub fn default_ignored_dirs() -> &'static [&'static str] {
+    DEFAULT_IGNORES
+}
+
+/// Returns `true` when any component of `path` below `root` matches the
+/// default ignore set, so watcher events from ignored directories (for
+/// example `node_modules` churn) never surface as workspace changes.
+pub fn path_has_ignored_component(root: &Path, path: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+    relative
+        .components()
+        .any(|c| is_ignored(&c.as_os_str().to_string_lossy()))
+}
+
+/// Returns `true` when any component of `path` below `root` is a name
+/// [`is_ignored_name`] answers for, which is the watched inbox's question:
+/// a file inside a folder a sync client keeps for itself (`.dropbox.cache`) is
+/// as invisible as the folder is, and a download still arriving is not a file
+/// to open.
+///
+/// [`path_has_ignored_component`] answers the narrower question and stays as
+/// it is: the workspace grep and the workspace watcher still walk into a
+/// directory named `build~`. The notes folder asks
+/// [`path_has_notes_ignored_name`].
+pub fn path_has_ignored_name(root: &Path, path: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+    relative
+        .components()
+        .any(|c| is_ignored_name(&c.as_os_str().to_string_lossy()))
+}
+
+/// Sorts `entries` in-place: directories first, then files, each group
+/// ordered case-insensitively by name.
+pub fn sort_entries(entries: &mut [WorkspaceEntry]) {
+    entries.sort_by_cached_key(|entry| (!entry.is_dir, entry.name.to_lowercase()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ignored_names_are_rejected() {
+        for name in &[
+            ".git",
+            "node_modules",
+            "target",
+            "dist",
+            ".DS_Store",
+            ".next",
+            "build",
+            "__pycache__",
+            ".cache",
+            "coverage",
+            "vendor",
+            ".obsidian",
+            ".trash",
+            ".stfolder",
+            ".stversions",
+        ] {
+            assert!(is_ignored(name), "{name} should be ignored");
+        }
+    }
+
+    #[test]
+    fn default_ignored_dirs_carries_the_jotra_side_of_the_union() {
+        let dirs = default_ignored_dirs();
+        // `.git` is always excluded; the common heavy build/dep dirs too.
+        assert!(dirs.contains(&".git"));
+        assert!(dirs.contains(&"node_modules"));
+        assert!(dirs.contains(&"target"));
+        // Dotfiles are included in search (ADR-026): a plain `.env` is not a
+        // Jotra default ignore, so only gitignore can exclude it. This is the
+        // seam where the union's git half does the work.
+        assert!(!dirs.contains(&".env"));
+        assert!(!is_ignored(".env"));
+        assert!(!is_ignored(".github"));
+    }
+
+    #[test]
+    fn environments_and_build_output_are_left_out_of_a_code_folder_only() {
+        for name in [
+            ".venv",
+            "venv",
+            "Pods",
+            "out",
+            ".gradle",
+            ".idea",
+            ".terraform",
+            "DerivedData",
+        ] {
+            assert!(is_ignored(name), "{name} should be ignored");
+            assert!(WorkspaceKind::Code.hides_change(
+                Path::new("/repo"),
+                &Path::new("/repo").join(name).join("lib/site.py")
+            ));
+            // A notes folder holds writing, so a folder of notes called `out`
+            // is listed there like any other (ADR-028 section 7).
+            assert!(!is_notes_ignored_name(name), "{name} is a note folder name");
+        }
+    }
+
+    #[test]
+    fn obsidian_folder_is_ignored_so_an_imported_note_folder_lists_only_notes() {
+        // A folder imported from another editor carries its settings folder.
+        // Both policies skip it: the workspace one and the notes one.
+        assert!(is_ignored(".obsidian"));
+        assert!(default_ignored_dirs().contains(&".obsidian"));
+        assert!(path_has_ignored_component(
+            Path::new("/notes"),
+            Path::new("/notes/.obsidian/workspace.json")
+        ));
+        assert!(is_notes_ignored_name(".obsidian"));
+        assert!(!is_ignored("notes.md"));
+    }
+
+    #[test]
+    fn sync_and_editor_leftovers_are_ignored_by_name() {
+        for name in &[
+            ".obsidian.vimrc",
+            ".syncthing.note.md.tmp",
+            "~syncthing~note.md.tmp",
+            ".note.md.icloud",
+            "report.pdf.crdownload",
+            "report.pdf.partial",
+            ".dropbox",
+            ".dropbox.cache",
+            ".note.md.swp",
+            ".note.md.swo",
+            "note.md~",
+            ".tmpA1b2C3",
+            "note.md.tmp",
+        ] {
+            assert!(is_ignored_name(name), "{name} should be ignored");
+        }
+    }
+
+    #[test]
+    fn a_file_inside_a_sync_clients_own_folder_is_ignored_by_path() {
+        let root = Path::new("/notes");
+        assert!(path_has_ignored_name(
+            root,
+            Path::new("/notes/.dropbox.cache/copy.md")
+        ));
+        assert!(path_has_ignored_name(
+            root,
+            Path::new("/notes/.obsidian/workspace.json")
+        ));
+        assert!(!path_has_ignored_name(root, Path::new("/notes/day/one.md")));
+        assert!(!path_has_ignored_name(
+            Path::new("/notes"),
+            Path::new("/elsewhere/.dropbox.cache/copy.md")
+        ));
+    }
+
+    #[test]
+    fn the_notes_policy_keeps_folders_a_code_workspace_skips() {
+        for name in &[
+            "vendor",
+            "build",
+            "coverage",
+            "dist",
+            "target",
+            "node_modules",
+            "__pycache__",
+            ".cache",
+            ".next",
+        ] {
+            assert!(is_ignored(name), "{name} is a code-workspace ignore");
+            assert!(
+                !is_notes_ignored_name(name),
+                "{name} holds notes like any other folder"
+            );
+        }
+        let root = Path::new("/notes");
+        for path in &[
+            "/notes/vendor/Acme.md",
+            "/notes/build/Plan.md",
+            "/notes/coverage/Report.md",
+        ] {
+            assert!(
+                !path_has_notes_ignored_name(root, Path::new(path)),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_notes_policy_skips_what_another_tool_keeps_for_itself() {
+        for name in &[
+            ".git",
+            ".obsidian",
+            ".trash",
+            ".stfolder",
+            ".stversions",
+            ".DS_Store",
+        ] {
+            assert!(is_notes_ignored_name(name), "{name} should be ignored");
+        }
+        let root = Path::new("/notes");
+        assert!(path_has_notes_ignored_name(
+            root,
+            Path::new("/notes/vendor/.DS_Store")
+        ));
+        assert!(path_has_notes_ignored_name(
+            root,
+            Path::new("/notes/.obsidian/workspace.json")
+        ));
+        assert!(path_has_notes_ignored_name(
+            root,
+            Path::new("/notes/.git/COMMIT_EDITMSG")
+        ));
+        assert!(!path_has_notes_ignored_name(
+            root,
+            Path::new("/elsewhere/.git/COMMIT_EDITMSG")
+        ));
+    }
+
+    #[test]
+    fn the_notes_folder_as_the_workspace_shows_a_change_a_code_workspace_hides() {
+        let root = Path::new("/notes");
+        let vendor = Path::new("/notes/vendor/Acme.md");
+        assert!(WorkspaceKind::Code.hides_change(root, vendor));
+        assert!(!WorkspaceKind::Notes.hides_change(root, vendor));
+        for hidden in ["/notes/.obsidian/app.json", "/notes/.git/HEAD"] {
+            assert!(WorkspaceKind::Code.hides_change(root, Path::new(hidden)));
+            assert!(WorkspaceKind::Notes.hides_change(root, Path::new(hidden)));
+        }
+        assert!(WorkspaceKind::Notes.hides_change(root, Path::new("/notes/.jotra-tmp-a1b2")));
+        let note = Path::new("/notes/Plan.md");
+        assert!(!WorkspaceKind::Code.hides_change(root, note));
+        assert!(!WorkspaceKind::Notes.hides_change(root, note));
+    }
+
+    #[test]
+    fn the_notes_policy_skips_temp_files() {
+        for name in &[
+            "report.pdf.crdownload",
+            "report.pdf.partial",
+            ".jotra-tmp-a1b2c3",
+            ".note.md.swp",
+            ".note.md.icloud",
+            "note.md~",
+        ] {
+            assert!(is_temp_file_name(name), "{name} is a temp file");
+            assert!(is_notes_ignored_name(name), "{name} should be ignored");
+        }
+        assert!(!is_temp_file_name("node_modules"));
+        assert!(!is_temp_file_name("Plan.md"));
+        assert!(!is_notes_ignored_name("Plan.md"));
+    }
+
+    #[test]
+    fn ignore_globs_fold_case() {
+        assert!(is_ignored_name("REPORT.PDF.CRDOWNLOAD"));
+        assert!(is_ignored_name("Note.MD.Tmp"));
+    }
+
+    #[test]
+    fn notes_are_not_caught_by_the_glob_set() {
+        for name in &[
+            "note.md",
+            "notes.txt",
+            "swap.md",
+            "icloud.md",
+            "partially done.md",
+            "dropbox notes.md",
+            "tmp.md",
+            ".obsidian.md",
+            "~tilde.md",
+        ] {
+            assert!(!is_ignored_name(name), "{name} should be listed");
+        }
+    }
+
+    #[test]
+    fn the_whole_name_ignore_set_still_answers_through_the_glob_set() {
+        assert!(is_ignored_name(".obsidian"));
+        assert!(is_ignored_name("node_modules"));
+    }
+
+    #[test]
+    fn jotra_temp_file_names_are_ignored_in_every_spelling() {
+        // `write_atomic` names its sibling from `TEMP_FILE_PREFIX`, so that is
+        // the form every internal save produces; the other two are what other
+        // tools leave. The watcher and the index walk both go through this
+        // predicate, so every form has to answer here (ADR-028 section 6).
+        assert!(is_ignored_name(&format!("{TEMP_FILE_PREFIX}A1b2C3")));
+        assert!(is_ignored_name(TEMP_FILE_PREFIX));
+        assert!(is_ignored_name(".tmpABC"));
+        assert!(is_ignored_name(".tmp"));
+        assert!(is_ignored_name("foo.tmp"));
+    }
+
+    #[test]
+    fn glob_matcher_handles_stars_and_single_character_wildcards() {
+        assert!(glob_matches("*", ""));
+        assert!(glob_matches("*", "anything"));
+        assert!(glob_matches("a*b*c", "abc"));
+        assert!(glob_matches("a*b*c", "axxbyyc"));
+        assert!(!glob_matches("a*b*c", "axxbyy"));
+        assert!(glob_matches(".*.sw?", ".a.swp"));
+        assert!(!glob_matches(".*.sw?", ".a.sw"));
+        assert!(!glob_matches(".*.sw?", ".a.swap"));
+        assert!(glob_matches("exact", "exact"));
+        assert!(!glob_matches("exact", "exacts"));
+        // A multi-byte name is walked by character, not by byte.
+        assert!(glob_matches("*~", "ملاحظة~"));
+        assert!(!glob_matches("*~", "ملاحظة"));
+    }
+
+    #[test]
+    fn conflict_copies_are_recognised_by_producer() {
+        assert_eq!(
+            is_conflict_copy("note.sync-conflict-20260822-120000-ABCD.md"),
+            Some(ConflictCopyKind::SyncClient)
+        );
+        assert_eq!(
+            is_conflict_copy("note (conflict 2026-08-22 12.00.00).md"),
+            Some(ConflictCopyKind::Jotra)
+        );
+        assert_eq!(
+            is_conflict_copy("note (conflict 2026-08-22 12.00.00)"),
+            Some(ConflictCopyKind::Jotra)
+        );
+    }
+
+    #[test]
+    fn the_name_jotra_writes_is_the_name_this_recognises() {
+        // The producer and the predicate are one pair: if `conflict_file_name`
+        // changes shape, this fails rather than silently listing Jotra's own
+        // copies unflagged.
+        let name = crate::notes::conflict_file_name("note", "md", chrono::Utc::now());
+        assert_eq!(is_conflict_copy(&name), Some(ConflictCopyKind::Jotra));
+        assert!(!is_ignored_name(&name));
+    }
+
+    #[test]
+    fn a_note_that_only_reads_like_a_copy_is_an_ordinary_note() {
+        assert_eq!(is_conflict_copy("note.md"), None);
+        assert_eq!(is_conflict_copy("merge (conflict notes).md"), None);
+        assert_eq!(is_conflict_copy("note.sync-conflict-notes.md"), None);
+        assert_eq!(is_conflict_copy("note (conflict 2026-08-22).md"), None);
+    }
+
+    #[test]
+    fn a_conflict_copy_is_listed_rather_than_ignored() {
+        // The copy is the only place its text lives, so hiding it loses the
+        // text. It is listed with the flag on it instead.
+        for name in &[
+            "note.sync-conflict-20260822-120000-ABCD.md",
+            "note (conflict 2026-08-22 12.00.00).md",
+        ] {
+            assert!(!is_ignored_name(name), "{name} should be listed");
+            assert!(is_conflict_copy(name).is_some());
+        }
+    }
+
+    #[test]
+    fn entries_carry_the_conflict_flag_and_directories_never_do() {
+        let file = WorkspaceEntry::new(
+            "note (conflict 2026-08-22 12.00.00).md".into(),
+            "/notes/note (conflict 2026-08-22 12.00.00).md".into(),
+            false,
+        );
+        assert_eq!(file.conflict_copy, Some(ConflictCopyKind::Jotra));
+
+        let plain = WorkspaceEntry::new("note.md".into(), "/notes/note.md".into(), false);
+        assert_eq!(plain.conflict_copy, None);
+
+        let dir = WorkspaceEntry::new(
+            "note (conflict 2026-08-22 12.00.00).md".into(),
+            "/notes/folder".into(),
+            true,
+        );
+        assert_eq!(dir.conflict_copy, None);
+    }
+
+    #[test]
+    fn conflict_kind_serialises_in_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&ConflictCopyKind::SyncClient).unwrap(),
+            "\"sync_client\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ConflictCopyKind::Jotra).unwrap(),
+            "\"jotra\""
+        );
+    }
+
+    #[test]
+    fn normal_names_pass_ignore_filter() {
+        for name in &["src", "main.rs", "README.md", "Cargo.toml", "lib"] {
+            assert!(!is_ignored(name), "{name} should not be ignored");
+        }
+    }
+
+    #[test]
+    fn ignored_component_anywhere_below_root_is_rejected() {
+        let root = Path::new("/ws");
+        assert!(path_has_ignored_component(
+            root,
+            Path::new("/ws/node_modules/pkg/index.js")
+        ));
+        assert!(path_has_ignored_component(
+            root,
+            Path::new("/ws/app/target/debug/out")
+        ));
+        assert!(path_has_ignored_component(root, Path::new("/ws/.git/HEAD")));
+    }
+
+    #[test]
+    fn normal_paths_below_root_pass() {
+        let root = Path::new("/ws");
+        assert!(!path_has_ignored_component(
+            root,
+            Path::new("/ws/src/main.rs")
+        ));
+        assert!(!path_has_ignored_component(root, Path::new("/ws/notes.md")));
+    }
+
+    #[test]
+    fn path_outside_root_is_not_flagged() {
+        assert!(!path_has_ignored_component(
+            Path::new("/ws"),
+            Path::new("/elsewhere/node_modules/x")
+        ));
+    }
+
+    #[test]
+    fn ignored_name_in_root_prefix_does_not_flag() {
+        let root = Path::new("/home/u/node_modules/myproj");
+        assert!(!path_has_ignored_component(
+            root,
+            Path::new("/home/u/node_modules/myproj/src/a.rs")
+        ));
+    }
+
+    #[test]
+    fn sort_dirs_before_files() {
+        let mut entries = vec![
+            WorkspaceEntry::new("zebra.rs".into(), "/p/zebra.rs".into(), false),
+            WorkspaceEntry::new("alpha".into(), "/p/alpha".into(), true),
+            WorkspaceEntry::new("bravo.rs".into(), "/p/bravo.rs".into(), false),
+            WorkspaceEntry::new("zeta".into(), "/p/zeta".into(), true),
+        ];
+        sort_entries(&mut entries);
+        assert!(entries[0].is_dir);
+        assert!(entries[1].is_dir);
+        assert!(!entries[2].is_dir);
+        assert!(!entries[3].is_dir);
+    }
+
+    #[test]
+    fn sort_alphabetical_within_kind() {
+        let mut entries = vec![
+            WorkspaceEntry::new("z.rs".into(), "/p/z.rs".into(), false),
+            WorkspaceEntry::new("a.rs".into(), "/p/a.rs".into(), false),
+            WorkspaceEntry::new("m".into(), "/p/m".into(), true),
+            WorkspaceEntry::new("b".into(), "/p/b".into(), true),
+        ];
+        sort_entries(&mut entries);
+        assert_eq!(entries[0].name, "b");
+        assert_eq!(entries[1].name, "m");
+        assert_eq!(entries[2].name, "a.rs");
+        assert_eq!(entries[3].name, "z.rs");
+    }
+
+    #[test]
+    fn sort_keeps_names_that_differ_only_in_case_in_listed_order() {
+        let mut entries = vec![
+            WorkspaceEntry::new("Readme.md".into(), "/p/Readme.md".into(), false),
+            WorkspaceEntry::new("README.md".into(), "/p/README.md".into(), false),
+            WorkspaceEntry::new("apple.md".into(), "/p/apple.md".into(), false),
+        ];
+        sort_entries(&mut entries);
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["apple.md", "Readme.md", "README.md"]);
+    }
+
+    #[test]
+    fn a_listing_sorts_its_entries_and_keeps_the_unreadable_count() {
+        let listing = DirListing::new(
+            vec![
+                WorkspaceEntry::new("b.md".into(), "/p/b.md".into(), false),
+                WorkspaceEntry::new("src".into(), "/p/src".into(), true),
+                WorkspaceEntry::new("A.md".into(), "/p/A.md".into(), false),
+            ],
+            2,
+        );
+        let names: Vec<&str> = listing.entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["src", "A.md", "b.md"]);
+        assert_eq!(listing.unreadable, 2);
+    }
+
+    #[test]
+    fn a_listing_crosses_ipc_as_entries_and_an_unreadable_count() {
+        let listing = DirListing::new(
+            vec![WorkspaceEntry::new("a.md".into(), "/p/a.md".into(), false)],
+            1,
+        );
+        let json = serde_json::to_value(&listing).expect("serialise");
+        assert_eq!(json["unreadable"], 1);
+        assert_eq!(json["entries"][0]["name"], "a.md");
+        assert_eq!(json["entries"][0]["is_dir"], false);
+    }
+}

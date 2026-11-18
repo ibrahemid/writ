@@ -77,11 +77,11 @@ describe("the folder tree marks the note the editor is showing", () => {
   it("paints the selected row with the neutral fill and tints its icon", () => {
     const css = readFileSync(resolve(process.cwd(), "src/components/Sidebar/FileTree.css"), "utf8");
     expect(css).toMatch(
-      /\.file-tree-item\.is-selected\s*\{[^}]*background:\s*var\(--writ-bg-selected\)/,
+      /\.file-tree-item\.is-selected\s*\{[^}]*background:\s*var\(--jotra-bg-selected\)/,
     );
     expect(css).toMatch(/\.file-tree-item\.is-selected\s*\{[^}]*font-weight:\s*500/);
     expect(css).toMatch(
-      /\.file-tree-item\.is-selected\s*>\s*\.writ-icon\s*\{[^}]*color:\s*var\(--writ-accent\)/,
+      /\.file-tree-item\.is-selected\s*>\s*\.jotra-icon\s*\{[^}]*color:\s*var\(--jotra-accent\)/,
     );
   });
 });

@@ -1,0 +1,40 @@
+[package]
+name = "jotra-mcp"
+description = "The MCP tool surface over a Jotra notes folder: plain Rust tools, one protocol module."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[dependencies]
+jotra-core = { path = "../jotra-core" }
+# `bundled` for the same reason jotra-cli takes it: this crate is linked into
+# the standalone `jotra` binary, built on its own, where no system libsqlite3
+# may be there to link against.
+jotra-storage = { path = "../jotra-storage", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+# The gate reads the `[mcp]` section of config.toml on every call.
+toml = "1.1"
+# `today` names the day's file from the clock.
+chrono = "0.4"
+# A file resource's URI spells its path percent-encoded.
+percent-encoding = "2.3"
+tokio = { version = "1", features = ["rt", "macros", "io-std", "sync"] }
+# Pinned exactly: rmcp crossed two major versions in two months, so a bump is a
+# deliberate PR. Default features are off to keep the HTTP transports, and the
+# reqwest and hyper they carry, out of the resolved tree — asserted by
+# tests/no_tauri_dependency.rs.
+rmcp = { version = "=3.9.0", default-features = false, features = ["server", "transport-io", "macros"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "time"] }

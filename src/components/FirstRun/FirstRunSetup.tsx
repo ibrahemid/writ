@@ -234,7 +234,7 @@ function AppsStep() {
           Apps
         </h1>
         <p class="first-run-setup-lead" id={APPS_LEAD_ID}>
-          Writ opens and edits text files. These apps add more, and each stays off until you switch
+          Jotra opens and edits text files. These apps add more, and each stays off until you switch
           it on. Settings, Apps changes them later.
         </p>
       </div>

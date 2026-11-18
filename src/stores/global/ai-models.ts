@@ -1,6 +1,6 @@
 import { aiProvidersStore } from "./ai-providers";
 
-// The curated ids live in the provider table `writ-core` owns (ADR-040
+// The curated ids live in the provider table `jotra-core` owns (ADR-040
 // section 2), so the picker, the send preflight and the settings panel read one
 // definition. They are suggestions, not an inventory: the account may not carry
 // them. The first entry is the zero-decision default.
@@ -32,7 +32,7 @@ export function modelOptions(provider: string, live: readonly string[]): string[
  * list holds it, else the first of the row's suggestions the list holds, else,
  * on a local runtime that lists one model, that model, else nothing, which
  * leaves the picker open. The rule `seed_model` applies in
- * `writ_core::ai::models` (ADR-040 section 12).
+ * `jotra_core::ai::models` (ADR-040 section 12).
  *
  * The list's own order decides nothing: sorted, its first id is whatever sorts
  * first, which is a completion-only model on OpenAI's list and an embedding

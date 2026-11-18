@@ -1,8 +1,8 @@
 /**
  * Where a note's YAML frontmatter block ends.
  *
- * The rule is `writ_core::notes::links::split_frontmatter`, which
- * `writ_render::split_frontmatter` and the prompt stripper already share: the
+ * The rule is `jotra_core::notes::links::split_frontmatter`, which
+ * `jotra_render::split_frontmatter` and the prompt stripper already share: the
  * first line must be exactly `---` after trailing whitespace is trimmed, and a
  * later line must be exactly `---`. An unterminated block is body text, so a
  * note opening with a horizontal rule is not swallowed.

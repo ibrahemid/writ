@@ -8,7 +8,7 @@ Do not report security vulnerabilities through public GitHub issues, pull reques
 
 Use **GitHub Security Advisories** to report vulnerabilities privately:
 
-1. Go to the [Writ repository](https://github.com/ibrahemid/writ) on GitHub.
+1. Go to the [Jotra repository](https://github.com/ibrahemid/writ) on GitHub.
 2. Click the **Security** tab.
 3. Click **Report a vulnerability**.
 4. Fill in the advisory form with as much detail as possible.
@@ -19,11 +19,11 @@ If GitHub Security Advisories are not available to you, email the maintainer pri
 
 **ibrahemid@gmail.com**
 
-Use the subject line `[writ security]` and include:
+Use the subject line `[jotra security]` and include:
 
 - A description of the issue and its potential impact.
 - Steps to reproduce, or a proof-of-concept if you have one.
-- The affected version (output of `writ --version` or the release tag).
+- The affected version (output of `jotra --version` or the release tag).
 - Your operating system and architecture.
 
 ## Response Expectations
@@ -42,16 +42,16 @@ Only the most recent release on the `main` branch receives security fixes. We do
 | latest `0.x` release | Yes   |
 | older `0.x` releases | No    |
 
-Once Writ reaches a `1.x` release, this table will be updated with a formal support window.
+Once Jotra reaches a `1.x` release, this table will be updated with a formal support window.
 
 ## Scope
 
 The following are in scope:
 
-- Every Rust crate in the workspace: `writ-core`, `writ-storage`, `writ-plugin`,
-  `writ-render`, `writ-lint`, `writ-ai`, and `writ-cli` (the `writ` command, which
+- Every Rust crate in the workspace: `jotra-core`, `jotra-storage`, `jotra-plugin`,
+  `jotra-render`, `jotra-lint`, `jotra-ai`, and `jotra-cli` (the `jotra` command, which
   parses argv and piped stdin).
-- `writ-mcp`, the MCP server `writ mcp` runs over stdio for AI clients: its tools,
+- `jotra-mcp`, the MCP server `jotra mcp` runs over stdio for AI clients: its tools,
   the client consent check, and every note it reads or writes.
 - The `src-tauri` Tauri IPC layer and its command surface.
 - The OAuth loopback receiver the AI Connect flow opens on 127.0.0.1.

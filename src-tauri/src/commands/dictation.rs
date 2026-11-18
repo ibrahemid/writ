@@ -1,33 +1,33 @@
 //! IPC surface for Dictation: what this machine supports, the endpoint and key
 //! rows of its settings page, and a session's start, stop and cancel.
 //!
-//! The policy is `writ_core::dictation`, the requests
-//! `writ_ai::transcription`, the session [`crate::dictation`]. These commands
+//! The policy is `jotra_core::dictation`, the requests
+//! `jotra_ai::transcription`, the session [`crate::dictation`]. These commands
 //! read the config, check it, open the microphone and hand the rest to the
 //! session driver, which reports over the start's channel.
 
 use std::sync::Arc;
 
-use serde::Serialize;
-use tauri::ipc::Channel;
-use tauri::{AppHandle, Manager, State};
-use tokio::sync::mpsc;
-use writ_ai::connection::{build_client_for, needs_key_lookup};
-use writ_ai::transcription::{
+use jotra_ai::connection::{build_client_for, needs_key_lookup};
+use jotra_ai::transcription::{
     self, prepare_transcription, record_audio_consent, DictationEndpointState,
 };
-use writ_audio::{AudioFrame, CaptureError, Recorder};
-use writ_core::config::{AiConfig, WritConfig};
-use writ_core::dictation::key::own_account;
-use writ_core::dictation::language::{locale_language, on_device_languages};
-use writ_core::dictation::on_device::BRIDGE_LANGUAGE_UNSUPPORTED;
-use writ_core::dictation::platform::mic_settings_uri;
-use writ_core::dictation::{
+use jotra_audio::{AudioFrame, CaptureError, Recorder};
+use jotra_core::config::{AiConfig, JotraConfig};
+use jotra_core::dictation::key::own_account;
+use jotra_core::dictation::language::{locale_language, on_device_languages};
+use jotra_core::dictation::on_device::BRIDGE_LANGUAGE_UNSUPPORTED;
+use jotra_core::dictation::platform::mic_settings_uri;
+use jotra_core::dictation::{
     error_from_bridge, key_account, on_device_locale, DictationConfig, DictationEngine,
     DictationError, DictationEvent, DictationFailure, Segmenter, SegmenterParams, SessionLimits,
     LANGUAGES,
 };
-use writ_core::polish;
+use jotra_core::polish;
+use serde::Serialize;
+use tauri::ipc::Channel;
+use tauri::{AppHandle, Manager, State};
+use tokio::sync::mpsc;
 
 use super::ai::{key_for, key_state_for, AiKeyState, AiState};
 use super::config::mutate_config;
@@ -38,7 +38,7 @@ use crate::dictation::session::{
 };
 use crate::dictation::window::SightWatch;
 use crate::dictation::{DictationState, ReleaseOnDrop};
-use crate::events::{emit_event, WritFrontendEvent};
+use crate::events::{emit_event, JotraFrontendEvent};
 use crate::poison::recover_poison;
 use crate::state::AppState;
 
@@ -83,7 +83,7 @@ const LOCAL_ENDPOINT: &str = "This endpoint is on your machine; nothing is sent.
 /// The answer to opening microphone settings where the system has none.
 const NO_MIC_SETTINGS: &str = "This system has no microphone settings page.";
 
-fn read_config(app: &AppHandle, location: &'static str) -> WritConfig {
+fn read_config(app: &AppHandle, location: &'static str) -> JotraConfig {
     let state = app.state::<AppState>();
     let guard = recover_poison(state.config.lock(), location);
     guard.clone()
@@ -185,7 +185,7 @@ fn apply_audio_consent(d: &mut DictationConfig) -> Result<bool, String> {
 fn announce_dictation_config(app: &AppHandle) {
     if let Err(error) = emit_event(
         app,
-        WritFrontendEvent::ConfigChanged {
+        JotraFrontendEvent::ConfigChanged {
             keys: vec!["dictation".to_string()],
         },
     ) {
@@ -451,7 +451,7 @@ async fn start_session(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use writ_core::dictation::{DictationErrorCode, DictationProvider};
+    use jotra_core::dictation::{DictationErrorCode, DictationProvider};
 
     fn enabled() -> DictationConfig {
         DictationConfig {
@@ -542,7 +542,7 @@ mod tests {
 
     #[test]
     fn a_shared_key_is_neither_set_nor_cleared_here() {
-        let store = AiState::with_store(Box::<writ_ai::keys::MemoryKeyStore>::default());
+        let store = AiState::with_store(Box::<jotra_ai::keys::MemoryKeyStore>::default());
         store.set_key("openai", "ai-key").expect("stores");
         let d = DictationConfig {
             provider: DictationProvider::OpenAi,

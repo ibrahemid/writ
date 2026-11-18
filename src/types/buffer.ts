@@ -24,7 +24,7 @@ export interface BufferDocument {
   // followed by " BOM" when the file starts with a byte order mark ("UTF-8",
   // "UTF-16LE BOM", "windows-1252"). The editor works in UTF-8; the backend
   // decodes on read and encodes on save (ADR-049). Null for a binary file's
-  // hex view and a document Writ generated.
+  // hex view and a document Jotra generated.
   encoding: string | null;
 }
 
@@ -57,15 +57,15 @@ export interface TodaysFile {
 }
 
 /**
- * What the person chose about a file that changed outside Writ.
+ * What the person chose about a file that changed outside Jotra.
  *
- * The words are the wire form of `writ_core::notes::reload::ChangeChoice`.
+ * The words are the wire form of `jotra_core::notes::reload::ChangeChoice`.
  * Every one of them writes the text it does not keep to its own file first,
  * so no answer ends with a text that exists nowhere.
  */
 export type ChangeChoice = "keep_mine" | "use_disk" | "keep_both";
 
-/** What resolving a change outside Writ left behind. */
+/** What resolving a change outside Jotra left behind. */
 export interface ResolveOutcome {
   /**
    * The file the text that was not kept was written to. Null only when the

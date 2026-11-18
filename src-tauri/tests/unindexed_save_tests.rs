@@ -2,12 +2,12 @@
 //! without entering the search index, and the deferred reindex (ADR-020) is
 //! what puts a note's text there afterwards.
 
+use jotra_core::buffer::manager::BufferManager;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::notes_index::NotesIndexStore;
 use tempfile::TempDir;
-use writ_core::buffer::manager::BufferManager;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::notes_index::NotesIndexStore;
 
 const NOTICES_TITLE: &str = "Third-party licences";
 const NOTICES_BODY: &str = "MIT License\n\nCopyright (c) 2019 Mads Marquart\n";
@@ -30,10 +30,10 @@ fn setup() -> (TempDir, BufferStore, NotesIndexStore) {
 /// Paths whose text matches `raw`, through the same query policy the sidebar
 /// search box uses.
 fn search(index: &NotesIndexStore, raw: &str) -> Vec<String> {
-    let Some(query) = writ_core::search::to_prefix_match(raw) else {
+    let Some(query) = jotra_core::search::to_prefix_match(raw) else {
         return Vec::new();
     };
-    let terms = writ_core::search::search_terms(raw);
+    let terms = jotra_core::search::search_terms(raw);
     index
         .search_hits(&query, &terms, 50)
         .expect("search")

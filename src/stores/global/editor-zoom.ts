@@ -12,7 +12,7 @@ const ZOOM_STEP = 1;
 // device-independent, and the throttle stops trackpad inertia from blasting
 // through the whole range in one gesture.
 const WHEEL_THROTTLE_MS = 40;
-const EDITOR_FONT_SIZE_VAR = "--writ-editor-font-size";
+const EDITOR_FONT_SIZE_VAR = "--jotra-editor-font-size";
 
 function createEditorZoom() {
   let lastWheelMs = Number.NEGATIVE_INFINITY;

@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use jotra_core::prompt::pack::ContextPack;
+use jotra_storage::context_pack::{build_context_pack, LiveText, PackSource};
+use jotra_storage::notes_index::NotesIndexStore;
 use tauri::{AppHandle, Runtime};
-use writ_core::prompt::pack::ContextPack;
-use writ_storage::context_pack::{build_context_pack, LiveText, PackSource};
-use writ_storage::notes_index::NotesIndexStore;
 
 use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};
 
@@ -12,17 +12,17 @@ use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};
 /// file in the large tiers (EP-14).
 #[tauri::command(async)]
 pub fn prompt_estimate_tokens(text: String) -> usize {
-    writ_core::prompt::estimate_tokens(&text)
+    jotra_core::prompt::estimate_tokens(&text)
 }
 
 #[tauri::command]
 pub fn prompt_scan_placeholders(text: String) -> Vec<String> {
-    writ_core::prompt::scan_placeholders(&text)
+    jotra_core::prompt::scan_placeholders(&text)
 }
 
 #[tauri::command]
 pub fn prompt_fill_placeholders(text: String, values: HashMap<String, String>) -> String {
-    writ_core::prompt::fill_placeholders(&text, &values)
+    jotra_core::prompt::fill_placeholders(&text, &values)
 }
 
 /// Several files as one prompt (a context pack): `source`'s files, with the
@@ -73,9 +73,9 @@ mod tests {
 
     #[test]
     fn fill_placeholders_substitutes_supplied_values() {
-        let values = HashMap::from([("name".to_string(), "Writ".to_string())]);
+        let values = HashMap::from([("name".to_string(), "Jotra".to_string())]);
         let filled = prompt_fill_placeholders("hello {{name}}".into(), values);
-        assert_eq!(filled, "hello Writ");
+        assert_eq!(filled, "hello Jotra");
     }
 
     #[test]

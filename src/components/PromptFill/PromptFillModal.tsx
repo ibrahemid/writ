@@ -14,7 +14,7 @@ interface PendingFill {
   resolve: (values: PlaceholderValues | null) => void;
 }
 
-// Singleton state — Writ is single-window, single-instance per component
+// Singleton state — Jotra is single-window, single-instance per component
 const [pending, setPending] = createSignal<PendingFill | null>(null);
 const [values, setValues] = createSignal<PlaceholderValues>({});
 const [template, setTemplate] = createSignal("");

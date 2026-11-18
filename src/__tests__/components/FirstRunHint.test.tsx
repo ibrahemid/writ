@@ -4,7 +4,7 @@ import { createRoot } from "solid-js";
 import WindowProvider, { useWindow } from "../../components/WindowProvider/WindowProvider";
 import type { WindowState } from "../../stores/window/createWindowState";
 import { configStore } from "../../stores/global/config";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 
 const mocks = vi.hoisted(() => ({
   firstRunState: vi.fn(),
@@ -34,7 +34,7 @@ vi.mock("../../services/tauri", () => ({
   updateConfig: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.spyOn(configStore, "config").mockImplementation(() => mocks.config() as WritConfig);
+vi.spyOn(configStore, "config").mockImplementation(() => mocks.config() as JotraConfig);
 
 import FirstRunHint from "../../components/Editor/FirstRunHint";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
@@ -50,7 +50,7 @@ const CONFIG = {
   sidebar: { open: false, width: 240, position: "left" },
   editor: { status_bar: false },
   first_run: { hint_dismissed: false },
-} as unknown as WritConfig;
+} as unknown as JotraConfig;
 
 let win: WindowState | null = null;
 
@@ -257,11 +257,11 @@ describe("the first launch's one line", () => {
     mocks.config.mockReturnValue({
       ...CONFIG,
       editor: { status_bar: true },
-    } as unknown as WritConfig);
+    } as unknown as JotraConfig);
     const on = mount();
     await waitFor(() =>
       expect(on.container.querySelector<HTMLElement>(".first-run-layer")?.style.bottom).toBe(
-        "var(--writ-statusbar-height)",
+        "var(--jotra-statusbar-height)",
       ),
     );
   });

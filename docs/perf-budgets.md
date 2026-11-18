@@ -5,7 +5,7 @@ performance budget enforced by `scripts/perf-gate.sh`.
 
 ## How the gate works
 
-`scripts/perf-gate.sh` runs every budget test with `WRIT_PERF_GATE=1`: the Rust
+`scripts/perf-gate.sh` runs every budget test with `JOTRA_PERF_GATE=1`: the Rust
 ones in **release mode**, the frontend one under vitest, which has no such
 mode. Both read that same variable and skip without it, so
 `cargo test --workspace` and `pnpm test` stay fast and deterministic. One Rust
@@ -47,9 +47,9 @@ belongs in the `MOUNT_TESTS` globs.
 
 ---
 
-## writ-plugin: text transform budgets
+## jotra-plugin: text transform budgets
 
-**Test file:** `crates/writ-plugin/tests/perf_budget.rs`
+**Test file:** `crates/jotra-plugin/tests/perf_budget.rs`
 
 **What is measured:** median wall time (9-sample) of each registered transform
 applied to a deterministic 100 KB mixed markdown/code fixture. The fixture is
@@ -71,7 +71,7 @@ Rationale:
   It is `#[ignore]`d, so it never runs in a debug `cargo test --workspace`
   (where a busy machine misses 50 ms for reasons unrelated to the code) and
   runs only from `scripts/perf-gate.sh`, or by hand with
-  `cargo test --release -p writ-plugin --test builtin_perf_tests -- --ignored --nocapture`.
+  `cargo test --release -p jotra-plugin --test builtin_perf_tests -- --ignored --nocapture`.
   Its default-suite companion, `every_builtin_holds_its_contract_on_a_100kb_input`,
   keeps the untimed half in every run: determinism, idempotence, and the
   trailing-whitespace and final-newline contracts on the same input.
@@ -106,11 +106,11 @@ Rationale:
   so it has one frame to spend however large the document is. The structural
   check that makes this hold (first/last character, before any parse) is what
   the budget guards.
-- The assertion is skipped unless `WRIT_PERF_GATE=1`, so a loaded machine
+- The assertion is skipped unless `JOTRA_PERF_GATE=1`, so a loaded machine
   cannot fail `pnpm test`; the untimed half of the same property (a huge JSON
   body is never detected as JSON) runs in every suite. `scripts/perf-gate.sh`
   runs the timed half, or by hand:
-  `WRIT_PERF_GATE=1 pnpm exec vitest run src/__tests__/services/language-detect.test.ts`.
+  `JOTRA_PERF_GATE=1 pnpm exec vitest run src/__tests__/services/language-detect.test.ts`.
 
 ### Re-baselining
 
@@ -185,8 +185,8 @@ Rationale:
   eight runs at load 6.3 to 8.0 read the 5 MiB line with one 27.5 ms slice and
   failed the task budget.
 
-The assertions are skipped unless `WRIT_PERF_GATE=1`. By hand:
-`WRIT_PERF_GATE=1 pnpm exec vitest run src/__tests__/editor/find-perf.test.ts --disable-console-intercept`.
+The assertions are skipped unless `JOTRA_PERF_GATE=1`. By hand:
+`JOTRA_PERF_GATE=1 pnpm exec vitest run src/__tests__/editor/find-perf.test.ts --disable-console-intercept`.
 
 ### Re-baselining
 
@@ -230,8 +230,8 @@ Rationale:
   9.3 ms at 300 MiB, heap growth 4.3 to 5.6 MiB, a recount 0.26 to 0.31 ms.
 
 Each budget holds the fastest of three runs. The assertions are skipped unless
-`WRIT_PERF_GATE=1`. By hand:
-`WRIT_PERF_GATE=1 pnpm exec vitest run src/__tests__/lib/document-counts-perf.test.ts --disable-console-intercept`.
+`JOTRA_PERF_GATE=1`. By hand:
+`JOTRA_PERF_GATE=1 pnpm exec vitest run src/__tests__/lib/document-counts-perf.test.ts --disable-console-intercept`.
 
 ### Re-baselining
 
@@ -251,7 +251,7 @@ holds them to the table below.
 Vite config: the real `App` over the demo's in-memory backend, which answers
 opens of generated files the way the Rust commands do (the tier from the size
 and the binary sniff, the size question from 50 MiB to 500 MiB, the raw bytes
-on a read; `demo/backend/classify.ts` mirrors `writ_core::file_ops`). Every
+on a read; `demo/backend/classify.ts` mirrors `jotra_core::file_ops`). Every
 command's arguments go through Tauri's JSON serialisation at call time, so the
 page pays the IPC send cost. Each scenario opens its file in a fresh headless
 Chromium page at 1280x800, device scale 2, and drives it with key events. The
@@ -259,16 +259,16 @@ Rust side of an open (reads, hashes, the guarded write) is not in these
 numbers.
 
 ```
-WRIT_PERF_GATE=1 node scripts/perf-editor.mjs                    # every scenario but the two 300 MiB ones
-WRIT_PERF_GATE=1 node scripts/perf-editor.mjs --only prose-50MiB
-WRIT_PERF_GATE=1 node scripts/perf-editor.mjs --large            # adds prose-300MiB and log-300MiB-counts
-WRIT_PERF_GATE=1 node scripts/perf-editor.mjs --large --strict   # adds the timing checks of the section 6 targets (scripts/perf-gate.sh)
+JOTRA_PERF_GATE=1 node scripts/perf-editor.mjs                    # every scenario but the two 300 MiB ones
+JOTRA_PERF_GATE=1 node scripts/perf-editor.mjs --only prose-50MiB
+JOTRA_PERF_GATE=1 node scripts/perf-editor.mjs --large            # adds prose-300MiB and log-300MiB-counts
+JOTRA_PERF_GATE=1 node scripts/perf-editor.mjs --large --strict   # adds the timing checks of the section 6 targets (scripts/perf-gate.sh)
 ```
 
 Chromium comes from `playwright-core`, a pinned dev dependency: install the
 browser once per machine with `pnpm exec playwright-core install chromium`;
-CI installs it in the job. `WRIT_PLAYWRIGHT_CORE` (the path to another copy's
-`index.mjs`) and `WRIT_PERF_CHROMIUM` (a browser executable) override them.
+CI installs it in the job. `JOTRA_PLAYWRIGHT_CORE` (the path to another copy's
+`index.mjs`) and `JOTRA_PERF_CHROMIUM` (a browser executable) override them.
 The results, with the machine and the load average at the start and end of
 every scenario, are written as JSON (`--out <file>`, by default to the system
 temporary directory). Exit 1 means a budget was missed or a check failed; 2,
@@ -478,10 +478,10 @@ widths fails about 60% of the time and one of three widths about 90%.
 
 ### WKWebView, once per release
 
-macOS Writ runs in WKWebView (WebKit and JavaScriptCore), which the gate does
+macOS Jotra runs in WKWebView (WebKit and JavaScriptCore), which the gate does
 not drive. Once per release, on the installed build from the draft release:
 
-1. `node scripts/perf-editor.mjs --write-files ~/Desktop/writ-perf` writes the
+1. `node scripts/perf-editor.mjs --write-files ~/Desktop/jotra-perf` writes the
    scenarios' files (Node 22.18 or later).
 2. Open `prose-4.9MiB.txt`, `notes-4.9MiB.md`, `prose-50MiB.txt` and
    `prose-60MiB.txt` from that folder, the last through Open in the size
@@ -510,7 +510,7 @@ section 6 checks hold the audit's targets and are not re-baselined.
 
 ---
 
-## writ-tauri: shell budget (main-thread time per IPC command)
+## jotra-tauri: shell budget (main-thread time per IPC command)
 
 **Test file:** `src-tauri/tests/shell_budget.rs`
 
@@ -541,7 +541,7 @@ the whole of its work.
 | `preview_render` | 5 MB note, 54,359 wikilinks to 200 notes | 287 ms | 0 ms | 143 ms |
 | `search_workspace_files` | 200,000 files, slowest of six keystrokes | 104 ms | 0 ms | 104 ms |
 | `install_cli` | administrator password dialog | the whole dialog | 0 ms | the person |
-| `mcp_connect_cards`, `mcp_connect_add`, `mcp_connect_open`, `mcp_server_test` | a client's own command, the login shell, `writ mcp` | not measured yet | 0 ms | the other program |
+| `mcp_connect_cards`, `mcp_connect_add`, `mcp_connect_open`, `mcp_server_test` | a client's own command, the login shell, `jotra mcp` | not measured yet | 0 ms | the other program |
 | `context_answer` | the selection of the file open in the window, up to 2 MB | async from its first version | 0 ms | not measured yet |
 | `review_answer` | the person's answer to a program's held write | async from its first version | 0 ms | not measured yet |
 
@@ -552,7 +552,7 @@ Notes:
   repainting while the dialog is up is a smoke row.
 - The client-card commands (`commands/mcp_connect.rs`, ADR-031 rule 2.4) are
   paced by another program: the login shell that reports the `PATH` (stopped
-  after 5 s), a client's own `mcp add` (30 s), the opener and `writ mcp` (10 s).
+  after 5 s), a client's own `mcp add` (30 s), the opener and `jotra mcp` (10 s).
   Each runs on the blocking pool and is not measured headless.
 - `context_answer` (ADR-053) writes one answer file to the data folder. Its
   always-on test holds the buffer store, which the work reads the tab's file
@@ -571,7 +571,7 @@ Notes:
   blocking pool since ADR-047. Its always-on test holds the open folder's
   root; its timed test lists one folder of 20,000 entries.
 - `save_buffer_content` takes the text as a raw body with the note in the
-  `writ-note-id` header (EP-13): nothing is serialised to JSON or parsed on
+  `jotra-note-id` header (EP-13): nothing is serialised to JSON or parsed on
   either side. The large tiers send `save_buffer_changes` from the first
   save after the open. Both rows are in the 300 MB timed test; the release
   numbers are taken by the next `scripts/perf-gate.sh` run.
@@ -579,14 +579,14 @@ Notes:
 ### Re-baselining
 
 Add a command to the budget by registering it in `mock_app` and adding an
-always-on test that blocks its work and a timed one under `WRIT_PERF_GATE`.
+always-on test that blocks its work and a timed one under `JOTRA_PERF_GATE`.
 Change `SHELL_BUDGET_MS` only with the reason here.
 
 ---
 
-## writ-storage: FTS search latency
+## jotra-storage: FTS search latency
 
-**Test file:** `crates/writ-storage/tests/perf_budget.rs` (`fts_search_budget`)
+**Test file:** `crates/jotra-storage/tests/perf_budget.rs` (`fts_search_budget`)
 
 **What is measured:** median wall time (9-sample) of `NotesIndexStore::count`
 over a folder of 500 generated notes (512–4096 bytes of text each, with
@@ -612,13 +612,13 @@ numbers and rationale.
 
 ---
 
-## writ-storage: FTS prefix-search latency
+## jotra-storage: FTS prefix-search latency
 
-**Test file:** `crates/writ-storage/tests/perf_budget.rs` (`fts_prefix_search_budget`)
+**Test file:** `crates/jotra-storage/tests/perf_budget.rs` (`fts_prefix_search_budget`)
 
 **What is measured:** median wall time (9-sample) of `NotesIndexStore::count`
 over the same 500-note folder, using the quoted prefix queries the live
-search-as-you-type path actually issues (`writ_core::search::to_prefix_match`,
+search-as-you-type path actually issues (`jotra_core::search::to_prefix_match`,
 e.g. `"rus"*`). Each query is asserted to match at least one row before
 timing, so a silently-broken index cannot pass by matching nothing.
 
@@ -641,14 +641,14 @@ changes in a way that legitimately raises latency, and document the change.
 
 ---
 
-## writ-storage: guarded save round trip
+## jotra-storage: guarded save round trip
 
-**Test file:** `crates/writ-storage/tests/perf_budget.rs` (`guarded_save_round_trip_budget`)
+**Test file:** `crates/jotra-storage/tests/perf_budget.rs` (`guarded_save_round_trip_budget`)
 
 **What is measured:** median wall time (9-sample) of the save the app makes,
 `BufferStore::save_to_source_without_index` with the state the previous save
 returned (the guarded write, `guarded::write_note_guarded`, judged against what
-Writ last saw on disk, ADR-028 §5), and of `read_content`, on a 4 KB note in a
+Jotra last saw on disk, ADR-028 §5), and of `read_content`, on a 4 KB note in a
 notes folder. The two timed texts alternate, so every save writes: the guard
 leaves alone a file that already holds the incoming bytes. The index's half of
 a save is the next budget. The criterion bench `buffer_round_trip/save_4kb`
@@ -672,9 +672,9 @@ update `ROUND_TRIP_BUDGET_MS` and document the step here.
 
 ---
 
-## writ-storage: per-save index upsert at 5,000 notes
+## jotra-storage: per-save index upsert at 5,000 notes
 
-**Test file:** `crates/writ-storage/tests/perf_budget.rs` (`per_save_upsert_at_5000_notes_stays_under_budget`)
+**Test file:** `crates/jotra-storage/tests/perf_budget.rs` (`per_save_upsert_at_5000_notes_stays_under_budget`)
 
 **What is measured:** the slowest of 21 `NotesIndexStore::upsert` calls on one
 note in a walked folder of 5,000 notes, the write the deferred reindex makes
@@ -697,9 +697,9 @@ here is a write that reads the folder again.
 
 ---
 
-## writ-storage: a rename with its links at 5,000 notes
+## jotra-storage: a rename with its links at 5,000 notes
 
-**Test file:** `crates/writ-storage/tests/perf_budget.rs` (`a_rename_with_its_links_at_5000_notes_stays_under_budget`)
+**Test file:** `crates/jotra-storage/tests/perf_budget.rs` (`a_rename_with_its_links_at_5000_notes_stays_under_budget`)
 
 **What is measured:** the storage calls a rename with its links makes, in the
 order the command makes them, for a note 22 others link to in a walked folder
@@ -730,9 +730,9 @@ folder lowers it.
 
 ---
 
-## writ-storage: notes index walk (5,000 notes)
+## jotra-storage: notes index walk (5,000 notes)
 
-**Test file:** `crates/writ-storage/tests/perf_budget.rs` (`index_5000_notes_reconcile_stays_under_budget`)
+**Test file:** `crates/jotra-storage/tests/perf_budget.rs` (`index_5000_notes_reconcile_stays_under_budget`)
 
 **What is measured:** one `NotesIndexStore::reconcile` over a fresh index and
 a folder of 5,000 generated notes in fifty subfolders.
@@ -745,9 +745,9 @@ budget catches a walk that becomes quadratic.
 
 ---
 
-## writ-storage: commands during a walk
+## jotra-storage: commands during a walk
 
-**Test file:** `crates/writ-storage/tests/perf_budget.rs` (`index_backed_commands_answer_within_budget_while_a_walk_holds_the_index`)
+**Test file:** `crates/jotra-storage/tests/perf_budget.rs` (`index_backed_commands_answer_within_budget_while_a_walk_holds_the_index`)
 
 **What is measured:** while a walk of 5,000 notes runs on another thread, the
 test issues, in turn and for as long as the walk lasts, a content search
@@ -777,7 +777,7 @@ Rationale:
   SQLite's own busy handler, which waits up to 100 ms between tries, that row
   took 75 to 295 ms in three runs while the walk went on through up to 293
   more entries, and the command failed this budget at 321 ms. With the app's
-  connections to `writ.db` retrying each millisecond (ADR-036 §7) it took 11
+  connections to `jotra.db` retrying each millisecond (ADR-036 §7) it took 11
   to 19 ms.
 - Measured 2026-10-13, release, after the writer went to waiting writes ahead
   of the walk and the app's connections retry each millisecond (ADR-036 §7),
@@ -793,9 +793,9 @@ Rationale:
 
 ---
 
-## writ-storage: graph over 5,000 notes
+## jotra-storage: graph over 5,000 notes
 
-**Test file:** `crates/writ-storage/tests/perf_budget.rs` (`graph_over_5000_notes_stays_under_the_query_budget`)
+**Test file:** `crates/jotra-storage/tests/perf_budget.rs` (`graph_over_5000_notes_stays_under_the_query_budget`)
 
 **What is measured:** `NotesIndexStore::graph` over a walked folder of 5,000
 notes, nine times. **Budget: 50 ms at the median**, the keystroke budget
@@ -807,11 +807,11 @@ read 303 ms.
 
 ---
 
-## writ-storage: vault scale (10,000 notes, 200,000 links)
+## jotra-storage: vault scale (10,000 notes, 200,000 links)
 
-**Test file:** `crates/writ-storage/tests/perf_budget.rs` (`vault_of_10000_notes_and_200000_links_stays_under_budget`).
-**Bench:** `crates/writ-storage/benches/storage.rs`, group
-`vault_10k_notes_200k_links` (`cargo bench -p writ-storage --bench storage -- vault`).
+**Test file:** `crates/jotra-storage/tests/perf_budget.rs` (`vault_of_10000_notes_and_200000_links_stays_under_budget`).
+**Bench:** `crates/jotra-storage/benches/storage.rs`, group
+`vault_10k_notes_200k_links` (`cargo bench -p jotra-storage --bench storage -- vault`).
 
 **What is measured:** a folder of 10,000 notes in a hundred subfolders, each
 writing twenty links, five of them to one of the hundred notes most linked to
@@ -850,9 +850,9 @@ note or per link, and record the new measurement here.
 
 ---
 
-## writ-storage: large-file open/read round-trip (10 MiB)
+## jotra-storage: large-file open/read round-trip (10 MiB)
 
-**Test file:** `crates/writ-storage/tests/perf_budget.rs`
+**Test file:** `crates/jotra-storage/tests/perf_budget.rs`
 
 **What is measured:** median wall time (9-sample) of `read_content` on a
 single buffer whose backing file is just above `THRESHOLD_NORMAL_BYTES`
@@ -874,9 +874,9 @@ transformation step (e.g., on-disk encryption). Document the step.
 
 ---
 
-## writ-storage: large-file open/read round-trip (50 MiB)
+## jotra-storage: large-file open/read round-trip (50 MiB)
 
-**Test file:** `crates/writ-storage/tests/perf_budget.rs`
+**Test file:** `crates/jotra-storage/tests/perf_budget.rs`
 
 **What is measured:** median wall time (9-sample) of `read_content` on a
 single buffer at `THRESHOLD_LARGE_BYTES` (50 MiB).
@@ -899,9 +899,9 @@ its cost is justified. Document the step and the new expected floor.
 
 ---
 
-## writ-core: hex dump generation (10 MiB)
+## jotra-core: hex dump generation (10 MiB)
 
-**Test file:** `crates/writ-storage/tests/perf_budget.rs`
+**Test file:** `crates/jotra-storage/tests/perf_budget.rs`
 
 **What is measured:** median wall time (9-sample) of `generate_hex_dump` on a
 10 MiB input (the `HEX_DUMP_MAX_BYTES` cap).
@@ -927,7 +927,7 @@ colour escape codes, Unicode rendering) legitimately increases output size.
 
 **Checked by hand at the release preflight;** no test reads it.
 
-**What is measured:** the size in bytes of the `writ-tauri` executable each
+**What is measured:** the size in bytes of the `jotra-tauri` executable each
 release ships, per platform, and of each bundle. The release profile unwinds on
 panic and keeps line tables in separate symbol files (ADR-045); unwind tables
 and landing pads are the part of that change that stays in the binary.
@@ -937,29 +937,29 @@ release.** A release past it says why in its notes.
 
 | Artifact | 0.6.0 (`panic = "abort"`, `strip = true`) | 0.7.0 |
 |---|---|---|
-| `writ-tauri`, macOS arm64 slice | 24,974,192 | at the 0.7.0 preflight |
-| `writ-tauri`, macOS x86_64 slice | 27,847,680 | at the 0.7.0 preflight |
-| `writ-tauri`, Linux x86_64 (deb) | 31,451,480 | at the 0.7.0 preflight |
-| `writ-tauri.exe`, Windows x64 | not recorded | at the 0.7.0 preflight |
-| `Writ_<v>_universal.dmg` | 29,677,412 | at the 0.7.0 preflight |
-| `Writ_<v>_x64_en-US.msi` | 15,163,392 | at the 0.7.0 preflight |
-| `Writ_<v>_amd64.deb` | 16,812,232 | at the 0.7.0 preflight |
-| `Writ_<v>_amd64.AppImage` | 94,083,576 | at the 0.7.0 preflight |
+| `jotra-tauri`, macOS arm64 slice | 24,974,192 | at the 0.7.0 preflight |
+| `jotra-tauri`, macOS x86_64 slice | 27,847,680 | at the 0.7.0 preflight |
+| `jotra-tauri`, Linux x86_64 (deb) | 31,451,480 | at the 0.7.0 preflight |
+| `jotra-tauri.exe`, Windows x64 | not recorded | at the 0.7.0 preflight |
+| `Jotra_<v>_universal.dmg` | 29,677,412 | at the 0.7.0 preflight |
+| `Jotra_<v>_x64_en-US.msi` | 15,163,392 | at the 0.7.0 preflight |
+| `Jotra_<v>_amd64.deb` | 16,812,232 | at the 0.7.0 preflight |
+| `Jotra_<v>_amd64.AppImage` | 94,083,576 | at the 0.7.0 preflight |
 
 Method:
 
 - Bundles: `gh release view v<version> --json assets` lists each asset's size.
-- macOS slices: unpack `Writ_<v>_universal.app.tar.gz` and read
-  `lipo -detailed_info Writ.app/Contents/MacOS/writ-tauri`.
-- Linux: `ar x Writ_<v>_amd64.deb`, then `tar -tvzf data.tar.gz | grep usr/bin/writ-tauri`.
-- Windows: the `writ-tauri.exe` in the run's `build-windows-binaries` artifact.
+- macOS slices: unpack `Jotra_<v>_universal.app.tar.gz` and read
+  `lipo -detailed_info Jotra.app/Contents/MacOS/jotra-tauri`.
+- Linux: `ar x Jotra_<v>_amd64.deb`, then `tar -tvzf data.tar.gz | grep usr/bin/jotra-tauri`.
+- Windows: the `jotra-tauri.exe` in the run's `build-windows-binaries` artifact.
 - Before a tag, the same commands run on the preflight's local build
   (`scripts/release-preflight.sh`) give the number to compare.
 
 A debug build does not stand in for these: the dev profile already unwinds and
-keeps full debug info. For reference, `cargo build -p writ-tauri` on
+keeps full debug info. For reference, `cargo build -p jotra-tauri` on
 aarch64-apple-darwin at the branch that switched the release profile gave a
-130,914,872-byte `target/debug/writ-tauri` (`stat -f %z`).
+130,914,872-byte `target/debug/jotra-tauri` (`stat -f %z`).
 
 ### Re-baselining
 
@@ -972,13 +972,13 @@ here.
 ## app: watcher events per second
 
 What a folder watcher may send the webview about the folder itself. Each
-watcher spends an `EmissionBudget` (`writ-core/src/watcher/budget.rs`) per
+watcher spends an `EmissionBudget` (`jotra-core/src/watcher/budget.rs`) per
 500 ms debounce window: nine changes named, then one sweep that stands for the
 rest, and at most one sweep per 2 s cooldown.
 
 | Watcher | Budget | Gate |
 |---|---|---|
-| Notes folder (`NotesChanged`, `NotesSwept`) | 10 events per 500 ms window, 20 per second | `writ-core` budget tests |
+| Notes folder (`NotesChanged`, `NotesSwept`) | 10 events per 500 ms window, 20 per second | `jotra-core` budget tests |
 | Workspace folder (`WorkspaceChanged`, `WorkspaceSwept`) | 10 events per 500 ms window, 20 per second | `a_workspace_burst_stays_within_the_budget` in `src-tauri/src/watcher/handler.rs`: 10,000 paths in one window give 10 events, the last a sweep |
 | Workspace folder, an install into `.venv`, `venv`, `node_modules` and the other default-ignored folders | 0 events | `an_install_into_a_venv_inside_the_workspace_raises_no_event` in `src-tauri/tests/workspace_tests.rs` |
 

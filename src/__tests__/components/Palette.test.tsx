@@ -126,46 +126,46 @@ describe("the palette sheet", () => {
     const overlay = ruleFor(".palette-overlay");
     expect(overlay.declarations.has("background")).toBe(false);
     expect(overlay.declarations.has("backdrop-filter")).toBe(false);
-    expect(CSS).not.toContain("--writ-overlay-scrim");
+    expect(CSS).not.toContain("--jotra-overlay-scrim");
     expect(overlay.declarations.get("padding-top")).toBe("56px");
-    expect(overlay.declarations.get("z-index")).toBe("var(--writ-z-palette)");
+    expect(overlay.declarations.get("z-index")).toBe("var(--jotra-z-palette)");
   });
 
   it("is a shadowed 640px sheet with no border", () => {
     const sheet = ruleFor(".palette");
     expect(sheet.declarations.get("width")).toContain("640px");
-    expect(sheet.declarations.get("background")).toBe("var(--writ-bg-raised)");
-    expect(sheet.declarations.get("border-radius")).toBe("var(--writ-r-modal)");
-    expect(sheet.declarations.get("box-shadow")).toBe("var(--writ-shadow-modal)");
+    expect(sheet.declarations.get("background")).toBe("var(--jotra-bg-raised)");
+    expect(sheet.declarations.get("border-radius")).toBe("var(--jotra-r-modal)");
+    expect(sheet.declarations.get("box-shadow")).toBe("var(--jotra-shadow-modal)");
     expect(sheet.declarations.get("border")).toBe("0");
   });
 
   it("puts a 40px input on the baseline face without tracking", () => {
     const search = ruleFor(".palette-search");
-    // A floor, not a fixed height: the row reads --writ-ui-lg, so at the top of
+    // A floor, not a fixed height: the row reads --jotra-ui-lg, so at the top of
     // the interface text range the line box is taller than the baseline metric.
     expect(search.declarations.get("min-height")).toBe("40px");
-    expect(search.declarations.get("gap")).toBe("var(--writ-space-3-5)");
-    expect(search.declarations.get("padding")).toBe("0 var(--writ-space-4-5)");
+    expect(search.declarations.get("gap")).toBe("var(--jotra-space-3-5)");
+    expect(search.declarations.get("padding")).toBe("0 var(--jotra-space-4-5)");
     const input = ruleFor(".palette-input");
-    expect(input.declarations.get("font-size")).toBe("var(--writ-ui-lg)");
-    expect(input.declarations.get("letter-spacing")).toBe("var(--writ-ui-tracking)");
+    expect(input.declarations.get("font-size")).toBe("var(--jotra-ui-lg)");
+    expect(input.declarations.get("letter-spacing")).toBe("var(--jotra-ui-tracking)");
     expect(CSS).not.toContain("0.01em");
   });
 
   it("rows are 32px with a 6px radius", () => {
     const item = ruleFor(".palette-item");
     expect(item.declarations.get("min-height")).toBe("32px");
-    expect(item.declarations.get("margin")).toBe("0 var(--writ-space-2-5)");
-    expect(item.declarations.get("padding")).toBe("0 var(--writ-space-3-5)");
-    expect(item.declarations.get("gap")).toBe("var(--writ-space-3-5)");
-    expect(item.declarations.get("border-radius")).toBe("var(--writ-r-row)");
-    expect(item.declarations.get("font-size")).toBe("var(--writ-ui-md)");
+    expect(item.declarations.get("margin")).toBe("0 var(--jotra-space-2-5)");
+    expect(item.declarations.get("padding")).toBe("0 var(--jotra-space-3-5)");
+    expect(item.declarations.get("gap")).toBe("var(--jotra-space-3-5)");
+    expect(item.declarations.get("border-radius")).toBe("var(--jotra-r-row)");
+    expect(item.declarations.get("font-size")).toBe("var(--jotra-ui-md)");
   });
 
   it("selects a row with a neutral fill and one weight step", () => {
     const selected = ruleFor(".palette-item.is-selected");
-    expect(selected.declarations.get("background")).toBe("var(--writ-bg-selected)");
+    expect(selected.declarations.get("background")).toBe("var(--jotra-bg-selected)");
     expect(selected.declarations.get("font-weight")).toBe("500");
   });
 
@@ -173,21 +173,21 @@ describe("the palette sheet", () => {
     const match = ruleFor(".palette-item-snippet .is-match");
     expect(match.declarations.has("background")).toBe(false);
     expect(match.declarations.get("text-decoration")).toBe("underline");
-    expect(match.declarations.get("text-decoration-color")).toBe("var(--writ-fg-muted)");
+    expect(match.declarations.get("text-decoration-color")).toBe("var(--jotra-fg-muted)");
     expect(match.declarations.get("font-weight")).toBe("600");
   });
 
   it("spends the accent nowhere", () => {
-    expect(CSS).not.toContain("--writ-accent");
+    expect(CSS).not.toContain("--jotra-accent");
   });
 
   it("heads sit on the small UI size with no uppercase and no tracking", () => {
     const head = ruleFor(".palette-section-label");
-    expect(head.declarations.get("font-size")).toBe("var(--writ-ui-sm)");
-    expect(head.declarations.get("color")).toBe("var(--writ-fg-muted)");
+    expect(head.declarations.get("font-size")).toBe("var(--jotra-ui-sm)");
+    expect(head.declarations.get("color")).toBe("var(--jotra-fg-muted)");
     expect(head.declarations.get("font-weight")).toBe("400");
     expect(head.declarations.get("text-transform")).toBe("none");
-    expect(head.declarations.get("letter-spacing")).toBe("var(--writ-ui-tracking)");
+    expect(head.declarations.get("letter-spacing")).toBe("var(--jotra-ui-tracking)");
     expect(CSS).not.toContain("uppercase");
   });
 });
@@ -207,23 +207,23 @@ describe("the palette contents", () => {
     const input = container.querySelector<HTMLInputElement>(".palette-input")!;
     expect(input.placeholder).toBe("Type a command or note name");
     expect(
-      container.querySelector(".palette-search .writ-icon use")?.getAttribute("href"),
+      container.querySelector(".palette-search .jotra-icon use")?.getAttribute("href"),
     ).toBe("#ph-magnifying-glass");
   });
 
   it("keeps the input silent on a mouse click", () => {
     const { container } = harness();
     const input = container.querySelector<HTMLInputElement>(".palette-input")!;
-    expect(input.hasAttribute("data-writ-focus-silent")).toBe(true);
+    expect(input.hasAttribute("data-jotra-focus-silent")).toBe(true);
   });
 
   it("gives a file row its icon and a command row its keycap", () => {
     const { container } = harness();
     const items = Array.from(container.querySelectorAll(".palette-item"));
-    expect(items[0].querySelector(".writ-icon use")?.getAttribute("href")).toBe("#ph-file-text");
+    expect(items[0].querySelector(".jotra-icon use")?.getAttribute("href")).toBe("#ph-file-text");
     const command = items.find((el) => el.textContent?.includes("New note"))!;
     expect(command.querySelector(".kbd-chord")).not.toBeNull();
-    expect(command.querySelector(".writ-icon")).toBeNull();
+    expect(command.querySelector(".jotra-icon")).toBeNull();
   });
 
   it("renders no dash in the shortcut slot for a row without a binding", () => {
@@ -289,13 +289,13 @@ describe("the platform layer", () => {
 
   it("takes the sheet and row radii from the platform tokens", () => {
     // 12/6 on macOS, 8/4 on Windows, 15/9 on GNOME, all through the overlay.
-    expect(ruleFor(".palette").declarations.get("border-radius")).toBe("var(--writ-r-modal)");
-    expect(ruleFor(".palette-item").declarations.get("border-radius")).toBe("var(--writ-r-row)");
+    expect(ruleFor(".palette").declarations.get("border-radius")).toBe("var(--jotra-r-modal)");
+    expect(ruleFor(".palette-item").declarations.get("border-radius")).toBe("var(--jotra-r-row)");
   });
 
   it("gives the Windows sheet the Fluent layer stroke", () => {
     expect(ruleFor('.palette[data-platform="win"]').declarations.get("border")).toBe(
-      "1px solid var(--writ-win-layer-stroke)",
+      "1px solid var(--jotra-win-layer-stroke)",
     );
   });
 

@@ -2,6 +2,6 @@
 .boot-error {
   position: absolute;
   inset: 0;
-  z-index: var(--writ-z-chrome);
+  z-index: var(--jotra-z-chrome);
   display: flex;
 }

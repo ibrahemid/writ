@@ -127,7 +127,7 @@ describe("preview bridge links", () => {
     expect(prevented).toBe(true);
     expect(env.links()).toHaveLength(1);
     expect(env.links()[0]).toMatchObject({
-      source: "writ-preview",
+      source: "jotra-preview",
       dir: "up",
       href: "https://example.com/docs",
       x: 120,

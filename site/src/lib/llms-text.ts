@@ -276,7 +276,7 @@ export function htmlToMarkdown(html: string, pageUrl: string): string {
 export function pageMeta(html: string, url: string): { title: string; description: string } {
   const doc = parse(html);
   const titleEl = querySelector(doc, 'title');
-  const title = titleEl ? collapse(rawText(titleEl)).trim().replace(/\s*\|\s*Writ$/, '') : '';
+  const title = titleEl ? collapse(rawText(titleEl)).trim().replace(/\s*\|\s*Jotra$/, '') : '';
   const meta = querySelector(doc, 'meta[name="description"]');
   const description = collapse(decodeEntities(meta && isElement(meta) ? (meta.attributes.content ?? '') : '')).trim();
   if (!title) throw new LlmsTxtError(`${url} has no <title>`);

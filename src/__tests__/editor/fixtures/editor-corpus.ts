@@ -149,8 +149,8 @@ const FENCE_BODIES: Record<string, string[]> = {
   js: ["const total = items.reduce((sum, item) => sum + item.value, 0);", "export function render(view) {", "  return view.state.doc.length > 0;", "}"],
   python: ["def total(items):", "    return sum(i.value for i in items)", "", "print(total(load()))"],
   rust: ["fn total(items: &[Item]) -> u64 {", "    items.iter().map(|i| i.value).sum()", "}"],
-  sh: ["cargo test --workspace", "pnpm build", "ls -la ~/Writ | head"],
-  json: ['{ "name": "writ", "version": "0.5.0", "private": true }'],
+  sh: ["cargo test --workspace", "pnpm build", "ls -la ~/Jotra | head"],
+  json: ['{ "name": "jotra", "version": "0.5.0", "private": true }'],
   sql: ["SELECT id, title FROM notes WHERE updated_at > ?1 ORDER BY updated_at DESC;"],
 };
 
@@ -200,7 +200,7 @@ function markdown(size: number, seed: number, sectionBytes: number): Corpus {
         for (let i = 0; i < 3; i++) text += `| ${pick()} | ${pick()} | 2026-10-${10 + i} |\n`;
         text += "\n";
       } else {
-        text += `${sentence(rand, 80, 200, sink.length + text.length, 100_000, plan)} [link ${links}](https://example.org/${links}) and <https://writ.example/${section}>.\n\n`;
+        text += `${sentence(rand, 80, 200, sink.length + text.length, 100_000, plan)} [link ${links}](https://example.org/${links}) and <https://jotra.example/${section}>.\n\n`;
         links += 2;
       }
     }

@@ -255,7 +255,7 @@ function addressEndAfter(url: SyntaxNodeFull, lineEnd: number): number {
  * Whether `link` is the `[!type]` that opens an Obsidian callout, which the
  * grammar reads as a shortcut reference link.
  *
- * The rule is the preview's (writ-render's `callout.rs` and `header_at`): the
+ * The rule is the preview's (jotra-render's `callout.rs` and `header_at`): the
  * first thing in the first paragraph of a quote, a non-empty type after the
  * `!`, and nothing after the `]` that makes it an inline or full reference
  * link. A fold marker or a title after it is the text that follows the node.

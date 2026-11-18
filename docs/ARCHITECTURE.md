@@ -1,6 +1,6 @@
-# Writ Architecture
+# Jotra Architecture
 
-Writ is a text editor that opens any text file, edits and searches every file in its folder, and
+Jotra is a text editor that opens any text file, edits and searches every file in its folder, and
 renders Markdown inline when the file is Markdown. Chat, rewrite, connected programs (the MCP
 server), connections, the graph and tags are apps switched on in Settings (ADR-041, ADR-042).
 
@@ -18,14 +18,14 @@ layer of the stack.
 │  │      Rust Backend        │   │     SolidJS Frontend       │  │
 │  │                          │   │                            │  │
 │  │  ┌────────────────────┐  │   │  ┌──────────────────────┐ │  │
-│  │  │     writ-core      │  │   │  │     Components       │ │  │
+│  │  │     jotra-core      │  │   │  │     Components       │ │  │
 │  │  │  (domain model)    │  │   │  │  (editor, sidebar,   │ │  │
 │  │  │  buffer, config,   │  │   │  │   tabs, statusbar)   │ │  │
 │  │  │  events, policy    │  │   │  └──────────┬───────────┘ │  │
 │  │  └────────┬───────────┘  │   │             │             │  │
 │  │           │              │   │  ┌──────────▼───────────┐ │  │
 │  │  ┌────────▼───────────┐  │   │  │       Stores         │ │  │
-│  │  │   writ-storage     │  │   │  │  (buffer, config,    │ │  │
+│  │  │   jotra-storage     │  │   │  │  (buffer, config,    │ │  │
 │  │  │  SQLite, file I/O  │  │   │  │   session, search)   │ │  │
 │  │  │  TOML, FTS5        │  │   │  └──────────┬───────────┘ │  │
 │  │  └────────┬───────────┘  │   │             │             │  │
@@ -48,23 +48,23 @@ The diagram shows the runtime path. The full set of cargo dependency edges betwe
 workspace members, which is what the build enforces:
 
 ```
-src-tauri ─┬─▶ writ-core
-           ├─▶ writ-storage ──▶ writ-core
-           ├─▶ writ-plugin ───▶ writ-core
-           ├─▶ writ-lint ─────▶ writ-core
-           ├─▶ writ-audio ────▶ writ-core
-           └─▶ writ-render        (no workspace dependencies)
+src-tauri ─┬─▶ jotra-core
+           ├─▶ jotra-storage ──▶ jotra-core
+           ├─▶ jotra-plugin ───▶ jotra-core
+           ├─▶ jotra-lint ─────▶ jotra-core
+           ├─▶ jotra-audio ────▶ jotra-core
+           └─▶ jotra-render        (no workspace dependencies)
 
-writ-cli  ─┬─▶ writ-core        (no Tauri; ships beside the app binary as a
-           └─▶ writ-storage      Tauri sidecar, not linked into it)
+jotra-cli  ─┬─▶ jotra-core        (no Tauri; ships beside the app binary as a
+           └─▶ jotra-storage      Tauri sidecar, not linked into it)
 ```
 
-`writ-storage`, `writ-plugin`, `writ-lint` and `writ-audio` are siblings on `writ-core`. None of
+`jotra-storage`, `jotra-plugin`, `jotra-lint` and `jotra-audio` are siblings on `jotra-core`. None of
 them depends on another.
 
 ## Crate Responsibilities
 
-### writ-core
+### jotra-core
 Domain model and policy. Zero Tauri, no framework imports, no async runtime. Contains:
 - Buffer model: open/close lifecycle, dirty state, cursor positions
 - Config schema: typed structs for user preferences, keybindings, theme tokens
@@ -74,36 +74,36 @@ Domain model and policy. Zero Tauri, no framework imports, no async runtime. Con
 - File classification: the open-mode ladder in `file_ops`, which decides whether a path opens
   normally, as a large file, after asking (over 50 MiB), or is refused (over 500 MiB); the
   last two are answers carried as data, never errors (ADR-019)
-- Notes-folder policy: the default folder `~/Writ`, the containment rule for paths inside it,
-  the title sanitiser shared by the migration, rename and auto-title, and the write guard
-  (`notes::guard::decide_save` over a recorded `DiskState`) that decides whether a save may land
-  on a file that changed under Writ
+- Notes-folder policy: the default folder (`~/Jotra`, or `~/Writ` with a `~/.writ` data folder,
+  ADR-059), the containment rule for paths inside it, the title sanitiser shared by the
+  migration, rename and auto-title, and the write guard (`notes::guard::decide_save` over a
+  recorded `DiskState`) that decides whether a save may land on a file that changed under Jotra
 - Watcher ignore stamps keyed by canonical absolute path rather than by bare filename, so a save
   of one note cannot suppress a genuine external change to another
 
 The notes-folder policy and the re-keyed stamps arrive with the storage change in release 0.4
 ([ADR-028](./adr/028-files-are-the-only-copy.md)).
 
-`writ-core` is not I/O-free. `file_ops` makes bounded `std::fs` probes (`metadata` for size, a
+`jotra-core` is not I/O-free. `file_ops` makes bounded `std::fs` probes (`metadata` for size, a
 head-of-file read to sniff for NUL bytes, `canonicalize` on argv paths) because classification
-cannot be decided without them. Reading and writing file contents is `writ-storage`'s job and
+cannot be decided without them. Reading and writing file contents is `jotra-storage`'s job and
 stays there.
 
-The enforced constraint is the dependency direction: `writ-core` depends on no other
+The enforced constraint is the dependency direction: `jotra-core` depends on no other
 workspace crate, and if any Tauri type appears here the workspace fails to build. Its
 external dependencies are `serde`, `serde_json`, `uuid`, `chrono`, `tracing`, `thiserror`,
 `sha2`, `url` and `unicode-segmentation`.
 
-### writ-storage
-All persistence. Depends on `writ-core` for domain types, but not on Tauri.
+### jotra-storage
+All persistence. Depends on `jotra-core` for domain types, but not on Tauri.
 
 The file on disk is the only copy of a note's text. SQLite holds derived data only: the FTS5
 index keyed by canonical path under the notes folder, the index tables created by migration
 `040_notes_migration.sql`, per-file history metadata, session and layout state, and tab order.
-Deleting `writ.db` costs a reindex and the session layout, and loses no note. The mirror files
-under `~/.writ/buffers/` are retired by the same migration, which verifies every mirror against the
-file that now holds its text before unlinking it and keeps a rollback copy at
-`writ.db.pre-notes-migration`. One copy of text outside a file stays legitimate: the unsaved-text
+Deleting the index (`jotra.db`, or `writ.db` in `~/.writ`) costs a reindex and the session layout,
+and loses no note. The mirror files under the data folder's `buffers/` are retired by the same
+migration, which verifies every mirror against the file that now holds its text before unlinking it
+and keeps a rollback copy beside the index with the suffix `.pre-notes-migration`. One copy of text outside a file stays legitimate: the unsaved-text
 journal, holding text no file holds (ADR-044).
 
 Contains:
@@ -131,52 +131,52 @@ Contains:
   once per session from a thread that wakes every 120 s, `ExitRequested` records a clean one, and
   `recovery::dirty_shutdown` reads the latest for the launch's log. The heartbeat reads no note's
   file; the quit reads only the files whose index updates saves deferred (ADR-020).
-  The journal policy lives in `writ-core::recovery`; mechanism lives here.
+  The journal policy lives in `jotra-core::recovery`; mechanism lives here.
   `AppState::initialize` also runs the read-only `ConsistencyChecker` on boot, logging
   orphaned backing files and rows whose content file is missing (repair policy is deferred).
 
-### writ-plugin
+### jotra-plugin
 Defines the extension boundary. Provides a stable API surface that plugins target. Depends on
-`writ-core` types. Isolates the plugin ABI from Tauri internals so the host runtime can evolve
+`jotra-core` types. Isolates the plugin ABI from Tauri internals so the host runtime can evolve
 independently of published extension contracts. Also holds the shipped text-transform runtime:
 the `TextTransform` trait, the registry, and the built-in and composite transforms
 (see [ADR-006](./adr/006-plugin-runtime-v1.md) and [ADR-012](./adr/012-composite-transforms.md)).
 
-### writ-render
+### jotra-render
 Markdown to HTML-fragment core. Turns buffer text into the fragment the preview pane renders,
 including fenced-diagram blocks. `pulldown-cmark` is its only non-optional dependency and it
 depends on no workspace crate, so it stays callable outside the app; `crate-type` includes
 `cdylib` and an optional `wasm` feature compiles it to WebAssembly. `src-tauri`'s preview
 renderers are the in-tree consumer.
 
-### writ-lint
+### jotra-lint
 Spell check and mechanical-writing rules (ADR-050). Spelling runs on `spellbook` against the
 SCOWL Hunspell dictionaries bundled in the crate, one per English variant, with the words Harper's
 dictionary accepted added to them; repeated words, repeated spaces, a wrong apostrophe and a/an
 are the crate's own rules. `pulldown-cmark` finds the prose, so code, HTML, front matter and URLs
-are never checked. Depends on `writ-core`. Style and
-readability rules are left out by design: Writ flags mistakes, not prose taste. The rules work in
+are never checked. Depends on `jotra-core`. Style and
+readability rules are left out by design: Jotra flags mistakes, not prose taste. The rules work in
 byte offsets and CodeMirror measures UTF-16 code units, so the crate converts every range before
 returning.
 
-### writ-audio
+### jotra-audio
 Microphone capture for dictation ([ADR-058](./adr/058-dictation.md)). `Recorder` opens the
 default input device through `cpal` (CoreAudio, WASAPI, ALSA) and delivers `AudioFrame`s of
 16 kHz mono Int16, downmixed and resampled with `rubato`, the one format both dictation engines
-take. Depends on `writ-core` and has no Tauri dependency. Where a segment ends, which engine runs
-and what an error tells the person are `writ_core::dictation` policy; the session that drives
+take. Depends on `jotra-core` and has no Tauri dependency. Where a segment ends, which engine runs
+and what an error tells the person are `jotra_core::dictation` policy; the session that drives
 capture, transcription and the per-session event `Channel` lives in `src-tauri`. Audio is held in
 memory only.
 
-### writ-cli
-The `writ` command line binary. Two surfaces. The open path parses argv and stdin into an
+### jotra-cli
+The `jotra` command line binary. Two surfaces. The open path parses argv and stdin into an
 open target (a file list, a workspace directory, or piped text, which becomes a note in the
 notes folder like any other new note) and hands it to the app: by bundle id on macOS, by the
 sibling app binary elsewhere, with the OS default handler as the fallback. The note verbs
 (`links`, `backlinks`, `properties`, `tags`, `new`, `rename`, `trash`) answer from the notes
 folder and from a read-only connection to the note index, and open no window.
 
-Depends on `writ-core` and `writ-storage` so link resolution, note naming and the note
+Depends on `jotra-core` and `jotra-storage` so link resolution, note naming and the note
 operations have one definition each rather than a copy in the CLI; it has no Tauri
 dependency, so it is testable without an app handle. Bundled as a Tauri sidecar that ships
 beside the app executable. See [ADR-017](./adr/017-command-line-surface.md),
@@ -185,7 +185,7 @@ beside the app executable. See [ADR-017](./adr/017-command-line-surface.md),
 
 ### src-tauri
 The only crate that imports `tauri`. Thin adapter responsibilities only:
-- Registers Tauri commands that delegate immediately to `writ-core` or `writ-storage`
+- Registers Tauri commands that delegate immediately to `jotra-core` or `jotra-storage`
 - Translates Tauri events to domain events and vice versa
 - Manages application lifecycle (setup, teardown, window configuration)
 - Blesses the notes-folder root as a containment root in
@@ -194,7 +194,7 @@ The only crate that imports `tauri`. Thin adapter responsibilities only:
 - Refuses to start when the data directory resolves inside a sync provider's tree, and asserts
   that the database is not inside the notes folder
   ([ADR-028](./adr/028-files-are-the-only-copy.md) section 9)
-- No business logic; if logic accumulates here, it must be pushed down into `writ-core`
+- No business logic; if logic accumulates here, it must be pushed down into `jotra-core`
 
 ## Frontend Architecture
 
@@ -230,10 +230,10 @@ Every colour, radius, type step, shadow and duration is a DTCG token under `desi
 |---|---|
 | `src/styles/generated/theme.css` | the app, imported by `src/styles/global.css` after `fonts.css` |
 | `src/styles/generated/tokens.ts` | TypeScript that needs a token value or an accent id |
-| `src-tauri/assets/generated/preview-tokens.css` | the `writ-preview://` iframe, inlined by `renderers/theme.rs` |
-| `site/design-system/generated/tokens.css` | nothing yet: no page imports it, and the demo window declares its own `--writ-*` values in `site/src/styles/writ-window.css` |
+| `src-tauri/assets/generated/preview-tokens.css` | the `jotra-preview://` iframe, inlined by `renderers/theme.rs` |
+| `site/design-system/generated/tokens.css` | nothing yet: no page imports it, and the demo window declares its own `--jotra-*` values in `site/src/styles/jotra-window.css` |
 
-A component stylesheet spends `var(--writ-*)`; it never declares one. Three architecture tests
+A component stylesheet spends `var(--jotra-*)`; it never declares one. Three architecture tests
 hold the line: `no-literal-color`, `no-raw-radius-or-easing`, and `legacy-aliases`, which carries
 the pre-ADR-030 names and fails any file that still reads one. A new token is added to
 `design/tokens/` and the outputs regenerated in the same commit, which CI checks by rebuilding
@@ -244,7 +244,7 @@ and diffing ([ADR-030](./adr/030-design-system-tokens.md)).
 1. **Compiler-enforced boundaries** — workspace dependency constraints prevent accidental coupling.
    The build is the enforcer, not code review comments.
 
-2. **Policy in core, mechanism in adapter** — `writ-core` decides what should happen; `src-tauri`
+2. **Policy in core, mechanism in adapter** — `jotra-core` decides what should happen; `src-tauri`
    decides how to surface that to Tauri's event loop. Core never imports Tauri; adapter never
    contains business logic.
 
@@ -259,14 +259,14 @@ and diffing ([ADR-030](./adr/030-design-system-tokens.md)).
 
 Each of these is recorded in [`docs/adr/`](./adr/).
 
-- **Files are the only copy of the text.** A file lives in the Writ folder or wherever it was opened from, and saves back to its own path. `writ.db` holds what Writ works out from the files: the search index, links, tags, properties and window state. Delete it and Writ rebuilds it from the files.
+- **Files are the only copy of the text.** A file lives in Jotra's folder or wherever it was opened from, and saves back to its own path. The index (`jotra.db`, or `writ.db` in `~/.writ`) holds what Jotra works out from the files: the search index, links, tags, properties and window state. Delete it and Jotra rebuilds it from the files.
 - **Resident, not launched.** The app keeps running with its window hidden, so the global hotkey shows a window instead of starting a program. Open at login, a switch in Settings that sets a login item through `tauri-plugin-autostart`, starts it hidden with `--login`, so the hotkey works after a restart; `general.launch_at_login` records the last choice and turns the item on once at the end of a first launch. The hotkey needs Cmd, Ctrl or Alt unless its key is F13 to F24, a new chord is registered before the old one is released, and a chord another app holds or a Wayland session cannot deliver is shown as such in the titlebar and Settings. A second chord opens the quick capture note, a window of its own that adds one entry to Today's File (ADR-055).
 - **Keyboard first.** Every command, setting and file is reachable from the command palette.
-- **Dictation is a stream into one pane.** `dictation_start` returns a session and streams `DictationEvent`s over a Tauri `Channel`; `writ-audio` captures, `writ_core::dictation` cuts segments at pauses, and each segment is transcribed on the Mac or by an OpenAI-compatible endpoint, then inserted at an anchor in the pane that started the session, one undo step per segment. Audio stays in memory and has its own consent list (ADR-058).
+- **Dictation is a stream into one pane.** `dictation_start` returns a session and streams `DictationEvent`s over a Tauri `Channel`; `jotra-audio` captures, `jotra_core::dictation` cuts segments at pauses, and each segment is transcribed on the Mac or by an OpenAI-compatible endpoint, then inserted at an anchor in the pane that started the session, one undo step per segment. Audio stays in memory and has its own consent list (ADR-058).
 - **The preview trusts nothing.** Markdown, HTML, Mermaid and KaTeX render from runtimes bundled into the app, and the preview blocks all network access.
-- **The core does not know Tauri exists.** `writ-core`, `writ-storage`, `writ-render`, `writ-lint`, `writ-mcp`, `writ-audio` and `writ-plugin` are plain Rust crates with no Tauri dependency; the shell is a thin adapter, and the build enforces the boundary.
-- **One guarded write.** The editor, the `writ` command, a rename, a link rewrite, a connected program and a chat proposal all write a file through the same path, which refuses to overwrite a newer file and leaves a conflict copy beside it.
-- **Files from anywhere.** The CLI, the watched folder, default-app registration and the MCP server let another program make or read a file that Writ then opens, renders and searches.
+- **The core does not know Tauri exists.** `jotra-core`, `jotra-storage`, `jotra-render`, `jotra-lint`, `jotra-mcp`, `jotra-audio` and `jotra-plugin` are plain Rust crates with no Tauri dependency; the shell is a thin adapter, and the build enforces the boundary.
+- **One guarded write.** The editor, the `jotra` command, a rename, a link rewrite, a connected program and a chat proposal all write a file through the same path, which refuses to overwrite a newer file and leaves a conflict copy beside it.
+- **Files from anywhere.** The CLI, the watched folder, default-app registration and the MCP server let another program make or read a file that Jotra then opens, renders and searches.
 
 ```mermaid
 flowchart LR
@@ -276,8 +276,8 @@ flowchart LR
     classDef zone fill:none,stroke:#6f9a8b,stroke-dasharray:3 3
 
     HK([global hotkey]):::entry
-    CLI([writ CLI]):::entry
-    MCP([writ mcp, stdio]):::entry
+    CLI([jotra CLI]):::entry
+    MCP([jotra mcp, stdio]):::entry
     ASSOC([default app for .md, .log, .toml]):::entry
 
     subgraph FRONT [frontend · SolidJS]
@@ -294,9 +294,9 @@ flowchart LR
 
     subgraph CORE [pure Rust · no Tauri imports]
         direction LR
-        WC[writ-core<br>policy]:::crate
-        WR[writ-render<br>markdown · mermaid · katex]:::crate
-        WS[writ-storage<br>guarded writes · index]:::crate
+        WC[jotra-core<br>policy]:::crate
+        WR[jotra-render<br>markdown · mermaid · katex]:::crate
+        WS[jotra-storage<br>guarded writes · index]:::crate
     end
 
     HK & CLI & ASSOC --> SHELL
@@ -308,7 +308,7 @@ flowchart LR
     WC --> WR --> PV[offline preview<br>network blocked]
     WC --> WS
     WS --> DB[(SQLite index<br>FTS5 · links · tags)]:::data
-    WS --> FS[(Writ folder<br>.txt and .md files)]:::data
+    WS --> FS[(Notes folder<br>.txt and .md files)]:::data
 
     class FRONT,SHELL,CORE zone
 ```

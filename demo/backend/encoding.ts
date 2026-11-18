@@ -4,7 +4,7 @@ import { ENCODING_CHOICES, encodingName } from "../../src/lib/text-encoding";
 const BOM_SUFFIX = " BOM";
 export const UTF_8 = "UTF-8";
 
-/** writ_core::text_encoding: the byte order marks an encoding can start with. */
+/** jotra_core::text_encoding: the byte order marks an encoding can start with. */
 const MARKS: Record<string, readonly number[]> = {
   "UTF-8": [0xef, 0xbb, 0xbf],
   "UTF-16LE": [0xff, 0xfe],
@@ -15,7 +15,7 @@ const MARKS: Record<string, readonly number[]> = {
 // single-byte encodings are encoded here; these get ASCII text only.
 const MULTIBYTE = new Set(["shift_jis", "euc-jp", "iso-2022-jp", "gbk", "gb18030", "big5", "euc-kr"]);
 
-/** writ_core::text_encoding::MAX_NAMED_CHARACTERS. */
+/** jotra_core::text_encoding::MAX_NAMED_CHARACTERS. */
 const MAX_NAMED_CHARACTERS = 8;
 
 /** A label `TextEncoding::from_label` reads as no encoding. */
@@ -34,7 +34,7 @@ export class NotInEncodingError extends Error {
   }
 }
 
-/** writ_core::text_encoding::EncodingLossy: characters the encoding has no bytes for. */
+/** jotra_core::text_encoding::EncodingLossy: characters the encoding has no bytes for. */
 export class EncodingLossyError extends Error {
   constructor(
     readonly encoding: string,

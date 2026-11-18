@@ -1,0 +1,18 @@
+[package]
+name = "writ-tauri"
+description = "Starts jotra-tauri from the program file name used before the rename."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[[bin]]
+name = "writ-tauri"
+path = "src/main.rs"

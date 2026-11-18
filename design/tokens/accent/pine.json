@@ -6,24 +6,24 @@
         "base": {
           "$value": "#1F6F5C",
           "$extensions": {
-            "writ": {
-              "cssName": "--writ-accent"
+            "jotra": {
+              "cssName": "--jotra-accent"
             }
           }
         },
         "hover": {
           "$value": "#1C6453",
           "$extensions": {
-            "writ": {
-              "cssName": "--writ-accent-hover"
+            "jotra": {
+              "cssName": "--jotra-accent-hover"
             }
           }
         },
         "foreground": {
           "$value": "#FFFFFF",
           "$extensions": {
-            "writ": {
-              "cssName": "--writ-accent-fg"
+            "jotra": {
+              "cssName": "--jotra-accent-fg"
             }
           }
         }
@@ -32,24 +32,24 @@
         "base": {
           "$value": "#5BC5A7",
           "$extensions": {
-            "writ": {
-              "cssName": "--writ-accent"
+            "jotra": {
+              "cssName": "--jotra-accent"
             }
           }
         },
         "hover": {
           "$value": "#6BCBB0",
           "$extensions": {
-            "writ": {
-              "cssName": "--writ-accent-hover"
+            "jotra": {
+              "cssName": "--jotra-accent-hover"
             }
           }
         },
         "foreground": {
           "$value": "#10221D",
           "$extensions": {
-            "writ": {
-              "cssName": "--writ-accent-fg"
+            "jotra": {
+              "cssName": "--jotra-accent-fg"
             }
           }
         }

@@ -1,15 +1,15 @@
 use crate::state::AppState;
+use jotra_core::config::HotkeyConfig;
+use jotra_core::hotkey::{
+    check_global_chord, is_wayland_session, parse_hotkey_chord, GlobalChordError, HotkeyChord,
+    HotkeyKey, HotkeyMod, HotkeyParseError,
+};
 use serde::Serialize;
 use std::sync::Mutex;
 use std::time::Instant;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tracing::{info, warn};
-use writ_core::config::HotkeyConfig;
-use writ_core::hotkey::{
-    check_global_chord, is_wayland_session, parse_hotkey_chord, GlobalChordError, HotkeyChord,
-    HotkeyKey, HotkeyMod, HotkeyParseError,
-};
 
 #[derive(Debug, thiserror::Error)]
 pub enum HotkeyError {
@@ -23,7 +23,7 @@ pub enum HotkeyError {
     HeldByOther(&'static str),
 }
 
-/// Which of Writ's two chords that work from any app.
+/// Which of Jotra's two chords that work from any app.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GlobalChord {
     /// Shows and hides the window.
@@ -47,7 +47,7 @@ impl GlobalChord {
         }
     }
 
-    /// The chord Writ ships for this role.
+    /// The chord Jotra ships for this role.
     pub fn shipped(self) -> String {
         let shipped = HotkeyConfig::default();
         match self {
@@ -59,7 +59,7 @@ impl GlobalChord {
     /// What the shortcut editor calls the row, for a refusal naming it.
     fn row_name(self) -> &'static str {
         match self {
-            GlobalChord::Window => "Show and hide Writ",
+            GlobalChord::Window => "Show and hide Jotra",
             GlobalChord::Capture => "Quick capture",
         }
     }
@@ -71,10 +71,10 @@ impl GlobalChord {
         }
     }
 
-    fn status_event(self, status: GlobalHotkeyStatus) -> WritFrontendEvent {
+    fn status_event(self, status: GlobalHotkeyStatus) -> JotraFrontendEvent {
         match self {
-            GlobalChord::Window => WritFrontendEvent::HotkeyStatus(status),
-            GlobalChord::Capture => WritFrontendEvent::CaptureHotkeyStatus(status),
+            GlobalChord::Window => JotraFrontendEvent::HotkeyStatus(status),
+            GlobalChord::Capture => JotraFrontendEvent::CaptureHotkeyStatus(status),
         }
     }
 }
@@ -238,14 +238,14 @@ fn resolve_chord(role: GlobalChord, configured: &str) -> (Shortcut, String) {
     }
 }
 
-use crate::events::{emit_event, WritFrontendEvent};
+use crate::events::{emit_event, JotraFrontendEvent};
 use crate::window_state::{decide_toggle, ToggleAction};
 
 /// What became of the chord that shows and hides the window.
 ///
 /// `registered: false` is the case the settings surface has to show: the OS
 /// handed the chord to another app first, so the key does nothing here and
-/// saying nothing would read as Writ being broken. `unsupported` is the
+/// saying nothing would read as Jotra being broken. `unsupported` is the
 /// session itself: a Wayland desktop gives an X11 key grab only the keys typed
 /// into other X11 windows, so the chord does nothing from a native app
 /// whatever the registration said.
@@ -270,7 +270,7 @@ pub struct HotkeyRebind {
 #[derive(Debug, Clone, PartialEq)]
 struct Held {
     status: GlobalHotkeyStatus,
-    /// The shortcut the OS holds for Writ, while it holds one.
+    /// The shortcut the OS holds for Jotra, while it holds one.
     shortcut: Option<Shortcut>,
 }
 
@@ -290,7 +290,7 @@ fn held_status(role: GlobalChord) -> Option<GlobalHotkeyStatus> {
     lock_held(role).as_ref().map(|held| held.status.clone())
 }
 
-/// Whether the OS holds the capture chord for Writ now.
+/// Whether the OS holds the capture chord for Jotra now.
 pub fn capture_chord_is_held() -> bool {
     held_status(GlobalChord::Capture).is_some_and(|status| status.registered)
 }
@@ -328,7 +328,7 @@ impl ShortcutRegistrar for OsRegistrar<'_> {
 ///
 /// The new chord is registered before the old one is released, so a chord
 /// another app holds costs nothing: the old one keeps working and the answer
-/// says the new one was refused. A chord Writ already holds is not asked for
+/// says the new one was refused. A chord Jotra already holds is not asked for
 /// again, since the OS would refuse it as a duplicate. With nothing held
 /// before, which is startup, a refusal is the chord being taken.
 fn rebind(
@@ -553,7 +553,7 @@ fn toggle_window(app: &AppHandle) {
     ) {
         let _ = emit_event(
             app,
-            WritFrontendEvent::WindowShown {
+            JotraFrontendEvent::WindowShown {
                 rust_elapsed_us: rust_elapsed_us as u64,
             },
         );
@@ -731,7 +731,7 @@ mod tests {
 
     #[test]
     fn the_status_reaches_the_frontend_under_its_own_event_name() {
-        let event = crate::events::WritFrontendEvent::HotkeyStatus(GlobalHotkeyStatus {
+        let event = crate::events::JotraFrontendEvent::HotkeyStatus(GlobalHotkeyStatus {
             chord: "CmdOrCtrl+Shift+Space".to_string(),
             registered: false,
             unsupported: true,
@@ -855,7 +855,7 @@ mod tests {
     }
 
     /// Before, the old chord was released first, so a refused rebind left
-    /// Writ with no chord at all until the next launch.
+    /// Jotra with no chord at all until the next launch.
     #[test]
     fn a_failed_rebind_keeps_the_old_chord() {
         let os = FakeOs {

@@ -35,7 +35,7 @@ import { draggedTab, dropPane, endTabDrag, moveTabDrag, registerStrip, startTabD
 import { createTitleBarRegion } from "../TitleBar/title-bar-region";
 import "./TabBar.css";
 
-// Singleton state — Writ is single-window. TabBar mounts only in the main
+// Singleton state — Jotra is single-window. TabBar mounts only in the main
 // window (detached preview windows render no tabstrip per ADR-009), once per
 // pane. The tab being renamed, and the pane whose strip holds its field, is
 // the strips' local UI state, not per-window logical state.
@@ -195,7 +195,7 @@ export default function TabBar(props: Props) {
     win.tabs.showDownloadPane();
   }
 
-  // Text, not an animation: a download reports nothing Writ could animate
+  // Text, not an animation: a download reports nothing Jotra could animate
   // honestly, and a tab that moves pulls the eye off the note being written.
   function markerFor(state: PendingDownload["state"]): string {
     return state === "downloading" ? "downloading" : "not downloaded";
@@ -426,7 +426,7 @@ export default function TabBar(props: Props) {
                       });
                     }}
                     class="tab-rename-input"
-                    data-writ-focus-silent
+                    data-jotra-focus-silent
                     aria-label="Rename file"
                     value={renameSeed(tab.title).value}
                     onBlur={(e) => handleRenameSubmit(tab.id, e.currentTarget.value)}

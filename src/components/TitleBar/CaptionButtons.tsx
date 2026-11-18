@@ -14,8 +14,8 @@ interface Props {
 function hideHint(): string {
   const chord = hotkeyStore.chord() || configStore.config().hotkey.toggle;
   return chord && !hotkeyStore.isTaken()
-    ? `Writ keeps running. ${formatKeybinding(chord)} brings it back.`
-    : "Writ keeps running in the background.";
+    ? `Jotra keeps running. ${formatKeybinding(chord)} brings it back.`
+    : "Jotra keeps running in the background.";
 }
 
 /**

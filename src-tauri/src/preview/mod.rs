@@ -1,11 +1,11 @@
 //! Preview substrate — ADR-009 (lean re-scope).
 //!
-//! The split/swap preview is a same-window `<iframe>` over `writ-preview://`,
+//! The split/swap preview is a same-window `<iframe>` over `jotra-preview://`,
 //! not a child Tauri webview — see the ADR-009 lean amendment. The security
 //! boundary is the response-header CSP the protocol handler attaches, which
 //! is identical for an iframe and a child webview. This module owns:
 //!
-//! - [`protocol`] — `writ-preview://` URL parser, scope routing, refusal
+//! - [`protocol`] — `jotra-preview://` URL parser, scope routing, refusal
 //!   logic, and the debug-only request recorder the exfil-denial suite reads.
 //! - [`csp`] — the document CSP for each platform, whose `script-src`
 //!   follows the per-file scripts opt-in, and the chrome-scope CSP.

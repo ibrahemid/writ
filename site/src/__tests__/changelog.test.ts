@@ -115,19 +115,19 @@ describe('changelog data', () => {
 
 describe('stripPlatformLead', () => {
   it('drops a leading "on <platform>" that names exactly the tagged platforms', () => {
-    expect(stripPlatformLead('on macOS, the Writ menu has Show All.', ['macos'])).toBe('the Writ menu has Show All.');
+    expect(stripPlatformLead('on macOS, the Jotra menu has Show All.', ['macos'])).toBe('the Jotra menu has Show All.');
     expect(stripPlatformLead('on Windows a save retries.', ['windows'])).toBe('a save retries.');
-    expect(stripPlatformLead('on Linux and Windows, writ file.rs opens Writ.', ['windows', 'linux'])).toBe(
-      'writ file.rs opens Writ.',
+    expect(stripPlatformLead('on Linux and Windows, jotra file.rs opens Jotra.', ['windows', 'linux'])).toBe(
+      'jotra file.rs opens Jotra.',
     );
   });
 
   it('keeps a lead with a version, a lead naming other platforms, and an untagged note', () => {
     const kept: [string, Parameters<typeof stripPlatformLead>[1]][] = [
       ['on macOS 26, Rewrite can run on the device.', ['macos']],
-      ['on Windows the MSI puts writ.exe on PATH.', ['windows', 'linux']],
+      ['on Windows the MSI puts jotra.exe on PATH.', ['windows', 'linux']],
       ['on Windows and Linux, the tooltip names the shortcut.', ['windows']],
-      ['on macOS, the Writ menu has Show All.', undefined],
+      ['on macOS, the Jotra menu has Show All.', undefined],
       ['a save on Windows retries.', ['windows']],
     ];
     for (const [text, platforms] of kept) expect(stripPlatformLead(text, platforms)).toBe(text);

@@ -146,12 +146,12 @@ describe("detectFromContent", () => {
   });
 
   it("detects json from a parsable object", () => {
-    const text = `{\n  "name": "writ",\n  "version": "0.1.0",\n  "private": true,\n  "dependencies": {\n    "solid-js": "^1.9.0"\n  }\n}`;
+    const text = `{\n  "name": "jotra",\n  "version": "0.1.0",\n  "private": true,\n  "dependencies": {\n    "solid-js": "^1.9.0"\n  }\n}`;
     expect(detectFromContent(text)).toBe("json");
   });
 
   it("detects markdown from headings + lists", () => {
-    const text = `# Writ\n\n## Overview\n\nA lightweight editor.\n\n- Always-ready scratchpad\n- Autosave\n- Full-text search\n\nSee [docs](docs/ARCHITECTURE.md) for details.`;
+    const text = `# Jotra\n\n## Overview\n\nA lightweight editor.\n\n- Always-ready scratchpad\n- Autosave\n- Full-text search\n\nSee [docs](docs/ARCHITECTURE.md) for details.`;
     expect(detectFromContent(text)).toBe("markdown");
   });
 
@@ -169,7 +169,7 @@ describe("detectFromContent", () => {
   });
 
   it("returns null for almost-json (invalid syntax)", () => {
-    const text = `{\n  name: writ,\n  version: 0.1.0\n}`;
+    const text = `{\n  name: jotra,\n  version: 0.1.0\n}`;
     expect(detectFromContent(text)).toBeNull();
   });
 
@@ -202,9 +202,9 @@ describe("detectFromContent", () => {
 
     // Wall-clock budget for the same input. A loaded machine misses it for
     // reasons that have nothing to do with the code, so it runs only under
-    // WRIT_PERF_GATE=1: scripts/perf-gate.sh drives it, on an otherwise idle
+    // JOTRA_PERF_GATE=1: scripts/perf-gate.sh drives it, on an otherwise idle
     // box (docs/perf-budgets.md).
-    it.skipIf(!process.env.WRIT_PERF_GATE)("bails out of the huge JSON body in under 16ms", () => {
+    it.skipIf(!process.env.JOTRA_PERF_GATE)("bails out of the huge JSON body in under 16ms", () => {
       const big = hugeJsonBody();
       const start = performance.now();
       const result = detectFromContent(big);

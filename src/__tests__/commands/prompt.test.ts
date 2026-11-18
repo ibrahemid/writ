@@ -108,16 +108,16 @@ describe("registerPromptCommands", () => {
     it("scans, collects values, fills, and copies without mutating the buffer", async () => {
       editorMock.getActiveText.mockReturnValue({ text: "hi {{name}}", usedSelection: false });
       mockedApi.promptScanPlaceholders.mockResolvedValue(["name"]);
-      mockedFill.mockResolvedValue({ name: "Writ" });
-      mockedApi.promptFillPlaceholders.mockResolvedValue("hi Writ");
+      mockedFill.mockResolvedValue({ name: "Jotra" });
+      mockedApi.promptFillPlaceholders.mockResolvedValue("hi Jotra");
 
       getCommand("prompt.fillPlaceholders")!.execute();
       await flush();
 
       expect(mockedApi.promptScanPlaceholders).toHaveBeenCalledWith("hi {{name}}");
       expect(mockedFill).toHaveBeenCalledWith(["name"], "hi {{name}}");
-      expect(mockedApi.promptFillPlaceholders).toHaveBeenCalledWith("hi {{name}}", { name: "Writ" });
-      expect(mockedApi.writeClipboardText).toHaveBeenCalledWith("hi Writ");
+      expect(mockedApi.promptFillPlaceholders).toHaveBeenCalledWith("hi {{name}}", { name: "Jotra" });
+      expect(mockedApi.writeClipboardText).toHaveBeenCalledWith("hi Jotra");
       expect(editorMock.applyEditToActiveBuffer).not.toHaveBeenCalled();
       expect(mockedToast).toHaveBeenCalledWith("Filled prompt copied", "success");
     });

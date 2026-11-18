@@ -6,24 +6,24 @@
         "base": {
           "$value": "#3B5BDB",
           "$extensions": {
-            "writ": {
-              "cssName": "--writ-accent"
+            "jotra": {
+              "cssName": "--jotra-accent"
             }
           }
         },
         "hover": {
           "$value": "#3552C5",
           "$extensions": {
-            "writ": {
-              "cssName": "--writ-accent-hover"
+            "jotra": {
+              "cssName": "--jotra-accent-hover"
             }
           }
         },
         "foreground": {
           "$value": "#FFFFFF",
           "$extensions": {
-            "writ": {
-              "cssName": "--writ-accent-fg"
+            "jotra": {
+              "cssName": "--jotra-accent-fg"
             }
           }
         }
@@ -32,29 +32,29 @@
         "base": {
           "$value": "#7AA2F7",
           "$extensions": {
-            "writ": {
-              "cssName": "--writ-accent"
+            "jotra": {
+              "cssName": "--jotra-accent"
             }
           }
         },
         "hover": {
           "$value": "#87ABF8",
           "$extensions": {
-            "writ": {
-              "cssName": "--writ-accent-hover"
+            "jotra": {
+              "cssName": "--jotra-accent-hover"
             }
           }
         },
         "foreground": {
           "$value": "#151C2A",
           "$extensions": {
-            "writ": {
-              "cssName": "--writ-accent-fg"
+            "jotra": {
+              "cssName": "--jotra-accent-fg"
             }
           }
         }
       },
-      "$description": "The accent Writ shipped through 0.3.x."
+      "$description": "The accent Jotra shipped through 0.3.x."
     }
   }
 }

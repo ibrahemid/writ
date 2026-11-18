@@ -29,7 +29,7 @@ import { PathText, SectionLabel, patchConfig } from "../controls";
 import { SettingsRow, SwitchRow } from "../SettingsRow";
 import { SidebarSectionRow, type SidebarRow } from "./Editor";
 
-/** The row installing the `writ` terminal command, or showing where it is. */
+/** The row installing the `jotra` terminal command, or showing where it is. */
 function CliRow() {
   const [isInstallingCli, setIsInstallingCli] = createSignal(false);
   const [status, setStatus] = createSignal<CliStatus | null>(null);
@@ -50,10 +50,10 @@ function CliRow() {
     setIsInstallingCli(true);
     try {
       const result = await installCli();
-      showToast(`writ installed at ${result.symlink_path}`, "success");
+      showToast(`jotra installed at ${result.symlink_path}`, "success");
     } catch (error) {
       showToast(installFailureMessage(error), "error");
-      logFailure("the writ command could not be installed");
+      logFailure("the jotra command could not be installed");
     } finally {
       refreshCliStatus();
       setIsInstallingCli(false);
@@ -73,7 +73,7 @@ function CliRow() {
     const current = status();
     if (current === null || installed()) return undefined;
     if (current.needs_move) {
-      return "Move Writ to your Applications folder and open it from there first.";
+      return "Move Jotra to your Applications folder and open it from there first.";
     }
     return current.can_install && IS_MAC
       ? "macOS will ask for your password to install this."
@@ -94,7 +94,7 @@ function CliRow() {
               when={status()?.can_install !== false}
               fallback={
                 <span class="settings-default-app-status" data-cli-missing>
-                  Reinstall Writ to put writ on your PATH.
+                  Reinstall Jotra to put jotra on your PATH.
                 </span>
               }
             >
@@ -103,7 +103,7 @@ function CliRow() {
                 disabled={isInstallingCli() || status()?.needs_move === true}
                 onClick={() => void onInstallCli()}
               >
-                {isInstallingCli() ? "Installing…" : "Install the writ command"}
+                {isInstallingCli() ? "Installing…" : "Install the jotra command"}
               </Button>
             </Show>
           }
@@ -145,7 +145,7 @@ interface DefaultAppItemProps {
 /**
  * One file type in the default-app list.
  *
- * The box is checked and disabled once Writ holds the type: Launch Services has
+ * The box is checked and disabled once Jotra holds the type: Launch Services has
  * no give-it-back call, so an enabled box would offer an action that cannot
  * run. The note under the list says where the handover is undone instead.
  */
@@ -223,7 +223,7 @@ function DefaultAppRow() {
       })
       .catch(() => {
         const label = types().find((t) => t.id === typeId)?.label ?? typeId;
-        showToast(`Could not make Writ the default for ${label}`, "error");
+        showToast(`Could not make Jotra the default for ${label}`, "error");
         // A group spans several UTIs; a mid-loop failure may have claimed some.
         // Re-query so the boxes reflect the real partial state, not a stale one.
         void loadStatus(typeId).finally(() => setClaimingId(null));
@@ -236,7 +236,7 @@ function DefaultAppRow() {
       return s !== undefined && s.status !== "unsupported";
     });
 
-  // Windows lets no app make itself the default: the person picks Writ in the
+  // Windows lets no app make itself the default: the person picks Jotra in the
   // system's Default apps page, which `set_default_app` opens there.
   const inSystemSettings = () =>
     claimable().some((t) => statuses()[t.id]?.status === "system_settings");
@@ -275,7 +275,7 @@ function DefaultAppRow() {
               )}
             </For>
             <span class="settings-file-types-note">
-              Writ keeps a type until you pick another app in {FILE_MANAGER_NAME}.
+              Jotra keeps a type until you pick another app in {FILE_MANAGER_NAME}.
             </span>
           </span>
         </Show>

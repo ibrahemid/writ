@@ -11,7 +11,7 @@ import type {
   RequestIdentity,
 } from "../services/tauri";
 
-export type WritEvent =
+export type JotraEvent =
   | { kind: "pending:opens"; payload: { paths: string[]; lines?: Record<string, number> } }
   | { kind: "files:dropped"; payload: { paths: string[]; position?: DropPoint } }
   | { kind: "link:new"; payload: { name: string | null } }
@@ -42,7 +42,7 @@ export type WritEvent =
   | { kind: "notes:swept"; payload: { root: string } }
   | {
       kind: "notes:indexed";
-      /** Writ wrote index rows itself: the files whose rows changed, each once,
+      /** Jotra wrote index rows itself: the files whose rows changed, each once,
        * or the notes folder for a walk or a move (ADR-036 section 4). */
       payload: { paths: string[] };
     }

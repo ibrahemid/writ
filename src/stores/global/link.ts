@@ -1,4 +1,4 @@
-// Singleton state — Writ is single-window. What a link resolves to is a read
+// Singleton state — Jotra is single-window. What a link resolves to is a read
 // of the notes index and lives with the others in `index-cache.ts`; this
 // store opens, copies, classifies and creates what links point at.
 import * as tauri from "../../services/tauri";

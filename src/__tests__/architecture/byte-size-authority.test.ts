@@ -4,7 +4,7 @@ import { join, relative, resolve } from "node:path";
 
 const SRC = resolve(process.cwd(), "src");
 
-// A file's size reads the same everywhere Writ prints it. A second formatter
+// A file's size reads the same everywhere Jotra prints it. A second formatter
 // under the same KB/MB/GB labels puts two answers on screen for one file: the
 // large-file dialog once said 100.0 MB for what the sidebar called 95 MB.
 const THE_FORMATTER = "lib/format-bytes.ts";

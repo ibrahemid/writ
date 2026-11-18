@@ -166,7 +166,7 @@ describe("SaveFailureBar", () => {
     fixtures.setStatuses({
       one: failure({
         code: "ERR_FILE_CHANGED_ON_DISK",
-        message: "the file changed outside Writ. A copy of your version is beside it.",
+        message: "the file changed outside Jotra. A copy of your version is beside it.",
         retryable: false,
       }),
     });

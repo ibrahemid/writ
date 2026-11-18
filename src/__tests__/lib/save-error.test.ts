@@ -9,19 +9,19 @@ import {
   lossyCharacters,
 } from "../../lib/save-error";
 
-const CHANGED = "ERR_FILE_CHANGED_ON_DISK: the file changed on disk: /Users/x/Writ/Meeting notes.md";
+const CHANGED = "ERR_FILE_CHANGED_ON_DISK: the file changed on disk: /Users/x/Jotra/Meeting notes.md";
 const NOT_DOWNLOADED =
-  "ERR_FILE_NOT_DOWNLOADED: the file has not finished downloading: /Users/x/Writ/Evicted.md";
+  "ERR_FILE_NOT_DOWNLOADED: the file has not finished downloading: /Users/x/Jotra/Evicted.md";
 const HARD_LINKED =
-  "ERR_HARD_LINKED: /Users/x/Writ/Shared.md is one of 2 names for the same file";
-const READ_ONLY = "ERR_READ_ONLY_DESTINATION: /Users/x/Writ/Locked.md cannot be written";
+  "ERR_HARD_LINKED: /Users/x/Jotra/Shared.md is one of 2 names for the same file";
+const READ_ONLY = "ERR_READ_ONLY_DESTINATION: /Users/x/Jotra/Locked.md cannot be written";
 const FOLDER_NOT_WRITABLE =
-  "ERR_FOLDER_NOT_WRITABLE: the folder holding /Users/x/Writ/Locked.md cannot be written";
+  "ERR_FOLDER_NOT_WRITABLE: the folder holding /Users/x/Jotra/Locked.md cannot be written";
 
 describe("formatSaveError", () => {
   it("source_changed_on_disk_maps_to_a_plain_sentence", () => {
     expect(formatSaveError(new Error(CHANGED))).toBe(
-      "the file changed outside Writ. A copy of your version is beside it.",
+      "the file changed outside Jotra. A copy of your version is beside it.",
     );
   });
 
@@ -33,10 +33,10 @@ describe("formatSaveError", () => {
 
   it("a_file_with_a_second_name_says_what_to_do_instead", () => {
     const message = formatSaveError(new Error(HARD_LINKED));
-    expect(message).toBe("this file is shared with another name on disk, so Writ left it alone.");
+    expect(message).toBe("this file is shared with another name on disk, so Jotra left it alone.");
     // The person reading this did not ask about inodes.
     expect(message).not.toMatch(/hard link/i);
-    expect(message).not.toContain("/Users/x/Writ");
+    expect(message).not.toContain("/Users/x/Jotra");
   });
 
   it("a_read_only_file_maps_to_a_plain_sentence", () => {
@@ -55,12 +55,12 @@ describe("formatSaveError", () => {
 
   it("reads the code rather than the message after it", () => {
     expect(formatSaveError("ERR_FILE_CHANGED_ON_DISK: whatever a later build logs here")).toBe(
-      "the file changed outside Writ. A copy of your version is beside it.",
+      "the file changed outside Jotra. A copy of your version is beside it.",
     );
   });
 
   it("no_mapped_reason_contains_os_error_or_a_uuid", () => {
-    // Every code Writ mints, each carrying the worst text the layer beneath
+    // Every code Jotra mints, each carrying the worst text the layer beneath
     // could put after it: an errno, a note's id, a path, the code itself.
     const codes = [
       "ERR_FILE_CHANGED_ON_DISK",
@@ -81,7 +81,7 @@ describe("formatSaveError", () => {
     for (const code of codes) {
       const message = formatSaveError(
         new Error(
-          `${code}: /Users/x/Writ/9f1c0f6e-3b2a-4d51-9a77-2c1f0b8e5d33.md (os error 2), errno 13`,
+          `${code}: /Users/x/Jotra/9f1c0f6e-3b2a-4d51-9a77-2c1f0b8e5d33.md (os error 2), errno 13`,
         ),
       );
 
@@ -90,13 +90,13 @@ describe("formatSaveError", () => {
       expect(message, code).not.toMatch(
         /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
       );
-      expect(message, code).not.toContain("/Users/x/Writ");
+      expect(message, code).not.toContain("/Users/x/Jotra");
       expect(message, code).not.toContain("ERR_");
       expect(message.length, code).toBeGreaterThan(0);
     }
   });
 
-  it("maps every io kind Writ mints a code for to plain words", () => {
+  it("maps every io kind Jotra mints a code for to plain words", () => {
     expect(formatSaveError(new Error("ERR_PERMISSION_DENIED: io error (os error 13)"))).toBe(
       "you do not have permission to change this file.",
     );
@@ -194,7 +194,7 @@ describe("asSentence", () => {
   it("closes a fragment and leaves a sentence alone", () => {
     expect(asSentence("disk full")).toBe("disk full.");
     expect(asSentence(formatSaveError(new Error(CHANGED)))).toBe(
-      "the file changed outside Writ. A copy of your version is beside it.",
+      "the file changed outside Jotra. A copy of your version is beside it.",
     );
   });
 });
@@ -204,10 +204,10 @@ describe("formatRenameError", () => {
     // A rename carries no text of its own, so nothing is set aside. The save
     // wording promises a copy beside the note that does not exist.
     expect(formatRenameError(CHANGED)).toBe(
-      "The file changed outside Writ, so it was not renamed.",
+      "The file changed outside Jotra, so it was not renamed.",
     );
     expect(formatRenameError(new Error(CHANGED))).toBe(
-      "The file changed outside Writ, so it was not renamed.",
+      "The file changed outside Jotra, so it was not renamed.",
     );
   });
 

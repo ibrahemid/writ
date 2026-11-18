@@ -1,0 +1,223 @@
+use crate::watcher::change_event::ExternalChange;
+use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
+
+/// Domain events emitted by `jotra-core`.
+///
+/// All variants are `Serialize` / `Deserialize` so the Tauri adapter can
+/// forward them to the frontend without re-encoding.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum JotraEvent {
+    /// A buffer transitioned to [`crate::buffer::document::BufferStatus::Active`].
+    ///
+    /// Emitted by [`crate::buffer::manager::BufferManager`] for both
+    /// scratch buffers and externally-opened files. The bridge in the
+    /// host adapter translates this into a frontend-visible event.
+    BufferOpened {
+        /// Identifier of the buffer that became active.
+        id: String,
+        /// Human-readable title at the moment of opening.
+        title: String,
+    },
+    /// The user's configuration changed. `keys` lists the dotted paths
+    /// that changed, so listeners can respond selectively.
+    ConfigChanged {
+        /// Dotted config paths that changed (for example `editor.font_size`).
+        keys: Vec<String>,
+    },
+    /// An open note's file was changed or removed by something other than
+    /// Jotra.
+    ///
+    /// It carries what the file now holds rather than the file's text: the
+    /// editor decides whether to take the change, and reads the bytes itself
+    /// if it does. It must never route into a reload of the document
+    /// registry, which recreates a loaded `jotra-preview://` iframe and
+    /// hard-freezes the macOS webview (PR #127).
+    BufferExternal {
+        /// Identifier of the note that observed the change.
+        buffer_id: String,
+        /// The file the change was seen on.
+        path: String,
+        /// Nature of the external change.
+        change: ExternalChange,
+        /// Where the file went, for a change that is a move. Nothing sets
+        /// this yet; the identity work that decides a move from a delete is
+        /// its own unit.
+        new_path: Option<String>,
+        /// The digest of what the file holds now, in the form the editor
+        /// compares its document against
+        /// ([`crate::hash::comparison_digest_hex`]). Absent when there was
+        /// nothing to read: the file is gone, or its bytes are not on this
+        /// machine.
+        disk_hash: Option<String>,
+        /// What wrote the text the file holds now, when Jotra knows: a
+        /// connected program's write keeps that text as the note's newest
+        /// version under the program's name before the watcher reports it.
+        /// `None` for every other change, and for a removal or a move.
+        writer: Option<crate::notes::Writer>,
+    },
+    /// A file or directory inside the open workspace folder changed on
+    /// disk. Listeners refresh the affected directory listing; the event
+    /// carries no content.
+    WorkspaceChanged {
+        /// Absolute path of the changed entry.
+        path: String,
+        /// `true` when the entry no longer exists on disk.
+        removed: bool,
+    },
+    /// More changed in the open workspace folder in one window than was worth
+    /// listing ([`crate::watcher::budget::EmissionBudget`]), or the folder's
+    /// own ignore rules changed. Nothing is named: the tree reloads the
+    /// folders it has loaded and the file-name index walks again.
+    WorkspaceSwept {
+        /// Absolute path of the workspace folder.
+        root: String,
+    },
+    /// A file inside the notes folder was created, changed or removed on
+    /// disk by something other than Jotra. Listeners refresh the notes tree
+    /// and the index patches the one path; the event carries no content.
+    ///
+    /// It must never route into a reload of the document registry. Recreating
+    /// a loaded `jotra-preview://` iframe hard-freezes the macOS webview
+    /// (PR #127), and a blanket reload does exactly that.
+    NotesChanged {
+        /// Absolute path of the changed file.
+        path: String,
+        /// `true` when the file no longer exists on disk.
+        removed: bool,
+    },
+    /// More changed in the notes folder in one window than was worth listing.
+    /// Nothing is named; everything holding a copy of what the folder contains
+    /// re-checks instead. The index walks the folder and the editor asks after
+    /// each open file.
+    ///
+    /// A distinct event rather than a [`Self::NotesChanged`] carrying the root
+    /// path. The root served while the only listener sat beside the sender in
+    /// Rust; a listener across the IPC boundary would have to fetch the notes
+    /// root and normalise it the same way to recognise one, which is several
+    /// chances to drift for a distinction a type can make once.
+    ///
+    /// Like [`Self::NotesChanged`], it must never route into a reload of the
+    /// document registry (PR #127).
+    NotesSwept {
+        /// Absolute path of the notes folder that changed faster than it could
+        /// be listed.
+        root: String,
+    },
+    /// Jotra wrote rows of the notes index itself, after a write of its own:
+    /// a save's deferred reindex, a file it created, renamed, deleted,
+    /// restored or copied, a walk of the folder, or the folder moving.
+    ///
+    /// The notes watcher drops Jotra's own writes, so none of these ever
+    /// raises [`Self::NotesChanged`]; this is how everything holding a read
+    /// of the index hears that the rows moved. It is emitted after the index
+    /// call returns, so a reader asking again reads the new rows. One
+    /// operation is one event, however many files it touched.
+    ///
+    /// Like [`Self::NotesChanged`], it must never route into a reload of the
+    /// document registry (PR #127).
+    NotesIndexed {
+        /// The files whose rows changed, each once, spelled the way the index
+        /// keys them. A walk or a folder move names the notes folder itself,
+        /// standing for every file under it.
+        paths: Vec<String>,
+    },
+    /// A qualifying new file appeared inside the watched inbox folder
+    /// (ADR-018). The frontend opens it through the normal open path.
+    InboxFileArrived {
+        /// Absolute path of the file that arrived.
+        path: String,
+    },
+    /// The global toggle hotkey was pressed.
+    HotkeyToggle,
+    /// A native menu item was activated. Originates in the host shell;
+    /// routed through the bus so the frontend has a single path to
+    /// observe menu activations.
+    MenuAction {
+        /// Stable identifier of the menu item, matching the
+        /// `command.id` registered in the frontend command palette.
+        action: String,
+    },
+    /// The list of programs waiting to be approved, `mcp-pending.json` in
+    /// Jotra's data folder, changed on disk. A `jotra mcp` process writes it the
+    /// moment a program nobody has decided on first calls. Carries nothing:
+    /// the host reads the file whole when it answers.
+    McpPendingChanged,
+    /// A program called while Connected programs was off: a `jotra mcp`
+    /// process wrote `mcp-off-call.json` in Jotra's data folder. Carries
+    /// nothing: the host reads the record when it answers.
+    McpCalledWhileOff,
+    /// The application is shutting down and the frontend may still be holding
+    /// text inside the autosave debounce window. Listeners write everything
+    /// pending and confirm; the shutdown path waits for that confirmation, but
+    /// only as far as [`crate::recovery::QUIT_FLUSH_TIMEOUT`].
+    FlushBeforeQuit,
+    /// A plugin-defined event payload.
+    PluginEvent {
+        /// Identifier of the plugin that emitted the event.
+        plugin_id: String,
+        /// Opaque payload; interpretation is plugin-specific.
+        data: serde_json::Value,
+    },
+}
+
+type Subscriber = Arc<dyn Fn(&JotraEvent) + Send + Sync>;
+
+/// Fan-out event bus for [`JotraEvent`] payloads.
+///
+/// Subscribers are invoked synchronously in the order they subscribed.
+/// The bus is internally synchronized and may be shared across threads.
+pub struct EventBus {
+    subscribers: Arc<Mutex<Vec<Subscriber>>>,
+}
+
+impl EventBus {
+    /// Creates an empty bus with no subscribers.
+    pub fn new() -> Self {
+        Self {
+            subscribers: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Registers a handler to be invoked for every subsequent event.
+    pub fn subscribe<F>(&self, handler: F)
+    where
+        F: Fn(&JotraEvent) + Send + Sync + 'static,
+    {
+        self.subscribers
+            .lock()
+            .unwrap_or_else(|poisoned| {
+                tracing::error!(
+                    location = "events::bus::subscribe",
+                    "recovered poisoned mutex"
+                );
+                poisoned.into_inner()
+            })
+            .push(Arc::new(handler));
+    }
+
+    /// Delivers `event` to every current subscriber.
+    ///
+    /// Subscribers added after this call returns will not receive the
+    /// event. Poisoned locks are recovered transparently so a panicking
+    /// subscriber cannot take the bus down with it.
+    pub fn emit(&self, event: JotraEvent) {
+        let subscribers = self
+            .subscribers
+            .lock()
+            .unwrap_or_else(|poisoned| {
+                tracing::error!(location = "events::bus::emit", "recovered poisoned mutex");
+                poisoned.into_inner()
+            })
+            .clone();
+        for subscriber in subscribers {
+            subscriber(&event);
+        }
+    }
+}
+
+impl Default for EventBus {
+    fn default() -> Self {
+        Self::new()
+    }
+}

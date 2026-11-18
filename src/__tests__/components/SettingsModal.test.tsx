@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { configStore, isAppOnIn } from "../../stores/global/config";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 
 const TEST_CLAIMABLE_TYPE = {
   id: "markdown",
@@ -42,9 +42,9 @@ const mocks = vi.hoisted(() => ({
   claimDefaultApp: vi.fn().mockResolvedValue(undefined),
   fetchDefaultAppTypes: vi.fn(),
   fetchCliStatus: vi.fn().mockResolvedValue({ installed: false }),
-  installCli: vi.fn().mockResolvedValue({ symlink_path: "/usr/local/bin/writ", manual_command: "" }),
+  installCli: vi.fn().mockResolvedValue({ symlink_path: "/usr/local/bin/jotra", manual_command: "" }),
   copyCliExample: vi.fn().mockResolvedValue(undefined),
-  fetchStorageInfo: vi.fn().mockResolvedValue({ db_path: "/home/user/.writ/writ.db", dir: "/home/user/.writ" }),
+  fetchStorageInfo: vi.fn().mockResolvedValue({ db_path: "/home/user/.jotra/jotra.db", dir: "/home/user/.jotra" }),
   revealStoragePath: vi.fn().mockResolvedValue(undefined),
   copyStoragePath: vi.fn().mockResolvedValue(undefined),
   writeClipboardText: vi.fn().mockResolvedValue(undefined),
@@ -75,7 +75,7 @@ const mocks = vi.hoisted(() => ({
   mcpDenyClient: vi.fn(),
   mcpReturnToWaiting: vi.fn(),
   mcpRestoreClient: vi.fn(),
-  mcpServerCommand: vi.fn().mockResolvedValue({ path: "/usr/local/bin/writ", command: "writ mcp" }),
+  mcpServerCommand: vi.fn().mockResolvedValue({ path: "/usr/local/bin/jotra", command: "jotra mcp" }),
   mcpTools: vi.fn(),
   mcpConnectCards: vi.fn().mockResolvedValue([]),
   mcpConnectAdd: vi.fn(),
@@ -271,12 +271,12 @@ vi.mock("../../stores/global/default-app", () => ({
 }));
 
 vi.mock("../../stores/global/cli", () => ({
-  CLI_EXAMPLES: ["writ .", "git log | writ --title log"],
+  CLI_EXAMPLES: ["jotra .", "git log | jotra --title log"],
   installCli: mocks.installCli,
   fetchCliStatus: mocks.fetchCliStatus,
   copyCliExample: mocks.copyCliExample,
   installFailureMessage: (error: unknown) =>
-    typeof error === "string" && error !== "" ? error : "Could not install the writ command",
+    typeof error === "string" && error !== "" ? error : "Could not install the jotra command",
 }));
 
 vi.mock("../../stores/global/notes", () => ({
@@ -396,7 +396,7 @@ import { updateStore } from "../../stores/global/update";
 import { APP_VERSION } from "../../lib/app-info";
 import { clearDefaultAppSupport, probeDefaultAppSupport } from "../../stores/global/default-app-support";
 
-function baseConfig(): WritConfig {
+function baseConfig(): JotraConfig {
   return {
     hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
     sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false, width: 240, collapsed: [], hidden: [] },
@@ -449,9 +449,9 @@ describe("SettingsModal", () => {
     mocks.fetchCliStatus.mockReset().mockResolvedValue({ installed: false });
     mocks.installCli
       .mockReset()
-      .mockResolvedValue({ symlink_path: "/usr/local/bin/writ", manual_command: "" });
+      .mockResolvedValue({ symlink_path: "/usr/local/bin/jotra", manual_command: "" });
     mocks.copyCliExample.mockReset().mockResolvedValue(undefined);
-    mocks.fetchStorageInfo.mockReset().mockResolvedValue({ db_path: "/home/user/.writ/writ.db", dir: "/home/user/.writ" });
+    mocks.fetchStorageInfo.mockReset().mockResolvedValue({ db_path: "/home/user/.jotra/jotra.db", dir: "/home/user/.jotra" });
     mocks.revealStoragePath.mockReset().mockResolvedValue(undefined);
     mocks.copyStoragePath.mockReset().mockResolvedValue(undefined);
     mocks.writeClipboardText.mockReset().mockResolvedValue(undefined);
@@ -470,8 +470,8 @@ describe("SettingsModal", () => {
     mocks.notesFolder
       .mockReset()
       .mockReturnValue({
-      path: "/home/user/Writ",
-      display_path: "~/Writ",
+      path: "/home/user/Jotra",
+      display_path: "~/Jotra",
       fallback: null,
       sync_provider: null,
     });
@@ -591,7 +591,7 @@ describe("SettingsModal", () => {
     expect(fontSizeInput).not.toBeNull();
     fireEvent.change(fontSizeInput!, { target: { value: "16" } });
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
-    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    const saved = mocks.save.mock.calls[0][0] as JotraConfig;
     expect(saved.editor.font_size).toBe(16);
   });
 
@@ -609,7 +609,7 @@ describe("SettingsModal", () => {
     ]);
     fireEvent.change(select!, { target: { value: "source" } });
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
-    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    const saved = mocks.save.mock.calls[0][0] as JotraConfig;
     expect(saved.preview.default_layout_markdown).toBe("source");
   });
 
@@ -627,7 +627,7 @@ describe("SettingsModal", () => {
     const fontSizeInput = container.querySelector<HTMLInputElement>("[data-setting='font_size']");
     fireEvent.change(fontSizeInput!, { target: { value: "200" } });
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
-    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    const saved = mocks.save.mock.calls[0][0] as JotraConfig;
     expect(saved.editor.font_size).toBeLessThanOrEqual(72);
   });
 
@@ -639,7 +639,7 @@ describe("SettingsModal", () => {
     expect(toggle).not.toBeNull();
     fireEvent.click(toggle!);
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
-    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    const saved = mocks.save.mock.calls[0][0] as JotraConfig;
     expect(saved.editor.word_wrap).toBe(false);
   });
 
@@ -651,7 +651,7 @@ describe("SettingsModal", () => {
     expect(tabSizeInput).not.toBeNull();
     fireEvent.change(tabSizeInput!, { target: { value: "4" } });
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
-    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    const saved = mocks.save.mock.calls[0][0] as JotraConfig;
     expect(saved.editor.tab_size).toBe(4);
   });
 
@@ -729,7 +729,7 @@ describe("SettingsModal", () => {
     expect(presetSelect).not.toBeNull();
     fireEvent.change(presetSelect!, { target: { value: "warp-light" } });
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
-    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    const saved = mocks.save.mock.calls[0][0] as JotraConfig;
     expect(saved.theme.preset).toBe("warp-light");
   });
 
@@ -744,14 +744,14 @@ describe("SettingsModal", () => {
     fireEvent.change(presetSelect!, { target: { value: "warp-light" } });
     expect(mocks.setPreset).toHaveBeenCalledWith("warp-light");
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
-    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    const saved = mocks.save.mock.calls[0][0] as JotraConfig;
     expect(saved.theme.preset).toBe("warp-light");
     expect(saved.appearance.polarity).toBe("light");
   });
 
   // The stored preset is one half of a pair; polarity picks the half that
   // renders. The row named the stored half, so under a dark system the Theme
-  // row read "Writ Light" over a dark app.
+  // row read "Jotra Light" over a dark app.
   it("the theme row names the half of the pair that renders", async () => {
     mocks.config.mockReturnValue({
       ...baseConfig(),
@@ -763,7 +763,7 @@ describe("SettingsModal", () => {
     await openAppearance(container);
     const presetSelect = container.querySelector<HTMLSelectElement>("[data-setting='theme_preset']");
     expect(presetSelect!.value).toBe("writ-dark");
-    expect(presetSelect!.selectedOptions[0].textContent).toBe("Writ Dark");
+    expect(presetSelect!.selectedOptions[0].textContent).toBe("Jotra Dark");
   });
 
   it("the theme row names the light half under a light polarity", async () => {
@@ -777,7 +777,7 @@ describe("SettingsModal", () => {
     await openAppearance(container);
     const presetSelect = container.querySelector<HTMLSelectElement>("[data-setting='theme_preset']");
     expect(presetSelect!.value).toBe("writ-light");
-    expect(presetSelect!.selectedOptions[0].textContent).toBe("Writ Light");
+    expect(presetSelect!.selectedOptions[0].textContent).toBe("Jotra Light");
   });
 
   async function openAppearance(container: HTMLElement) {
@@ -815,7 +815,7 @@ describe("SettingsModal", () => {
 
     fireEvent.click(swatches.find((s) => s.dataset.accent === "plum")!);
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
-    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    const saved = mocks.save.mock.calls[0][0] as JotraConfig;
     expect(saved.appearance.accent).toBe("plum");
   });
 
@@ -875,7 +875,7 @@ describe("SettingsModal", () => {
     expect(dark).not.toBeNull();
     fireEvent.click(dark!);
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
-    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    const saved = mocks.save.mock.calls[0][0] as JotraConfig;
     expect(saved.appearance.polarity).toBe("dark");
   });
 
@@ -886,7 +886,7 @@ describe("SettingsModal", () => {
     expect(face).not.toBeNull();
     fireEvent.change(face!, { target: { value: "quattro" } });
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
-    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    const saved = mocks.save.mock.calls[0][0] as JotraConfig;
     expect(saved.appearance.prose_face).toBe("quattro");
   });
 
@@ -900,7 +900,7 @@ describe("SettingsModal", () => {
     expect(statusBar!.getAttribute("aria-checked")).toBe("false");
     fireEvent.click(statusBar!);
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
-    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    const saved = mocks.save.mock.calls[0][0] as JotraConfig;
     expect(saved.editor.status_bar).toBe(true);
   });
 
@@ -914,10 +914,10 @@ describe("SettingsModal", () => {
     expect(words.tagName).toBe("LABEL");
     fireEvent.click(words);
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
-    expect((mocks.save.mock.calls[0][0] as WritConfig).editor.word_wrap).toBe(false);
+    expect((mocks.save.mock.calls[0][0] as JotraConfig).editor.word_wrap).toBe(false);
   });
 
-  describe("General — the chord that shows and hides Writ", () => {
+  describe("General — the chord that shows and hides Jotra", () => {
     it("shows the chord with its recorder", async () => {
       const { container } = render(() => <SettingsModal />);
       openSettings("general");
@@ -926,7 +926,7 @@ describe("SettingsModal", () => {
         expect(found).not.toBeNull();
         return found!;
       });
-      expect(row.querySelector(".settings-row-label-text")!.textContent).toBe("Show and hide Writ");
+      expect(row.querySelector(".settings-row-label-text")!.textContent).toBe("Show and hide Jotra");
       expect(row.querySelectorAll(".kbd-chord .kbd-key").length).toBeGreaterThan(1);
       expect(row.querySelector("[data-action='record-global-chord']")!.textContent).toBe("Record");
     });
@@ -950,7 +950,7 @@ describe("SettingsModal", () => {
       fireEvent.keyDown(document.body, { key: " ", code: "Space", altKey: true });
       await waitFor(() => expect(mocks.rebindHotkey).toHaveBeenCalledTimes(1));
       await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
-      expect((mocks.save.mock.calls[0][0] as WritConfig).hotkey.toggle).toBe("Alt+Space");
+      expect((mocks.save.mock.calls[0][0] as JotraConfig).hotkey.toggle).toBe("Alt+Space");
     });
 
     it("cancels a recording on Escape and keeps Settings open", async () => {
@@ -1234,7 +1234,7 @@ describe("SettingsModal", () => {
       expect(container.querySelectorAll("[data-setting-id^='files.default_app']").length).toBe(1);
     });
 
-    it("checks and locks a type Writ already holds", async () => {
+    it("checks and locks a type Jotra already holds", async () => {
       mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "is_default" });
       const { container } = render(() => <SettingsModal />);
       await openFilesSection(container);
@@ -1248,7 +1248,7 @@ describe("SettingsModal", () => {
       });
     });
 
-    it("names the app that holds a type Writ does not", async () => {
+    it("names the app that holds a type Jotra does not", async () => {
       mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "other_app", name: "TextEdit" });
       const { container } = render(() => <SettingsModal />);
       await openFilesSection(container);
@@ -1290,7 +1290,7 @@ describe("SettingsModal", () => {
     });
 
     // The claim is the only direction Launch Services offers, so the box has to
-    // round-trip: unchecked for a type another app holds, checked once Writ does.
+    // round-trip: unchecked for a type another app holds, checked once Jotra does.
     it("claims each type from its own box and reflects the answer", async () => {
       for (const typeId of ["markdown", "html"]) {
         vi.useFakeTimers();
@@ -1346,13 +1346,13 @@ describe("SettingsModal", () => {
       await waitFor(() => expect(container.querySelector("[data-section='advanced']")).not.toBeNull());
     }
 
-    it("shows the folder Writ keeps its own files in", async () => {
+    it("shows the folder Jotra keeps its own files in", async () => {
       const { container } = render(() => <SettingsModal />);
       await openAdvancedSection(container);
       await waitFor(() => {
         const path = container.querySelector("[data-storage-path]");
         expect(path).not.toBeNull();
-        expect(path!.textContent).toBe("/home/user/.writ");
+        expect(path!.textContent).toBe("/home/user/.jotra");
       });
     });
 
@@ -1360,10 +1360,10 @@ describe("SettingsModal", () => {
       const { container } = render(() => <SettingsModal />);
       await openAdvancedSection(container);
       await waitFor(() =>
-        expect(container.querySelector("[data-storage-path]")!.textContent).toContain(".writ"),
+        expect(container.querySelector("[data-storage-path]")!.textContent).toContain(".jotra"),
       );
       fireEvent.click(container.querySelector<HTMLButtonElement>("[data-action='storage-copy']")!);
-      await waitFor(() => expect(mocks.copyStoragePath).toHaveBeenCalledWith("/home/user/.writ"));
+      await waitFor(() => expect(mocks.copyStoragePath).toHaveBeenCalledWith("/home/user/.jotra"));
     });
 
     it("opens the file manager on the show click", async () => {
@@ -1391,28 +1391,28 @@ describe("SettingsModal", () => {
       ]);
     });
 
-    it("shows where the installed writ command is, with two commands to copy", async () => {
+    it("shows where the installed jotra command is, with two commands to copy", async () => {
       mocks.fetchCliStatus.mockResolvedValue({
         installed: true,
-        path: "/usr/local/bin/writ",
+        path: "/usr/local/bin/jotra",
         can_install: true,
         needs_move: false,
       });
       const { container } = render(() => <SettingsModal />);
       await openIntegrationsSection(container);
       await waitFor(() =>
-        expect(container.querySelector("[data-cli-path]")?.textContent).toBe("/usr/local/bin/writ"),
+        expect(container.querySelector("[data-cli-path]")?.textContent).toBe("/usr/local/bin/jotra"),
       );
       const examples = Array.from(container.querySelectorAll("[data-cli-example]")).map(
         (el) => el.textContent,
       );
-      expect(examples).toEqual(["writ .", "git log | writ --title log"]);
+      expect(examples).toEqual(["jotra .", "git log | jotra --title log"]);
       expect(container.querySelector("[data-action='install-cli']")).toBeNull();
 
       const copies = container.querySelectorAll<HTMLButtonElement>("[data-action='cli-copy-example']");
       fireEvent.click(copies[1]!);
       await waitFor(() =>
-        expect(mocks.copyCliExample).toHaveBeenCalledWith("git log | writ --title log"),
+        expect(mocks.copyCliExample).toHaveBeenCalledWith("git log | jotra --title log"),
       );
     });
 
@@ -1432,7 +1432,7 @@ describe("SettingsModal", () => {
     it("asks for the app to be moved before the command can point at it", async () => {
       mocks.fetchCliStatus.mockResolvedValue({
         installed: false,
-        path: "/usr/local/bin/writ",
+        path: "/usr/local/bin/jotra",
         can_install: true,
         needs_move: true,
       });
@@ -1440,7 +1440,7 @@ describe("SettingsModal", () => {
       await openIntegrationsSection(container);
       await waitFor(() => {
         const row = container.querySelector("[data-setting-id='files.cli']");
-        expect(row?.textContent).toContain("Move Writ to your Applications folder");
+        expect(row?.textContent).toContain("Move Jotra to your Applications folder");
       });
       expect(
         container.querySelector<HTMLButtonElement>("[data-action='install-cli']")!.disabled,
@@ -1451,13 +1451,13 @@ describe("SettingsModal", () => {
       mocks.fetchCliStatus
         .mockResolvedValueOnce({
           installed: false,
-          path: "/usr/local/bin/writ",
+          path: "/usr/local/bin/jotra",
           can_install: true,
           needs_move: false,
         })
         .mockResolvedValue({
           installed: true,
-          path: "/usr/local/bin/writ",
+          path: "/usr/local/bin/jotra",
           can_install: true,
           needs_move: false,
         });
@@ -1510,7 +1510,7 @@ describe("SettingsModal", () => {
       updateStore.applyPhase({ status: "up_to_date" });
       await waitFor(() =>
         expect(container.querySelector("[data-update-status]")!.textContent).toBe(
-          "Writ is up to date.",
+          "Jotra is up to date.",
         ),
       );
       updateStore.applyPhase({ status: "available", version: "9.9.9" });
@@ -2020,7 +2020,7 @@ describe("AI section", () => {
     ).toBe("The service that runs the model.");
   });
 
-  // The table is data `writ-core` owns, so the picker never spells a provider
+  // The table is data `jotra-core` owns, so the picker never spells a provider
   // out itself: a row added in Rust appears here with no frontend change.
   it("groups the providers the table names, what runs on this machine first", async () => {
     const { container } = await openAiSection();
@@ -2189,7 +2189,7 @@ describe("AI section", () => {
     const { container } = await openAiSection({ provider: "ollama", model: "" });
     await waitFor(() => expect(container.querySelector(".settings-ai-pill")).not.toBeNull());
     expect(container.querySelector(".settings-ai-pill")!.textContent).toBe("Not running");
-    expect(container.textContent).toContain("Writ could not reach Ollama on port 11434.");
+    expect(container.textContent).toContain("Jotra could not reach Ollama on port 11434.");
     fireEvent.click(container.querySelector('[data-action="get-ollama"]')!);
     await waitFor(() =>
       expect(mocks.openExternalUrl).toHaveBeenCalledWith("https://ollama.com/download"),
@@ -2252,7 +2252,7 @@ describe("AI section", () => {
     await waitFor(() => expect(container.querySelector(".settings-ai-consent")).not.toBeNull());
     expect(collapse(container.querySelector(".settings-ai-consent-text")!.textContent)).toBe(
       "The files you attach and the text you rewrite are sent to api.deepseek.com with your " +
-        "API key. Writ also sends the key on its own to check the host is reachable. The check " +
+        "API key. Jotra also sends the key on its own to check the host is reachable. The check " +
         "sends no text.",
     );
     expect(container.querySelector('[data-action="ai-consent"]')!.textContent).toBe("Allow");
@@ -2401,8 +2401,8 @@ describe("Files section — the folder row", () => {
     mocks.notesFolder
       .mockReset()
       .mockReturnValue({
-      path: "/home/user/Writ",
-      display_path: "~/Writ",
+      path: "/home/user/Jotra",
+      display_path: "~/Jotra",
       fallback: null,
       sync_provider: null,
     });
@@ -2435,15 +2435,15 @@ describe("Files section — the folder row", () => {
   it("shows the folder path with the home folder collapsed", async () => {
     const { container } = await openNotes();
     const path = container.querySelector("[data-notes-path]");
-    expect(path?.textContent).toBe("~/Writ");
+    expect(path?.textContent).toBe("~/Jotra");
   });
 
   // The box runs right to left so a long path loses its start; the path itself
-  // is isolated left to right, so `~/Writ` never draws as `Writ/~`.
+  // is isolated left to right, so `~/Jotra` never draws as `Jotra/~`.
   it("isolates the path left to right inside the box that cuts its start", async () => {
     const { container } = await openNotes();
     const isolated = container.querySelector("[data-notes-path] > bdi[dir='ltr']");
-    expect(isolated?.textContent).toBe("~/Writ");
+    expect(isolated?.textContent).toBe("~/Jotra");
   });
 
   it("isolates an Arabic folder name inside the path, in its own order", async () => {
@@ -2470,11 +2470,11 @@ describe("Files section — the folder row", () => {
     });
   });
 
-  // ADR-028 §2: a `writ.db` path is never the answer to "where are my notes".
+  // ADR-028 §2: a `jotra.db` path is never the answer to "where are my notes".
   it("shows the notes root and never a database path", async () => {
     const { container } = await openNotes();
     const row = container.querySelector("[data-setting-id='notes.folder']")!;
-    expect(row.querySelector("[data-notes-path]")!.textContent).toBe("~/Writ");
+    expect(row.querySelector("[data-notes-path]")!.textContent).toBe("~/Jotra");
     expect(row.textContent).not.toMatch(/\.db\b/);
     expect(row.querySelector("[data-storage-path]")).toBeNull();
   });
@@ -2486,32 +2486,32 @@ describe("Files section — the folder row", () => {
 
   it("names where the notes went when the folder in the settings was refused", async () => {
     mocks.notesFolder.mockReturnValue({
-      path: "/home/user/Writ",
-      display_path: "~/Writ",
+      path: "/home/user/Jotra",
+      display_path: "~/Jotra",
       fallback: { from: "/volumes/gone/Notes", reason: "unusable" },
     });
     const { container } = await openNotes();
     expect(container.querySelector("[data-notes-fallback]")?.textContent).toBe(
-      "The folder in your settings could not be used, so files are in ~/Writ.",
+      "The folder in your settings could not be used, so files are in ~/Jotra.",
     );
   });
 
-  it("says which folder holds Writ's own data", async () => {
+  it("says which folder holds Jotra's own data", async () => {
     mocks.notesFolder.mockReturnValue({
-      path: "/home/user/Writ",
-      display_path: "~/Writ",
-      fallback: { from: "/home/user/.writ/archive", reason: "holds_writ_data" },
+      path: "/home/user/Jotra",
+      display_path: "~/Jotra",
+      fallback: { from: "/home/user/.jotra/archive", reason: "holds_jotra_data" },
     });
     const { container } = await openNotes();
     expect(container.querySelector("[data-notes-fallback]")?.textContent).toBe(
-      "The folder in your settings holds Writ's own data, so files are in ~/Writ.",
+      "The folder in your settings holds Jotra's own data, so files are in ~/Jotra.",
     );
   });
 
   it("names the service syncing the folder", async () => {
     mocks.notesFolder.mockReturnValue({
-      path: "/home/user/Library/Mobile Documents/com~apple~CloudDocs/Writ",
-      display_path: "~/Library/Mobile Documents/com~apple~CloudDocs/Writ",
+      path: "/home/user/Library/Mobile Documents/com~apple~CloudDocs/Jotra",
+      display_path: "~/Library/Mobile Documents/com~apple~CloudDocs/Jotra",
       fallback: null,
       sync_provider: "iCloud Drive",
     });
@@ -2524,7 +2524,7 @@ describe("Files section — the folder row", () => {
   it("says how to sync a folder that nothing syncs", async () => {
     const { container } = await openNotes();
     expect(container.querySelector("[data-notes-sync]")?.textContent).toBe(
-      "Writ has no sync. Put the folder in iCloud Drive, Dropbox, or Google Drive and your files sync with it. Use one sync service per folder.",
+      "Jotra has no sync. Put the folder in iCloud Drive, Dropbox, or Google Drive and your files sync with it. Use one sync service per folder.",
     );
   });
 });
@@ -2603,7 +2603,7 @@ describe("Connected programs section — the tool row", () => {
     mocks.mcpClients.mockReset().mockResolvedValue({ approved: [], waiting: [] });
     mocks.mcpServerCommand
       .mockReset()
-      .mockResolvedValue({ path: "/usr/local/bin/writ", command: "writ mcp" });
+      .mockResolvedValue({ path: "/usr/local/bin/jotra", command: "jotra mcp" });
     mocks.mcpTools.mockReset().mockResolvedValue({
       read: SERVER_READ_TOOLS,
       write: SERVER_WRITE_TOOLS,
@@ -2656,7 +2656,7 @@ describe("Connected programs section — the tool row", () => {
       "Writing: replace a file's text, make a new file, rename a file.",
     );
     expect(container.querySelector("[data-grant='context']")?.textContent).toBe(
-      "Open file: see the file open in Writ and the text you selected.",
+      "Open file: see the file open in Jotra and the text you selected.",
     );
   });
 
@@ -2699,7 +2699,7 @@ describe("Connected programs section, programs you approved", () => {
     mocks.mcpSetClientPermission.mockReset().mockResolvedValue({ approved: [], waiting: [] });
     mocks.mcpServerCommand
       .mockReset()
-      .mockResolvedValue({ path: "/usr/local/bin/writ", command: "writ mcp" });
+      .mockResolvedValue({ path: "/usr/local/bin/jotra", command: "jotra mcp" });
     mocks.mcpTools.mockReset().mockResolvedValue({
       read: SERVER_READ_TOOLS,
       write: SERVER_WRITE_TOOLS,
@@ -2892,7 +2892,7 @@ describe("Connected programs section, waiting for you", () => {
     mocks.mcpSetClientPermission.mockReset().mockResolvedValue({ approved: [], waiting: [] });
     mocks.mcpServerCommand
       .mockReset()
-      .mockResolvedValue({ path: "/usr/local/bin/writ", command: "writ mcp" });
+      .mockResolvedValue({ path: "/usr/local/bin/jotra", command: "jotra mcp" });
     mocks.mcpTools.mockReset().mockResolvedValue({
       read: SERVER_READ_TOOLS,
       write: SERVER_WRITE_TOOLS,
@@ -3184,7 +3184,7 @@ describe("the words the panel uses", () => {
 
 // NV-34: neither the row nor the setup card said where an app lives.
 describe("the Apps rows", () => {
-  function graphOn(): WritConfig {
+  function graphOn(): JotraConfig {
     const base = baseConfig();
     return { ...base, apps: { ...base.apps, graph: true } };
   }

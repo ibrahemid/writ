@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const KEY = "writ.tree.expanded.v1";
+const KEY = "jotra.tree.expanded.v1";
 
 async function freshStore() {
   vi.resetModules();

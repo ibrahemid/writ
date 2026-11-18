@@ -6,11 +6,11 @@
 //! code. Applying a proposal runs from the user's `Apply` and carries a write
 //! and nothing else.
 
+use jotra_core::notes::host::{Capability, HostError, LastKnown, NoteHost};
+use jotra_core::notes::WriteOrigin;
+use jotra_storage::note_host::NoteHostImpl;
+use jotra_tauri_lib::commands::chat::{apply_permissions, context_permissions};
 use tempfile::TempDir;
-use writ_core::notes::host::{Capability, HostError, LastKnown, NoteHost};
-use writ_core::notes::WriteOrigin;
-use writ_storage::note_host::NoteHostImpl;
-use writ_tauri_lib::commands::chat::{apply_permissions, context_permissions};
 
 #[test]
 fn the_context_set_cannot_write() {
@@ -41,7 +41,7 @@ fn a_write_through_the_context_set_is_refused_and_the_note_is_untouched() {
         &notes,
         None,
         context_permissions(),
-        writ_core::config::FileExtension::Txt,
+        jotra_core::config::FileExtension::Txt,
     )
     .expect("open the host");
     let refused = building

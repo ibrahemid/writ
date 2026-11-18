@@ -1,8 +1,8 @@
-import type { WritConfig } from "../../src/types/config";
+import type { JotraConfig } from "../../src/types/config";
 
-// writ_core::config::WritConfig::default(), serialised, with the notes folder
+// jotra_core::config::JotraConfig::default(), serialised, with the notes folder
 // open in the sidebar and the light theme pinned.
-export const DEMO_CONFIG: WritConfig = {
+export const DEMO_CONFIG: JotraConfig = {
   "hotkey": {
     "toggle": "CmdOrCtrl+Shift+Space"
   },

@@ -42,7 +42,7 @@ requires_minisign = unittest.skipUnless(MINISIGN, "minisign is not installed")
 
 @contextlib.contextmanager
 def scratch() -> pathlib.Path:
-    with tempfile.TemporaryDirectory(prefix="writ-signing-test-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="jotra-signing-test-") as tmp:
         yield pathlib.Path(tmp)
 
 
@@ -130,11 +130,11 @@ class ParsingTests(unittest.TestCase):
         self.assertIn(f'MINISIGN_PUBKEY="{key.line}"', (REPO_ROOT / "install.sh").read_text())
 
     def test_the_trusted_comment_is_the_one_tauri_writes(self) -> None:
-        comment = release_signing.trusted_comment("Writ_0.6.0_amd64.deb", "0.6.0", timestamp=1791801688)
-        self.assertEqual(comment, "timestamp:1791801688\tfile:Writ_0.6.0_amd64.deb\tversion:0.6.0")
+        comment = release_signing.trusted_comment("Jotra_0.6.0_amd64.deb", "0.6.0", timestamp=1791801688)
+        self.assertEqual(comment, "timestamp:1791801688\tfile:Jotra_0.6.0_amd64.deb\tversion:0.6.0")
         self.assertEqual(
             release_signing.parse_trusted_comment(comment),
-            {"timestamp": "1791801688", "file": "Writ_0.6.0_amd64.deb", "version": "0.6.0"},
+            {"timestamp": "1791801688", "file": "Jotra_0.6.0_amd64.deb", "version": "0.6.0"},
         )
 
     def test_a_tab_or_line_break_cannot_reach_the_trusted_comment(self) -> None:
@@ -158,7 +158,7 @@ class ParsingTests(unittest.TestCase):
         shipped = (
             "untrusted comment: signature from tauri secret key\n"
             "RUT2Ic6WHdF65hPcJgK70xIkXRvMtNWquUYljEJBz1mB7EHFYALLTJmL29+4ONAASYSVAB7ZWuGdyDsE8ofEi89CBJwx6CXk5Qg=\n"
-            "trusted comment: timestamp:1791801688\tfile:Writ.app.tar.gz\tversion:0.5.1\n"
+            "trusted comment: timestamp:1791801688\tfile:Jotra.app.tar.gz\tversion:0.5.1\n"
             "5hW16A9s8fmOqG6o/Gh9TihJ1EACWKki+2YGSMDwhYUrSffH8W9icABw+dCRvJAVMAhVzbazFiLy82LNWXdyBg==\n"
         )
         self.assertEqual(release_signing.signature_key_id(shipped), "E67AD11D96CE21F6")
@@ -211,7 +211,7 @@ class SecretKeyTests(unittest.TestCase):
     def test_the_key_may_name_a_file(self) -> None:
         key_text = "untrusted comment: rsign encrypted secret key\nRWRTY0Iy\n"
         with scratch() as tmp:
-            stored = tmp / "writ.key"
+            stored = tmp / "jotra.key"
             stored.write_text(base64.b64encode(key_text.encode()).decode())
             with release_signing.secret_key_file({release_signing.KEY_ENV: str(stored)}) as path:
                 self.assertEqual(path.read_text(), key_text)
@@ -233,7 +233,7 @@ class SecretKeyTests(unittest.TestCase):
 @requires_minisign
 class SigningTests(unittest.TestCase):
     def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory(prefix="writ-signing-test-")
+        tmp = tempfile.TemporaryDirectory(prefix="jotra-signing-test-")
         self.addCleanup(tmp.cleanup)
         self.root = pathlib.Path(tmp.name)
         self.keys = self.root / "keys"
@@ -243,28 +243,28 @@ class SigningTests(unittest.TestCase):
         self.key = UpdaterKey(self.keys, "release")
 
     def test_a_payload_signature_has_the_tauri_format(self) -> None:
-        payload = self.assets / "Writ_0.6.0_amd64.deb"
+        payload = self.assets / "Jotra_0.6.0_amd64.deb"
         payload.write_bytes(b"deb bytes")
         quietly(release_signing.sign_payloads, [payload], VERSION, MINISIGN, self.key.env())
 
-        encoded = (self.assets / "Writ_0.6.0_amd64.deb.sig").read_text()
+        encoded = (self.assets / "Jotra_0.6.0_amd64.deb.sig").read_text()
         self.assertNotIn("\n", encoded)
         minisig = release_signing.minisig_from_tauri_signature(encoded)
         lines = minisig.splitlines()
         self.assertEqual(lines[0], "untrusted comment: signature from tauri secret key")
         self.assertTrue(lines[1].startswith("RU"), "not a prehashed (ED) signature")
-        self.assertRegex(lines[2], r"^trusted comment: timestamp:\d+\tfile:Writ_0\.6\.0_amd64\.deb\tversion:0\.6\.0$")
+        self.assertRegex(lines[2], r"^trusted comment: timestamp:\d+\tfile:Jotra_0\.6\.0_amd64\.deb\tversion:0\.6\.0$")
         self.assertEqual(release_signing.signature_key_id(minisig), self.key.key_id)
 
     def test_a_signed_payload_verifies_against_its_key_and_version(self) -> None:
-        payload = self.assets / "Writ_0.6.0_amd64.AppImage"
+        payload = self.assets / "Jotra_0.6.0_amd64.AppImage"
         payload.write_bytes(b"appimage bytes")
         quietly(release_signing.sign_payloads, [payload], VERSION, MINISIGN, self.key.env())
         public = release_signing.public_key_from_config(self.key.config)
         quietly(release_signing.verify_payloads, [payload], VERSION, public, MINISIGN)
 
     def test_a_changed_payload_fails_verification(self) -> None:
-        payload = self.assets / "Writ_0.6.0_amd64.AppImage"
+        payload = self.assets / "Jotra_0.6.0_amd64.AppImage"
         payload.write_bytes(b"appimage bytes")
         quietly(release_signing.sign_payloads, [payload], VERSION, MINISIGN, self.key.env())
         payload.write_bytes(b"appimage bytes, replaced")
@@ -273,7 +273,7 @@ class SigningTests(unittest.TestCase):
             quietly(release_signing.verify_payloads, [payload], VERSION, public, MINISIGN)
 
     def test_a_signature_bound_to_another_version_fails(self) -> None:
-        payload = self.assets / "Writ_0.6.0_x64_en-US.msi"
+        payload = self.assets / "Jotra_0.6.0_x64_en-US.msi"
         payload.write_bytes(b"msi bytes")
         quietly(release_signing.sign_payloads, [payload], "0.5.1", MINISIGN, self.key.env())
         public = release_signing.public_key_from_config(self.key.config)
@@ -282,7 +282,7 @@ class SigningTests(unittest.TestCase):
 
     def test_a_password_protected_key_signs_with_its_password(self) -> None:
         key = UpdaterKey(self.keys, "protected", "correct horse")
-        payload = self.assets / "Writ_0.6.0_amd64.deb"
+        payload = self.assets / "Jotra_0.6.0_amd64.deb"
         payload.write_bytes(b"deb bytes")
         quietly(release_signing.sign_payloads, [payload], VERSION, MINISIGN, key.env())
         public = release_signing.public_key_from_config(key.config)
@@ -290,12 +290,12 @@ class SigningTests(unittest.TestCase):
 
     def test_a_wrong_password_signs_nothing(self) -> None:
         key = UpdaterKey(self.keys, "protected", "correct horse")
-        payload = self.assets / "Writ_0.6.0_amd64.deb"
+        payload = self.assets / "Jotra_0.6.0_amd64.deb"
         payload.write_bytes(b"deb bytes")
         env = dict(key.env(), **{release_signing.PASSWORD_ENV: "wrong"})
-        with self.assertRaisesRegex(release_signing.SigningError, "could not sign Writ_0.6.0_amd64.deb"):
+        with self.assertRaisesRegex(release_signing.SigningError, "could not sign Jotra_0.6.0_amd64.deb"):
             quietly(release_signing.sign_payloads, [payload], VERSION, MINISIGN, env)
-        self.assertFalse((self.assets / "Writ_0.6.0_amd64.deb.sig").exists())
+        self.assertFalse((self.assets / "Jotra_0.6.0_amd64.deb.sig").exists())
 
     def test_the_signed_sums_verify_with_the_command_users_run(self) -> None:
         write_release_inputs(self.assets)
@@ -351,8 +351,8 @@ class SigningTests(unittest.TestCase):
     def test_a_tampered_release_fails_verification(self) -> None:
         public = release_signing.public_key_from_config(self.key.config)
         tamperings = {
-            "installer bytes": lambda d: (d / "Writ_0.6.0_universal.pkg").write_bytes(b"other"),
-            "sbom bytes": lambda d: (d / "writ-frontend_0.6.0.cdx.json").write_text("{}"),
+            "installer bytes": lambda d: (d / "Jotra_0.6.0_universal.pkg").write_bytes(b"other"),
+            "sbom bytes": lambda d: (d / "jotra-frontend_0.6.0.cdx.json").write_text("{}"),
             "manifest version": lambda d: (d / "latest.json").write_text(
                 (d / "latest.json").read_text().replace('"version": "0.6.0"', '"version": "0.6.1"')
             ),
@@ -403,7 +403,7 @@ class KeyTransitionRehearsal(unittest.TestCase):
     """
 
     def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory(prefix="writ-transition-test-")
+        tmp = tempfile.TemporaryDirectory(prefix="jotra-transition-test-")
         self.addCleanup(tmp.cleanup)
         self.root = pathlib.Path(tmp.name)
         keys = self.root / "keys"
@@ -469,10 +469,10 @@ class TauriKeyCompatibilityTests(unittest.TestCase):
     """The production key came from `tauri signer generate`; minisign must sign with that format."""
 
     def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory(prefix="writ-tauri-key-test-")
+        tmp = tempfile.TemporaryDirectory(prefix="jotra-tauri-key-test-")
         self.addCleanup(tmp.cleanup)
         self.root = pathlib.Path(tmp.name)
-        self.key_path = self.root / "writ.key"
+        self.key_path = self.root / "jotra.key"
         subprocess.run(
             [str(TAURI_CLI), "signer", "generate", "--ci", "-p", "tauri password", "-w", str(self.key_path)],
             capture_output=True,
@@ -491,14 +491,14 @@ class TauriKeyCompatibilityTests(unittest.TestCase):
         }
 
     def test_minisign_signs_with_a_tauri_generated_key(self) -> None:
-        payload = self.root / "Writ_0.6.0_amd64.deb"
+        payload = self.root / "Jotra_0.6.0_amd64.deb"
         payload.write_bytes(b"deb bytes")
         quietly(release_signing.sign_payloads, [payload], VERSION, MINISIGN, self.env)
         public = release_signing.public_key_from_config(self.config)
         quietly(release_signing.verify_payloads, [payload], VERSION, public, MINISIGN)
 
     def test_a_tauri_signer_signature_verifies_the_same_way(self) -> None:
-        payload = self.root / "Writ_0.6.0_amd64.AppImage"
+        payload = self.root / "Jotra_0.6.0_amd64.AppImage"
         payload.write_bytes(b"appimage bytes")
         env = dict(
             os.environ,

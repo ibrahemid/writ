@@ -53,13 +53,13 @@ const CARDS: McpClientCard[] = [
   {
     client: "claude-code",
     connection: "command",
-    copy_text: 'claude mcp add --scope user writ -- "/usr/local/bin/writ" mcp',
+    copy_text: 'claude mcp add --scope user jotra -- "/usr/local/bin/jotra" mcp',
     runs_command: true,
   },
   {
     client: "codex",
     connection: "command",
-    copy_text: 'codex mcp add writ -- "/usr/local/bin/writ" mcp',
+    copy_text: 'codex mcp add jotra -- "/usr/local/bin/jotra" mcp',
     runs_command: false,
   },
   { client: "gemini-cli", connection: "command", copy_text: "gemini mcp add", runs_command: false },
@@ -178,7 +178,7 @@ describe("the client cards", () => {
   });
 
   it("shows what a client's own command said when it failed", async () => {
-    const said = "The claude command could not add Writ: MCP server writ already exists in user config.";
+    const said = "The claude command could not add Jotra: MCP server jotra already exists in user config.";
     h.mcpConnectAdd.mockRejectedValue(said);
     const { container } = await shown();
     const claude = card(container, "claude-code");
@@ -196,12 +196,12 @@ describe("the client cards", () => {
     fireEvent.click(vscode.querySelector("[data-action='mcp-card-test']")!);
 
     await waitFor(() =>
-      expect(text(vscode.querySelector("[data-result='test']"))).toBe("Writ answered with 14 tools."),
+      expect(text(vscode.querySelector("[data-result='test']"))).toBe("Jotra answered with 14 tools."),
     );
   });
 
   it("passes on why the test failed", async () => {
-    h.mcpServerTest.mockRejectedValue("Writ's server did not answer within 10 seconds.");
+    h.mcpServerTest.mockRejectedValue("Jotra's server did not answer within 10 seconds.");
     const { container } = await shown();
     const other = card(container, "other");
 
@@ -209,7 +209,7 @@ describe("the client cards", () => {
 
     await waitFor(() =>
       expect(text(other.querySelector("[data-result='test']"))).toBe(
-        "Writ's server did not answer within 10 seconds.",
+        "Jotra's server did not answer within 10 seconds.",
       ),
     );
   });
@@ -262,7 +262,7 @@ describe("the client cards", () => {
   });
 
   it("holds every action while the command is not ready to hand out", async () => {
-    lists.setCaution("Move Writ to your Applications folder and open it from there first.");
+    lists.setCaution("Move Jotra to your Applications folder and open it from there first.");
     const { container } = await shown();
 
     const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>("[data-action^='mcp-card-']"));

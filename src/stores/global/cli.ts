@@ -8,9 +8,9 @@ import type { CliStatus, InstallCliResult } from "../../services/tauri";
 export type { CliStatus, InstallCliResult };
 
 /** The two commands the installed row offers to copy. */
-export const CLI_EXAMPLES: readonly string[] = ["writ .", "git log | writ --title log"];
+export const CLI_EXAMPLES: readonly string[] = ["jotra .", "git log | jotra --title log"];
 
-const INSTALL_FAILED = "Could not install the writ command";
+const INSTALL_FAILED = "Could not install the jotra command";
 
 export async function fetchCliStatus(): Promise<CliStatus> {
   return ipcCliStatus();

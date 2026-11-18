@@ -113,13 +113,13 @@ async function mountPreview() {
 function sendLinkOpen(frame: HTMLIFrameElement, href: string) {
   window.dispatchEvent(
     new MessageEvent("message", {
-      data: { source: "writ-preview", dir: "up", type: "link:open", href, x: 10, y: 10 },
+      data: { source: "jotra-preview", dir: "up", type: "link:open", href, x: 10, y: 10 },
       source: frame.contentWindow as MessageEventSource | null,
     }),
   );
 }
 
-// The seam between the renderer's `writ-note:` href and the tab that opens:
+// The seam between the renderer's `jotra-note:` href and the tab that opens:
 // without it a preview wikilink reaches the external-link popover and is
 // refused as not being a web address.
 describe("a preview link to a note", () => {
@@ -162,7 +162,7 @@ describe("a preview link to a note", () => {
 
   it("opens the note the href names and raises no popover", async () => {
     const { container, frame } = await mountPreview();
-    sendLinkOpen(frame, "writ-note:Target.md");
+    sendLinkOpen(frame, "jotra-note:Target.md");
 
     await waitFor(() => expect(mocks.openFile).toHaveBeenCalledWith("/notes/Target.md"));
     expect(mocks.resolveNoteLink).toHaveBeenCalledWith(FROM, "Target.md");
@@ -182,7 +182,7 @@ describe("a preview link to a note", () => {
     });
     mocks.noteHeadingLine.mockResolvedValue(9);
     const { container, frame } = await mountPreview();
-    sendLinkOpen(frame, "writ-note:Other.md#later-part");
+    sendLinkOpen(frame, "jotra-note:Other.md#later-part");
 
     await waitFor(() =>
       expect(
@@ -202,7 +202,7 @@ describe("a preview link to a note", () => {
       heading_line: null,
     });
     const { container, frame } = await mountPreview();
-    sendLinkOpen(frame, "writ-note:.obsidian/workspace.json");
+    sendLinkOpen(frame, "jotra-note:.obsidian/workspace.json");
 
     await waitFor(() => expect(container.querySelectorAll(".link-confirm")).toHaveLength(1));
     expect(mocks.openFile).not.toHaveBeenCalled();

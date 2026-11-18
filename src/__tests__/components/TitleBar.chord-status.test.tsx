@@ -96,7 +96,7 @@ describe("the titlebar keycap for the window's chord", () => {
     cleanup();
   });
 
-  it("shows the chord plainly while Writ holds it", () => {
+  it("shows the chord plainly while Jotra holds it", () => {
     const { container } = render(() => <TitleBar />);
     expect(chip(container).tagName).toBe("DIV");
     expect(chip(container).querySelector(".kbd-chord-muted")).toBeNull();
@@ -132,7 +132,7 @@ describe("the titlebar keycap for the window's chord", () => {
     const button = chip(container);
     expect(button.dataset.state).toBe("unsupported");
     expect(button.getAttribute("aria-label")).toBe(
-      "Wayland doesn't pass this shortcut to Writ from other apps.",
+      "Wayland doesn't pass this shortcut to Jotra from other apps.",
     );
     fireEvent.click(button);
     expect(h.openWindowChordSetting).toHaveBeenCalledWith(false);

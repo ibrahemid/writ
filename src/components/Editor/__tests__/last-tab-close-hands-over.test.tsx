@@ -60,7 +60,7 @@ async function flush(count = 30): Promise<void> {
  * is a `Show` over the active buffer, the same shape `PreviewLayout` uses, and
  * the close is performed in the order `closeTab` performs it.
  */
-describe("closing the last tab of a note whose file changed outside Writ", () => {
+describe("closing the last tab of a note whose file changed outside Jotra", () => {
   beforeEach(async () => {
     const { resetAutosave } = await import("../../../services/autosave");
     resetAutosave();
@@ -80,7 +80,7 @@ describe("closing the last tab of a note whose file changed outside Writ", () =>
     );
     const { recordUnsavedNotes } = await import("../../../services/tauri");
 
-    bufferContent.set("A", "as Writ opened it");
+    bufferContent.set("A", "as Jotra opened it");
     let win: ReturnType<typeof useWindow> | null = null;
     function Probe() {
       win = useWindow();
@@ -116,14 +116,14 @@ describe("closing the last tab of a note whose file changed outside Writ", () =>
     const flushed = await win!.editor.flushAutosave("A");
     expect(flushed.ok).toBe(true);
     expect(collectUnsavedContent()).toEqual([
-      { id: "A", content: "as Writ opened it plus my unsaved work" },
+      { id: "A", content: "as Jotra opened it plus my unsaved work" },
     ]);
 
     win!.editor.noteClosed("A");
     await keepUnsavedForRecovery("A");
 
     expect(vi.mocked(recordUnsavedNotes)).toHaveBeenCalledWith([
-      { id: "A", content: "as Writ opened it plus my unsaved work" },
+      { id: "A", content: "as Jotra opened it plus my unsaved work" },
     ]);
     expect(bufferContent.get("A")).toBe("written by another program");
   });
@@ -135,7 +135,7 @@ describe("closing the last tab of a note whose file changed outside Writ", () =>
     const { keepUnsavedForRecovery } = await import("../../../services/autosave");
     const { recordUnsavedNotes } = await import("../../../services/tauri");
 
-    bufferContent.set("A", "as Writ opened it");
+    bufferContent.set("A", "as Jotra opened it");
     let win: ReturnType<typeof useWindow> | null = null;
     function Probe() {
       win = useWindow();
@@ -169,7 +169,7 @@ describe("closing the last tab of a note whose file changed outside Writ", () =>
     await keepUnsavedForRecovery("A");
 
     expect(vi.mocked(recordUnsavedNotes)).toHaveBeenCalledWith([
-      { id: "A", content: "as Writ opened it typed after it went" },
+      { id: "A", content: "as Jotra opened it typed after it went" },
     ]);
   });
 
@@ -183,7 +183,7 @@ describe("closing the last tab of a note whose file changed outside Writ", () =>
     );
     const { recordUnsavedNotes } = await import("../../../services/tauri");
 
-    bufferContent.set("A", "as Writ opened it");
+    bufferContent.set("A", "as Jotra opened it");
     let win: ReturnType<typeof useWindow> | null = null;
     function Probe() {
       win = useWindow();
@@ -214,7 +214,7 @@ describe("closing the last tab of a note whose file changed outside Writ", () =>
 
     const flushed = await win!.editor.flushAutosave("A");
     expect(flushed.ok).toBe(true);
-    expect(bufferContent.get("A")).toBe("as Writ opened it and my last words");
+    expect(bufferContent.get("A")).toBe("as Jotra opened it and my last words");
     expect(peekUnsavedContent("A")).toBeUndefined();
 
     win!.editor.noteClosed("A");

@@ -15,7 +15,7 @@ interface Props {
 }
 
 // The editor pane for a note whose file is not in the editor: a read that
-// failed, or a file Writ has not read because of its size. There is no
+// failed, or a file Jotra has not read because of its size. There is no
 // document behind it, so nothing typed here can be saved over the file.
 export default function NoteReadFailure(props: Props) {
   return (

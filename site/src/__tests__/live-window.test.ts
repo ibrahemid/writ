@@ -12,14 +12,14 @@ describe('the live window', () => {
   });
 
   it('loads the app only once the page is idle and the column is at the large breakpoint', () => {
-    expect(COMPONENT).toContain("getPropertyValue('--writ-site-bp-lg')");
+    expect(COMPONENT).toContain("getPropertyValue('--jotra-site-bp-lg')");
     expect(COMPONENT).toContain('requestIdleCallback');
     expect(COMPONENT).toContain("frame.src = '/demo/'");
   });
 
   it('shows the app only when it says it is ready, from its own window and origin', () => {
     expect(COMPONENT).toContain('if (!isFrameMessage(event, frame.contentWindow, location.origin)) return;');
-    expect(COMPONENT).toContain("'writ-demo-ready'");
+    expect(COMPONENT).toContain("'jotra-demo-ready'");
     expect(CSS).toContain('.live-window.is-live .live-frame {\n  opacity: 1;');
   });
 
@@ -41,15 +41,15 @@ describe('the live window', () => {
     expect(COMPONENT).toContain("const camera = root.querySelector<HTMLElement>('[data-live-camera]') ?? root;");
     expect(COMPONENT).toContain('camera.append(frame);');
     expect(COMPONENT).not.toContain('root.append(frame)');
-    expect(CSS).toMatch(/\[data-writ-tour\] \.stage\[data-anchor="bottom"\] \.live-camera \{\n  transform: translateY\(min\(0%, /);
+    expect(CSS).toMatch(/\[data-jotra-tour\] \.stage\[data-anchor="bottom"\] \.live-camera \{\n  transform: translateY\(min\(0%, /);
     expect(CSS).not.toMatch(/\.live-frame[^{]*\{[^}]*translate/);
   });
 
   it('starts the tour and hands it the ready and engaged messages', () => {
     expect(COMPONENT).toContain("import { isFrameMessage, readFrameMessage, startTour, type Tour } from '../scripts/tour';");
     expect(COMPONENT).toContain('startTour(host, bp, {');
-    expect(COMPONENT).toMatch(/tour\?\.connectFrame\(\(name\) => frame\.contentWindow\?\.postMessage\(\{ type: 'writ-demo-scene', name \}, location\.origin\)\)/);
-    expect(COMPONENT).toContain("message.type === 'writ-demo-engaged'");
+    expect(COMPONENT).toMatch(/tour\?\.connectFrame\(\(name\) => frame\.contentWindow\?\.postMessage\(\{ type: 'jotra-demo-scene', name \}, location\.origin\)\)/);
+    expect(COMPONENT).toContain("message.type === 'jotra-demo-engaged'");
     expect(COMPONENT).toContain('tour?.markEngaged();');
   });
 

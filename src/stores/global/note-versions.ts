@@ -24,7 +24,7 @@ export interface UndoableRestore {
   note: string;
 }
 
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 
 const [path, setPath] = createSignal<string | null>(null);
 const [versions, setVersions] = createSignal<NoteVersion[]>([]);

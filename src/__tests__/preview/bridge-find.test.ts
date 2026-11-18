@@ -32,7 +32,7 @@ function runWithDom(bodyHtml: string) {
   const fn = new Function("window", "document", "self", "parent", BRIDGE_SRC);
   fn(win, document, win, parentWin);
   function down(msg: Record<string, unknown>) {
-    handlers.message?.({ data: { source: "writ-preview", dir: "down", ...msg } });
+    handlers.message?.({ data: { source: "jotra-preview", dir: "down", ...msg } });
   }
   return {
     posted,
@@ -52,8 +52,8 @@ function runWithDom(bodyHtml: string) {
       const results = posted.filter((m) => m.type === "findResult");
       return results[results.length - 1] as FindResult | undefined;
     },
-    marks: () => document.querySelectorAll("mark.writ-find"),
-    currentMarks: () => document.querySelectorAll("mark.writ-find-current"),
+    marks: () => document.querySelectorAll("mark.jotra-find"),
+    currentMarks: () => document.querySelectorAll("mark.jotra-find-current"),
   };
 }
 

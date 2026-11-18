@@ -293,7 +293,7 @@ export function createFindController(
 
 export type FindController = ReturnType<typeof createFindController>;
 
-// Singleton state — Writ is single-window. Find targets the preview when a
+// Singleton state — Jotra is single-window. Find targets the preview when a
 // renderable buffer is shown preview-only (the editor is hidden), otherwise the
 // active editor view. The preview pane registers/unregisters its search
 // controller as that condition flips.

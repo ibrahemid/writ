@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createSignal, type Accessor } from "solid-js";
 import { render, cleanup } from "@solidjs/testing-library";
 import { configStore } from "../../stores/global/config";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 import type { BufferDocument } from "../../types/buffer";
 
 const mocks = vi.hoisted(() => ({
@@ -51,7 +51,7 @@ vi.spyOn(configStore, "config").mockImplementation(mocks.config);
 import EditorArea from "../../components/Editor/EditorArea";
 import { findStore } from "../../stores/global/find-store";
 
-function configWith(statusBar: boolean): WritConfig {
+function configWith(statusBar: boolean): JotraConfig {
   return {
     hotkey: { toggle: "" },
     sidebar: { toggle: "", default_visible: false, position: "left", open: true, width: 240, collapsed: [], hidden: [] },
@@ -142,9 +142,9 @@ describe("EditorArea", () => {
   it("gives the toast stack its clearance from the root, since it is not a child", () => {
     const root = document.documentElement;
     const { unmount } = render(() => <EditorArea />);
-    expect(root.style.getPropertyValue("--writ-toast-bottom")).toBe("var(--writ-space-5)");
+    expect(root.style.getPropertyValue("--jotra-toast-bottom")).toBe("var(--jotra-space-5)");
     unmount();
-    expect(root.style.getPropertyValue("--writ-toast-bottom")).toBe("");
+    expect(root.style.getPropertyValue("--jotra-toast-bottom")).toBe("");
   });
 
   // The bar's height is a floor: a larger interface text makes it taller than
@@ -152,13 +152,13 @@ describe("EditorArea", () => {
   it("raises the toast clearance over the status bar when the bar is on", () => {
     mocks.config.mockReturnValue(configWith(true));
     render(() => <EditorArea />);
-    expect(document.documentElement.style.getPropertyValue("--writ-toast-bottom")).toBe(
-      "calc(var(--writ-statusbar-height) + var(--writ-space-4))",
+    expect(document.documentElement.style.getPropertyValue("--jotra-toast-bottom")).toBe(
+      "calc(var(--jotra-statusbar-height) + var(--jotra-space-4))",
     );
   });
 
   it("keeps the preview pane mounted in both states", () => {
-    // #124: removing a loaded writ-preview:// iframe freezes the webview, so
+    // #124: removing a loaded jotra-preview:// iframe freezes the webview, so
     // the pane is never behind a Show.
     for (const statusBar of [false, true]) {
       mocks.config.mockReturnValue(configWith(statusBar));

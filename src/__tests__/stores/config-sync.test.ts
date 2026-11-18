@@ -15,7 +15,7 @@ import { syncConfigFromDisk } from "../../stores/global/config-sync";
 import { configStore } from "../../stores/global/config";
 import { themeStore } from "../../stores/global/theme";
 import { getConfig, updateConfig } from "../../services/tauri";
-import type { AppearanceConfig, WritConfig } from "../../types/config";
+import type { AppearanceConfig, JotraConfig } from "../../types/config";
 import type { ThemeConfig } from "../../types/theme";
 
 const mockedGetConfig = vi.mocked(getConfig);
@@ -23,8 +23,8 @@ const mockedUpdateConfig = vi.mocked(updateConfig);
 
 // The fields this file asserts on; the rest are filled by the store's own
 // normalization, as in config-failure.test.ts.
-function storedConfig(theme: ThemeConfig, appearance: AppearanceConfig): WritConfig {
-  return { theme, appearance } as unknown as WritConfig;
+function storedConfig(theme: ThemeConfig, appearance: AppearanceConfig): JotraConfig {
+  return { theme, appearance } as unknown as JotraConfig;
 }
 
 // Deliberately none of DEFAULT_CONFIG's values: a failed load falls back to
@@ -78,7 +78,7 @@ describe("syncConfigFromDisk", () => {
     });
 
     const calls = mockedUpdateConfig.mock.calls;
-    const written = calls[calls.length - 1][0] as WritConfig;
+    const written = calls[calls.length - 1][0] as JotraConfig;
     expect(written.appearance.accent).toBe("plum");
     expect(written.theme.preset).toBe("writ-light");
   });

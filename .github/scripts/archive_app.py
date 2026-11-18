@@ -6,8 +6,8 @@ as the new bundle, so the archive holds exactly one top-level directory, the
 .app, with no AppleDouble or extended-attribute entries beside it.
 
 Run from the repository root:
-    python3 .github/scripts/archive_app.py create path/to/Writ.app Writ_0.6.0_universal.app.tar.gz
-    python3 .github/scripts/archive_app.py check Writ_0.6.0_universal.app.tar.gz Writ.app
+    python3 .github/scripts/archive_app.py create path/to/Jotra.app Jotra_0.6.0_universal.app.tar.gz
+    python3 .github/scripts/archive_app.py check Jotra_0.6.0_universal.app.tar.gz Jotra.app
 """
 from __future__ import annotations
 

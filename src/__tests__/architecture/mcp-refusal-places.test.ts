@@ -6,12 +6,12 @@ import { SECTION_LABELS, SETTINGS_INDEX } from "../../settings";
 import { APPS } from "../../lib/apps";
 import { APP_REGISTRATIONS } from "../commands/app-registrations";
 
-const TOOLS_RS = readFileSync(resolve(process.cwd(), "crates/writ-mcp/src/tools.rs"), "utf8");
+const TOOLS_RS = readFileSync(resolve(process.cwd(), "crates/jotra-mcp/src/tools.rs"), "utf8");
 
 function refusalContaining(marker: string): string {
   const texts = [...TOOLS_RS.matchAll(/#\[error\(\s*"([^"]*)"/g)].map((match) => match[1]!);
   const found = texts.filter((text) => text.includes(marker));
-  expect(found, `one refusal in crates/writ-mcp/src/tools.rs says "${marker}"`).toHaveLength(1);
+  expect(found, `one refusal in crates/jotra-mcp/src/tools.rs says "${marker}"`).toHaveLength(1);
   return found[0]!;
 }
 
@@ -28,7 +28,7 @@ const SETTINGS = APP_REGISTRATIONS.get("settings.open")?.label;
 const PROGRAMS = APPS.find((app) => app.id === "programs")?.label;
 const WAITING = SETTINGS_INDEX.find((entry) => entry.id === "mcp.waiting");
 
-describe("a refusal sends the person to a place Writ has", () => {
+describe("a refusal sends the person to a place Jotra has", () => {
   it("reads the names it checks against", () => {
     expect(SETTINGS).toBe("Settings");
     expect(PROGRAMS).toBe("Connected programs");
@@ -38,7 +38,7 @@ describe("a refusal sends the person to a place Writ has", () => {
 
   it("the waiting refusal names the list that holds the approve control", () => {
     const text = refusalContaining("is waiting for approval");
-    expect(placeAfter(text, "in Writ, under ")).toEqual([
+    expect(placeAfter(text, "in Jotra, under ")).toEqual([
       SETTINGS,
       SECTION_LABELS.apps,
       PROGRAMS,
@@ -47,18 +47,18 @@ describe("a refusal sends the person to a place Writ has", () => {
   });
 
   it("the off refusal names the app and where its switch is", () => {
-    const text = refusalContaining("is off in Writ");
-    expect(text.startsWith(`${PROGRAMS} is off in Writ.`)).toBe(true);
+    const text = refusalContaining("is off in Jotra");
+    expect(text.startsWith(`${PROGRAMS} is off in Jotra.`)).toBe(true);
     expect(placeAfter(text, "Turn it on in ")).toEqual([SETTINGS, SECTION_LABELS.apps]);
   });
 
   it("the not-allowed refusal names where the switches are", () => {
-    const text = refusalContaining("files in Writ. Allow it in");
+    const text = refusalContaining("files in Jotra. Allow it in");
     expect(placeAfter(text, "Allow it in ")).toEqual([SETTINGS, SECTION_LABELS.apps, PROGRAMS]);
   });
 
   it("the open-file refusal names its switch and where it is", () => {
-    const text = refusalContaining("see the file open in Writ");
+    const text = refusalContaining("see the file open in Jotra");
     expect(placeAfter(text, "Turn on Open file for it in ")).toEqual([
       SETTINGS,
       SECTION_LABELS.apps,

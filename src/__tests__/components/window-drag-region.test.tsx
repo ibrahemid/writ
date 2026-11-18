@@ -99,8 +99,8 @@ afterEach(() => {
 });
 
 const BARE_CHROME: Array<[string, () => JSX.Element, string]> = [
-  ["the toolbar's own surface", () => <Toolbar />, ".writ-toolbar"],
-  ["the gap the toolbar divider sits in", () => <Toolbar />, ".writ-toolbar-divider"],
+  ["the toolbar's own surface", () => <Toolbar />, ".jotra-toolbar"],
+  ["the gap the toolbar divider sits in", () => <Toolbar />, ".jotra-toolbar-divider"],
   ["the sidebar head", () => <Sidebar />, ".sidebar-head"],
   ["the lights layer", () => <WindowLights />, ".window-lights-layer"],
   ["the gaps in the lights row", () => <WindowLights />, ".window-lights-layer > .window-lights"],
@@ -109,8 +109,8 @@ const BARE_CHROME: Array<[string, () => JSX.Element, string]> = [
 describe("the macOS top chrome acts as the window's title bar", () => {
   // Tauri's drag script answers any region carrying the attribute. Its
   // double-click never maximizes an undecorated macOS window, and next to
-  // Writ's own handler it would answer the same gesture a second time.
-  it("leaves the gesture to Writ alone: no Tauri drag region remains", () => {
+  // Jotra's own handler it would answer the same gesture a second time.
+  it("leaves the gesture to Jotra alone: no Tauri drag region remains", () => {
     h.sidebarOpen = false;
     for (const view of [() => <Toolbar />, () => <Sidebar />, () => <WindowLights />]) {
       const { container } = render(view);
@@ -138,19 +138,19 @@ describe("the macOS top chrome acts as the window's title bar", () => {
 
   it("a double-click whose second press travels is not one", () => {
     const { container } = render(() => <Toolbar />);
-    doubleClick(pick(container, ".writ-toolbar"), { x: AT.x + 12, y: AT.y });
+    doubleClick(pick(container, ".jotra-toolbar"), { x: AT.x + 12, y: AT.y });
     expect(h.titleBarDoubleClick).not.toHaveBeenCalled();
   });
 
   it("a dblclick without a second press on the chrome is not one", () => {
     const { container } = render(() => <Toolbar />);
-    fireEvent.dblClick(pick(container, ".writ-toolbar"), { button: 0, detail: 2 });
+    fireEvent.dblClick(pick(container, ".jotra-toolbar"), { button: 0, detail: 2 });
     expect(h.titleBarDoubleClick).not.toHaveBeenCalled();
   });
 
   it("a right-button press neither drags nor counts", () => {
     const { container } = render(() => <Toolbar />);
-    fireEvent.mouseDown(pick(container, ".writ-toolbar"), { button: 2, detail: 1 });
+    fireEvent.mouseDown(pick(container, ".jotra-toolbar"), { button: 2, detail: 1 });
     expect(h.startDragging).not.toHaveBeenCalled();
   });
 
@@ -189,7 +189,7 @@ describe("the macOS top chrome acts as the window's title bar", () => {
   it.each(["win", "linux"] as const)("leaves the %s toolbar to its own title bar", (p) => {
     h.platform = p;
     const { container } = render(() => <Toolbar />);
-    doubleClick(pick(container, ".writ-toolbar"));
+    doubleClick(pick(container, ".jotra-toolbar"));
     expect(h.startDragging).not.toHaveBeenCalled();
     expect(h.titleBarDoubleClick).not.toHaveBeenCalled();
   });

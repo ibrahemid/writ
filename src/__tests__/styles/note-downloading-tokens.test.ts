@@ -18,13 +18,13 @@ const SHEET_CSS = readFileSync(resolve(ROOT, SHEET), "utf8");
 
 function declaredNames(css: string): Set<string> {
   const names = new Set<string>();
-  for (const [, name] of css.matchAll(/^\s*(--writ-[a-z0-9-]+)\s*:/gm)) names.add(name);
+  for (const [, name] of css.matchAll(/^\s*(--jotra-[a-z0-9-]+)\s*:/gm)) names.add(name);
   return names;
 }
 
 function readNames(css: string): string[] {
   const names = new Set<string>();
-  for (const [, name] of css.matchAll(/var\(\s*(--writ-[a-z0-9-]+)/g)) names.add(name);
+  for (const [, name] of css.matchAll(/var\(\s*(--jotra-[a-z0-9-]+)/g)) names.add(name);
   return [...names].sort();
 }
 
@@ -47,12 +47,12 @@ describe("the download pane's stylesheet", () => {
     // The names actually in use, so a silent swap back to a literal or onto a
     // property from another layer shows up here.
     expect(readNames(SHEET_CSS)).toEqual([
-      "--writ-bg-canvas",
-      "--writ-fg",
-      "--writ-space-3",
-      "--writ-space-4",
-      "--writ-status-error",
-      "--writ-ui-sm",
+      "--jotra-bg-canvas",
+      "--jotra-fg",
+      "--jotra-space-3",
+      "--jotra-space-4",
+      "--jotra-status-error",
+      "--jotra-ui-sm",
     ]);
   });
 });

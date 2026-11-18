@@ -5,7 +5,7 @@ import { join, relative, resolve } from "node:path";
 const SRC = resolve(process.cwd(), "src");
 
 // The digest of a note's file has one author: Rust, which read the file
-// (`writ_core::hash::comparison_digest_hex`). The frontend could compute one
+// (`jotra_core::hash::comparison_digest_hex`). The frontend could compute one
 // that agrees — both sides normalise line endings the same way — and that is
 // exactly why this has to be a rule rather than a habit: the moment the two
 // can drift, the dirty predicate rests on a number whose author nobody knows,

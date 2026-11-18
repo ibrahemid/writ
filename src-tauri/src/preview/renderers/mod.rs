@@ -12,8 +12,8 @@
 
 use std::sync::Arc;
 
-use writ_core::preview::{ContentRendererRegistry, RegisterError};
-use writ_storage::notes_index::NotesIndexStore;
+use jotra_core::preview::{ContentRendererRegistry, RegisterError};
+use jotra_storage::notes_index::NotesIndexStore;
 
 pub mod html;
 pub mod katex;
@@ -46,14 +46,14 @@ pub fn register_builtins(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use writ_core::preview::ContentTypeId;
+    use jotra_core::preview::ContentTypeId;
 
     #[test]
     fn register_builtins_registers_all_renderers() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let db_path = dir.path().join("writ.db");
-        let conn = writ_storage::database::connection::open_database(&db_path).expect("open");
-        writ_storage::database::migrations::run_migrations(&conn).expect("migrations");
+        let db_path = dir.path().join("jotra.db");
+        let conn = jotra_storage::database::connection::open_database(&db_path).expect("open");
+        jotra_storage::database::migrations::run_migrations(&conn).expect("migrations");
         drop(conn);
         let index = Arc::new(NotesIndexStore::open(&db_path).expect("index"));
         let mut reg = ContentRendererRegistry::new();

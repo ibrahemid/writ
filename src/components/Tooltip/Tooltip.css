@@ -1,27 +1,27 @@
-.writ-tooltip-anchor {
+.jotra-tooltip-anchor {
   display: inline-flex;
   align-items: center;
 }
 
-.writ-tooltip {
+.jotra-tooltip {
   position: fixed;
-  background: var(--writ-bg-sunken);
-  color: var(--writ-fg);
+  background: var(--jotra-bg-sunken);
+  color: var(--jotra-fg);
   /* Only Windows names a tooltip radius; elsewhere a tip is a popover. */
-  border-radius: var(--writ-r-tooltip, var(--writ-r-popover));
+  border-radius: var(--jotra-r-tooltip, var(--jotra-r-popover));
   padding: 5px 9px;
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
   white-space: nowrap;
   pointer-events: none;
-  box-shadow: var(--writ-shadow-popover);
-  z-index: var(--writ-z-popover);
+  box-shadow: var(--jotra-shadow-popover);
+  z-index: var(--jotra-z-popover);
 }
 
-.writ-tooltip-kbd {
-  color: var(--writ-fg-muted);
+.jotra-tooltip-kbd {
+  color: var(--jotra-fg-muted);
 }
 
-:root[data-theme="dark"] .writ-tooltip {
-  background: var(--writ-bg-raised);
+:root[data-theme="dark"] .jotra-tooltip {
+  background: var(--jotra-bg-raised);
 }

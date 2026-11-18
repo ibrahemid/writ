@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 import { readImageFolder } from "../../lib/image-folder";
 
-// The other half is crates/writ-core/tests/image_folder_cases.rs, reading this
+// The other half is crates/jotra-core/tests/image_folder_cases.rs, reading this
 // same file: a folder the settings field accepts is one the host saves into.
 interface FixtureCase {
   value: string;
@@ -14,7 +14,7 @@ interface FixtureCase {
 
 const cases: FixtureCase[] = JSON.parse(
   readFileSync(
-    resolve(__dirname, "../../../crates/writ-core/tests/fixtures/image-folders.json"),
+    resolve(__dirname, "../../../crates/jotra-core/tests/fixtures/image-folders.json"),
     "utf8",
   ),
 ).cases;

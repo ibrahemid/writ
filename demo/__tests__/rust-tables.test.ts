@@ -53,9 +53,9 @@ function productConstant(source: string, name: string): number | undefined {
 }
 
 describe("the demo's copies of Rust tables", () => {
-  const providers = providerTable(rust("crates/writ-core/src/ai/providers.rs"));
+  const providers = providerTable(rust("crates/jotra-core/src/ai/providers.rs"));
 
-  it("lists the providers writ_core::ai::providers lists, in its order", () => {
+  it("lists the providers jotra_core::ai::providers lists, in its order", () => {
     expect(PROVIDERS.map((row) => row.id)).toEqual(fields(providers, "id"));
   });
 
@@ -79,15 +79,15 @@ describe("the demo's copies of Rust tables", () => {
     expect(PROVIDERS.map((row) => row.needs_key)).toEqual(needsKey);
   });
 
-  it("offers the tools writ_core::tools offers", () => {
-    const tools = rust("crates/writ-core/src/tools.rs");
+  it("offers the tools jotra_core::tools offers", () => {
+    const tools = rust("crates/jotra-core/src/tools.rs");
     expect(MCP_TOOLS.read).toEqual(list(tools, "READ_TOOLS"));
     expect(MCP_TOOLS.write).toEqual(list(tools, "WRITE_TOOLS"));
     expect(MCP_TOOLS.context).toEqual(list(tools, "CONTEXT_TOOLS"));
   });
 
-  it("opens in the tiers writ_core::file_ops sets", () => {
-    const fileOps = rust("crates/writ-core/src/file_ops.rs");
+  it("opens in the tiers jotra_core::file_ops sets", () => {
+    const fileOps = rust("crates/jotra-core/src/file_ops.rs");
     expect(productConstant(fileOps, "THRESHOLD_NORMAL_BYTES")).toBe(THRESHOLD_NORMAL_BYTES);
     expect(productConstant(fileOps, "THRESHOLD_LARGE_BYTES")).toBe(THRESHOLD_LARGE_BYTES);
     expect(productConstant(fileOps, "THRESHOLD_MAX_BYTES")).toBe(THRESHOLD_MAX_BYTES);
@@ -97,8 +97,8 @@ describe("the demo's copies of Rust tables", () => {
   });
 
   it("refuses in the sentences the Rust commands use", () => {
-    const notes = rust("crates/writ-core/src/notes/mod.rs");
-    const chat = rust("crates/writ-ai/src/chat.rs");
+    const notes = rust("crates/jotra-core/src/notes/mod.rs");
+    const chat = rust("crates/jotra-ai/src/chat.rs");
     expect(stringConstant(notes, "NAME_IS_EMPTY")).toBe(NAME_IS_EMPTY);
     expect(stringConstant(chat, "MISSING_CONVERSATION")).toBe(MISSING_CONVERSATION);
     expect(numberConstant(chat, "MAX_ATTACHED_NOTES")).toBe(MAX_ATTACHED_NOTES);

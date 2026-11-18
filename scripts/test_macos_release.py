@@ -119,13 +119,13 @@ exit 0
 """
 
 
-def write_app(root: pathlib.Path, name: str = "Writ.app", executable: str = "writ-tauri") -> pathlib.Path:
+def write_app(root: pathlib.Path, name: str = "Jotra.app", executable: str = "jotra-tauri") -> pathlib.Path:
     app = root / name
     (app / "Contents" / "MacOS").mkdir(parents=True)
     (app / "Contents" / "Resources").mkdir()
     with (app / "Contents" / "Info.plist").open("wb") as handle:
         plistlib.dump({"CFBundleExecutable": executable, "CFBundleIdentifier": "com.writ.editor"}, handle)
-    for binary in (executable, "writ"):
+    for binary in (executable, "jotra"):
         path = app / "Contents" / "MacOS" / binary
         path.write_bytes(b"\xcf\xfa\xed\xfe")
         path.chmod(0o755)
@@ -135,7 +135,7 @@ def write_app(root: pathlib.Path, name: str = "Writ.app", executable: str = "wri
 
 class StubbedToolsTest(unittest.TestCase):
     def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory(prefix="writ-macos-release-test-")
+        tmp = tempfile.TemporaryDirectory(prefix="jotra-macos-release-test-")
         self.addCleanup(tmp.cleanup)
         self.root = pathlib.Path(tmp.name)
         self.stubs = self.root / "stubs"
@@ -188,7 +188,7 @@ class SignAppTests(StubbedToolsTest):
         self.assertEqual(
             signing,
             [
-                ["codesign", *flags, str(app / "Contents" / "MacOS" / "writ")],
+                ["codesign", *flags, str(app / "Contents" / "MacOS" / "jotra")],
                 ["codesign", *flags, "--entitlements", str(ENTITLEMENTS), str(app)],
             ],
         )
@@ -199,7 +199,7 @@ class SignAppTests(StubbedToolsTest):
         app = write_app(self.root)
         self.run_script("sign-app", str(app), IDENTITY)
         signed = [call[-1] for call in self.calls() if call[0] == "codesign" and "--sign" in call]
-        self.assertNotIn(str(app / "Contents" / "MacOS" / "writ-tauri"), signed)
+        self.assertNotIn(str(app / "Contents" / "MacOS" / "jotra-tauri"), signed)
 
     def test_the_microphone_entitlement_goes_to_the_app_and_not_the_cli(self) -> None:
         app = write_app(self.root)
@@ -207,7 +207,7 @@ class SignAppTests(StubbedToolsTest):
         self.assertEqual(result.returncode, 0, result.stderr)
         signing = {call[-1]: call for call in self.calls() if call[0] == "codesign" and "--sign" in call}
         self.assertIn("--entitlements", signing[str(app)])
-        self.assertNotIn("--entitlements", signing[str(app / "Contents" / "MacOS" / "writ")])
+        self.assertNotIn("--entitlements", signing[str(app / "Contents" / "MacOS" / "jotra")])
         with ENTITLEMENTS.open("rb") as handle:
             self.assertEqual(plistlib.load(handle), {"com.apple.security.device.audio-input": True})
 
@@ -264,7 +264,7 @@ class NotarizeTests(StubbedToolsTest):
         self.assertEqual(calls[-2:], [["xcrun", "stapler", "staple", str(app)], ["xcrun", "stapler", "validate", str(app)]])
 
     def test_a_pkg_is_submitted_as_it_is(self) -> None:
-        pkg = self.root / "Writ_0.6.0_universal.pkg"
+        pkg = self.root / "Jotra_0.6.0_universal.pkg"
         pkg.write_bytes(b"pkg")
         result = self.run_script("notarize", str(pkg), **self.CREDENTIALS)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -273,7 +273,7 @@ class NotarizeTests(StubbedToolsTest):
         self.assertFalse(any(call[0] == "ditto" for call in self.calls()))
 
     def test_a_rejected_submission_fetches_the_log_and_staples_nothing(self) -> None:
-        pkg = self.root / "Writ_0.6.0_universal.pkg"
+        pkg = self.root / "Jotra_0.6.0_universal.pkg"
         pkg.write_bytes(b"pkg")
         result = self.run_script("notarize", str(pkg), NOTARY_STATUS="Invalid", **self.CREDENTIALS)
         self.assertEqual(result.returncode, 1)
@@ -283,7 +283,7 @@ class NotarizeTests(StubbedToolsTest):
         self.assertFalse(any(call[:2] == ["xcrun", "stapler"] for call in calls))
 
     def test_missing_credentials_stop_before_any_submission(self) -> None:
-        pkg = self.root / "Writ_0.6.0_universal.pkg"
+        pkg = self.root / "Jotra_0.6.0_universal.pkg"
         pkg.write_bytes(b"pkg")
         result = self.run_script("notarize", str(pkg), APPLE_ID="dev@example.com")
         self.assertNotEqual(result.returncode, 0)
@@ -299,7 +299,7 @@ class RepackStubTests(StubbedToolsTest):
         out = self.root / "out.dmg"
         result = self.run_script("repack-dmg", str(built), str(app), str(out))
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("holds no Writ.app", result.stderr)
+        self.assertIn("holds no Jotra.app", result.stderr)
         verbs = [call[1] for call in self.calls() if call[0] == "hdiutil"]
         self.assertEqual(verbs[:2], ["convert", "attach"])
         self.assertIn("detach", verbs)
@@ -331,7 +331,7 @@ class DetachStubTests(StubbedToolsTest):
         self.image.write_bytes(b"dmg")
 
     def extract(self, **env: str) -> subprocess.CompletedProcess[str]:
-        return self.run_script("extract-app", str(self.image), str(self.root / "out" / "Writ.app"), DMG_APP="Writ.app", **env)
+        return self.run_script("extract-app", str(self.image), str(self.root / "out" / "Jotra.app"), DMG_APP="Jotra.app", **env)
 
     def detach_targets(self) -> list[str]:
         return [call[2] for call in self.calls() if call[:2] == ["hdiutil", "detach"]]
@@ -364,7 +364,7 @@ class DiskImageTests(unittest.TestCase):
     """Real hdiutil and codesign runs on a bundle built from /usr/bin/true."""
 
     def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory(prefix="writ-dmg-test-")
+        tmp = tempfile.TemporaryDirectory(prefix="jotra-dmg-test-")
         self.addCleanup(tmp.cleanup)
         self.root = pathlib.Path(tmp.name)
         self.addCleanup(self.detach_images_under_root)
@@ -398,17 +398,17 @@ class DiskImageTests(unittest.TestCase):
         self.assertEqual(self.attached_under_root(), [], "disk images from this test are still attached")
 
     def bundle(self, folder: str, marker: str) -> pathlib.Path:
-        app = self.root / folder / "Writ.app"
+        app = self.root / folder / "Jotra.app"
         (app / "Contents" / "MacOS").mkdir(parents=True)
         (app / "Contents" / "Resources").mkdir()
-        for name in ("writ-tauri", "writ"):
+        for name in ("jotra-tauri", "jotra"):
             executable = app / "Contents" / "MacOS" / name
             shutil.copyfile("/usr/bin/true", executable)
             executable.chmod(0o755)
         with (app / "Contents" / "Info.plist").open("wb") as handle:
             plistlib.dump(
                 {
-                    "CFBundleExecutable": "writ-tauri",
+                    "CFBundleExecutable": "jotra-tauri",
                     "CFBundleIdentifier": "com.writ.editor.test",
                     "CFBundlePackageType": "APPL",
                 },
@@ -435,14 +435,14 @@ class DiskImageTests(unittest.TestCase):
         """
         source = self.root / "image-root"
         source.mkdir()
-        shutil.copytree(self.bundle("unsigned", "build"), source / "Writ.app", symlinks=True)
+        shutil.copytree(self.bundle("unsigned", "build"), source / "Jotra.app", symlinks=True)
         (source / "Applications").symlink_to("/Applications")
         (source / ".VolumeIcon.icns").write_bytes(b"icns")
         (source / ".background").mkdir()
         (source / ".background" / "backdrop.png").write_bytes(b"png")
-        image = self.root / "Writ_0.6.0_universal.dmg"
+        image = self.root / "Jotra_0.6.0_universal.dmg"
         subprocess.run(
-            ["hdiutil", "create", "-quiet", "-volname", "Writ", "-srcfolder", str(source), "-format", "UDZO", str(image)],
+            ["hdiutil", "create", "-quiet", "-volname", "Jotra", "-srcfolder", str(source), "-format", "UDZO", str(image)],
             check=True,
         )
         return image
@@ -451,7 +451,7 @@ class DiskImageTests(unittest.TestCase):
         entries: dict[str, str] = {}
         for path in sorted(mountpoint.rglob("*")):
             relative = path.relative_to(mountpoint)
-            if relative.parts[0] in ("Writ.app", ".fseventsd", ".Trashes", ".Spotlight-V100"):
+            if relative.parts[0] in ("Jotra.app", ".fseventsd", ".Trashes", ".Spotlight-V100"):
                 continue
             if path.is_symlink():
                 entries[str(relative)] = f"link:{os.readlink(path)}"
@@ -480,7 +480,7 @@ class DiskImageTests(unittest.TestCase):
         self.assertEqual(len(self.attached_under_root()), 1)
         self.detach_images_under_root()
         self.assertEqual(self.attached_under_root(), [])
-        self.assertFalse((mountpoint / "Writ.app").exists())
+        self.assertFalse((mountpoint / "Jotra.app").exists())
 
     def test_sign_app_signs_a_real_bundle_with_the_hardened_runtime(self) -> None:
         app = self.bundle("to-sign", "signed")
@@ -492,19 +492,19 @@ class DiskImageTests(unittest.TestCase):
 
     def test_extract_app_copies_the_bundle_out_of_the_image(self) -> None:
         image = self.built_image()
-        dest = self.root / "extracted" / "Writ.app"
+        dest = self.root / "extracted" / "Jotra.app"
         dest.parent.mkdir()
         result = self.run_script("extract-app", str(image), str(dest))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((dest / "Contents" / "Resources" / "marker.txt").read_text(), "build")
-        self.assertTrue(os.access(dest / "Contents" / "MacOS" / "writ-tauri", os.X_OK))
+        self.assertTrue(os.access(dest / "Contents" / "MacOS" / "jotra-tauri", os.X_OK))
 
     def test_repack_swaps_in_the_signed_bundle_and_keeps_the_layout(self) -> None:
         image = self.built_image()
         signed = self.bundle("signed", "signed")
         sign = self.run_script("sign-app", str(signed), "-")
         self.assertEqual(sign.returncode, 0, sign.stderr)
-        out = self.root / "out" / "Writ_0.6.0_universal.dmg"
+        out = self.root / "out" / "Jotra_0.6.0_universal.dmg"
         out.parent.mkdir()
 
         result = self.run_script("repack-dmg", str(image), str(signed), str(out))
@@ -512,8 +512,8 @@ class DiskImageTests(unittest.TestCase):
 
         before = self.outside_the_app(self.mounted(image))
         mountpoint = self.mounted(out)
-        self.assertEqual((mountpoint / "Writ.app" / "Contents" / "Resources" / "marker.txt").read_text(), "signed")
-        self.assertEqual(self.cdhash(mountpoint / "Writ.app"), self.cdhash(signed))
+        self.assertEqual((mountpoint / "Jotra.app" / "Contents" / "Resources" / "marker.txt").read_text(), "signed")
+        self.assertEqual(self.cdhash(mountpoint / "Jotra.app"), self.cdhash(signed))
         self.assertEqual(self.outside_the_app(mountpoint), before)
         self.assertEqual(before["Applications"], "link:/Applications")
         self.assertIn(".VolumeIcon.icns", before)

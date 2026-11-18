@@ -3,14 +3,14 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--writ-bg-canvas);
-  border-radius: var(--writ-r-window);
+  background: var(--jotra-bg-canvas);
+  border-radius: var(--jotra-r-window);
 }
 
 /* Only macOS draws its own edge: Windows carries it on the content layer's
    stroke, and GNOME on the client-side shadow below. */
 :root[data-platform="mac"] .app-container {
-  border: 1px solid var(--writ-border-soft);
+  border: 1px solid var(--jotra-border-soft);
 }
 
 /* A maximized or tiled window meets the screen edge square. */
@@ -24,8 +24,8 @@
    webview edge. Margin rather than padding on the root: the shadow is drawn
    outside the frame's own box. */
 :root[data-platform="linux"] .app-container {
-  box-shadow: var(--writ-shadow-csd);
-  margin: var(--writ-frame-shadow-inset);
+  box-shadow: var(--jotra-shadow-csd);
+  margin: var(--jotra-frame-shadow-inset);
   height: auto;
   flex: 1;
   min-height: 0;
@@ -47,8 +47,8 @@
 
 /* Fluent's content layer: the body sits a hairline inside the caption row. */
 :root[data-platform="win"] .app-body {
-  border-top-left-radius: var(--writ-r-window);
-  box-shadow: inset 1px 1px 0 var(--writ-win-layer-stroke);
+  border-top-left-radius: var(--jotra-r-window);
+  box-shadow: inset 1px 1px 0 var(--jotra-win-layer-stroke);
 }
 
 :root[data-platform="win"] .app-container.is-maximized .app-body {

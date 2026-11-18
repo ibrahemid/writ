@@ -94,7 +94,7 @@ interface SceneRun {
 }
 
 function logSceneFailure(name: SceneName, error: unknown): void {
-  console.error(`[writ-demo] scene "${name}" stopped before its end`, error);
+  console.error(`[jotra-demo] scene "${name}" stopped before its end`, error);
 }
 
 export function createSceneRunner(options: SceneRunnerOptions): ScenePlayer {

@@ -1,13 +1,13 @@
-// writ_storage::note_history under writ_core::note_history's policy, for the
+// jotra_storage::note_history under jotra_core::note_history's policy, for the
 // life of the page: what a write replaced earns an entry when nothing holds it
 // yet, and a run of editor saves inside the merge window is one version
 // holding the last text the run wrote.
 
 import type { NoteVersion } from "../../src/services/tauri";
 
-/** writ_core::note_history::MERGE_WINDOW. */
+/** jotra_core::note_history::MERGE_WINDOW. */
 const MERGE_WINDOW_MS = 10_000;
-/** writ_core::note_history::MAX_NOTE_BYTES. */
+/** jotra_core::note_history::MAX_NOTE_BYTES. */
 const MAX_NOTE_BYTES = 2 * 1024 * 1024;
 
 /** What asked for a write: an editor save joins a run, anything else stands alone. */

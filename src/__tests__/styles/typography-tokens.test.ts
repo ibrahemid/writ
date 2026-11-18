@@ -50,9 +50,9 @@ function extractValues(file: string): string[] {
 
 const ALLOWED_FONT_VALUES = new Set([
   "inherit",
-  "var(--writ-font-ui)",
-  "var(--writ-font-prose)",
-  "var(--writ-font-mono)",
+  "var(--jotra-font-ui)",
+  "var(--jotra-font-prose)",
+  "var(--jotra-font-mono)",
 ]);
 
 function isAllowedValue(value: string): boolean {
@@ -60,23 +60,23 @@ function isAllowedValue(value: string): boolean {
 }
 
 describe("typography tokens", () => {
-  it("the generated sheet declares both --writ-font-ui and --writ-font-mono tokens", () => {
+  it("the generated sheet declares both --jotra-font-ui and --jotra-font-mono tokens", () => {
     const theme = readFileSync(THEME_CSS, "utf8");
-    expect(theme).toMatch(/--writ-font-ui\s*:/);
-    expect(theme).toMatch(/--writ-font-mono\s*:/);
+    expect(theme).toMatch(/--jotra-font-ui\s*:/);
+    expect(theme).toMatch(/--jotra-font-mono\s*:/);
   });
 
   it("the generated sheet declares the alternate prose face", () => {
     const theme = readFileSync(THEME_CSS, "utf8");
-    expect(theme).toMatch(/--writ-font-prose-alt\s*:\s*"iA Writer Quattro S"/);
+    expect(theme).toMatch(/--jotra-font-prose-alt\s*:\s*"iA Writer Quattro S"/);
   });
 
-  it("body resolves to --writ-font-ui", () => {
+  it("body resolves to --jotra-font-ui", () => {
     const global = readFileSync(GLOBAL_CSS, "utf8");
     const bodyBlock = global.match(/html\s*,\s*body\s*\{[^}]*\}/);
     expect(bodyBlock, "expected html,body block in global.css").not.toBeNull();
-    expect(bodyBlock![0]).toContain("font-family: var(--writ-font-ui)");
-    expect(bodyBlock![0]).not.toContain("font-family: var(--writ-font-mono)");
+    expect(bodyBlock![0]).toContain("font-family: var(--jotra-font-ui)");
+    expect(bodyBlock![0]).not.toContain("font-family: var(--jotra-font-mono)");
   });
 
   it("mono token is referenced only in TabItem.css and cm-theme.ts", () => {
@@ -84,7 +84,7 @@ describe("typography tokens", () => {
     const offenders: string[] = [];
     for (const file of files) {
       const values = extractValues(file);
-      const usesMono = values.some((v) => v.includes("--writ-font-mono"));
+      const usesMono = values.some((v) => v.includes("--jotra-font-mono"));
       if (usesMono && !MONO_ALLOWED.has(file)) {
         offenders.push(relative(REPO_ROOT, file));
       }

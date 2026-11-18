@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { themeStore } from "../../stores/global/theme";
 import { TYPE } from "../../styles/generated/tokens";
 
-// One root property, --writ-ui-size, carries the interface text size; the eight
+// One root property, --jotra-ui-size, carries the interface text size; the eight
 // steps the chrome reads are ratios of it, stated per layer so a platform keeps
 // the proportions it was drawn with. These tests pin both halves: the generated
 // sheet holds no pixel step any more, and the ratios still resolve to the sizes
@@ -12,7 +12,7 @@ import { TYPE } from "../../styles/generated/tokens";
 
 const THEME = readFileSync(resolve(process.cwd(), "src/styles/generated/theme.css"), "utf8");
 
-const ROOT_VAR = "--writ-ui-size";
+const ROOT_VAR = "--jotra-ui-size";
 const STEPS = ["xs", "xs-lh", "sm", "sm-lh", "md", "md-lh", "lg", "lg-lh"] as const;
 type Step = (typeof STEPS)[number];
 
@@ -22,7 +22,7 @@ const LAYERS: Record<string, string> = {
   linux: ':root[data-platform="linux"]',
 };
 
-const RATIO = /^calc\(var\(--writ-ui-size\) \* ([\d.]+) \/ ([\d.]+)\)$/;
+const RATIO = /^calc\(var\(--jotra-ui-size\) \* ([\d.]+) \/ ([\d.]+)\)$/;
 
 function declarations(selector: string): Map<string, string> {
   const start = THEME.indexOf(`${selector} {`);
@@ -39,9 +39,9 @@ function declarations(selector: string): Map<string, string> {
 
 /** The px a step resolves to for a given root size, from the sheet's own ratio. */
 function resolveStep(layer: string, step: Step, rootPx: number): number {
-  const raw = declarations(LAYERS[layer]).get(`--writ-ui-${step}`);
+  const raw = declarations(LAYERS[layer]).get(`--jotra-ui-${step}`);
   const match = raw?.match(RATIO);
-  expect(match, `--writ-ui-${step} in ${layer} is a ratio of the root`).toBeTruthy();
+  expect(match, `--jotra-ui-${step} in ${layer} is a ratio of the root`).toBeTruthy();
   return (rootPx * Number(match![1])) / Number(match![2]);
 }
 
@@ -60,16 +60,16 @@ describe("interface text size", () => {
     for (const layer of Object.keys(LAYERS)) {
       const decls = declarations(LAYERS[layer]);
       for (const step of STEPS) {
-        const raw = decls.get(`--writ-ui-${step}`);
-        expect(raw, `--writ-ui-${step} in ${layer}`).toMatch(RATIO);
+        const raw = decls.get(`--jotra-ui-${step}`);
+        expect(raw, `--jotra-ui-${step} in ${layer}`).toMatch(RATIO);
       }
     }
   });
 
-  it("leaves no --writ-ui-* step as a literal px, platform blocks included", () => {
+  it("leaves no --jotra-ui-* step as a literal px, platform blocks included", () => {
     const literals: string[] = [];
     for (const line of THEME.split("\n")) {
-      const match = line.match(/^\s*--writ-ui-([a-z-]+):\s*(.+);$/);
+      const match = line.match(/^\s*--jotra-ui-([a-z-]+):\s*(.+);$/);
       if (!match) continue;
       if (!STEPS.includes(match[1] as Step)) continue;
       if (/\dpx/.test(match[2])) literals.push(line.trim());
@@ -176,12 +176,12 @@ describe("interface text size on the document root", () => {
   });
 
   beforeEach(() => {
-    root.style.setProperty("--writ-editor-font-size", "16px");
+    root.style.setProperty("--jotra-editor-font-size", "16px");
   });
 
   afterEach(() => {
     themeStore.setAppearance(appearance(null));
-    root.style.removeProperty("--writ-editor-font-size");
+    root.style.removeProperty("--jotra-editor-font-size");
   });
 
   it("writes the chosen size to the one root property", () => {
@@ -207,7 +207,7 @@ describe("interface text size on the document root", () => {
   it("never moves the editor font size", () => {
     for (const size of [12, 16, 22, null]) {
       themeStore.setAppearance(appearance(size));
-      expect(root.style.getPropertyValue("--writ-editor-font-size")).toBe("16px");
+      expect(root.style.getPropertyValue("--jotra-editor-font-size")).toBe("16px");
     }
   });
 });

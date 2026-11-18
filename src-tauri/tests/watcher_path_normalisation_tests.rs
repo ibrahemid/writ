@@ -5,60 +5,60 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
+use jotra_core::buffer::manager::BufferManager;
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::EventBus;
+use jotra_core::preview::ContentRendererRegistry;
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::ignore::source_key;
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::notes_index::NotesIndexStore;
+use jotra_tauri_lib::commands::buffer::save_buffer_content_inner;
+#[cfg(target_os = "macos")]
+use jotra_tauri_lib::commands::file::open_file_from_path;
+use jotra_tauri_lib::preview::handler::RenderCache;
+use jotra_tauri_lib::quit::QuitState;
+#[cfg(target_os = "macos")]
+use jotra_tauri_lib::security::canonicalize_for_authorization;
+use jotra_tauri_lib::security::{canonicalize_root, AuthorizedPaths};
+use jotra_tauri_lib::state::AppState;
+use jotra_tauri_lib::watcher::handler::create_ignore_set;
 use tempfile::TempDir;
-use writ_core::buffer::manager::BufferManager;
-use writ_core::config::WritConfig;
-use writ_core::events::bus::EventBus;
-use writ_core::preview::ContentRendererRegistry;
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::ignore::source_key;
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
-use writ_tauri_lib::commands::buffer::save_buffer_content_inner;
-#[cfg(target_os = "macos")]
-use writ_tauri_lib::commands::file::open_file_from_path;
-use writ_tauri_lib::preview::handler::RenderCache;
-use writ_tauri_lib::quit::QuitState;
-#[cfg(target_os = "macos")]
-use writ_tauri_lib::security::canonicalize_for_authorization;
-use writ_tauri_lib::security::{canonicalize_root, AuthorizedPaths};
-use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::create_ignore_set;
 
 fn make_state(dir: &TempDir) -> AppState {
-    let writ_dir = dir.path().to_path_buf();
-    let buffers_dir = writ_dir.join("buffers");
+    let jotra_dir = dir.path().to_path_buf();
+    let buffers_dir = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
 
-    let notes_root = writ_dir.join("Writ");
+    let notes_root = jotra_dir.join("Jotra");
     std::fs::create_dir_all(&notes_root).expect("notes folder");
     let notes_root = canonicalize_root(&notes_root).expect("canonical");
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
 
     let note_history = Arc::new(
-        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+        jotra_storage::note_history::NoteHistoryStore::open(&jotra_dir).expect("version store"),
     );
 
     AppState {
         store: Mutex::new(BufferStore::new(conn, buffers_dir.clone())),
-        config_store: ConfigStore::new(writ_dir.join("config.toml")),
-        config: Mutex::new(WritConfig::default()),
-        writ_dir,
+        config_store: ConfigStore::new(jotra_dir.join("config.toml")),
+        config: Mutex::new(JotraConfig::default()),
+        jotra_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: std::sync::atomic::AtomicBool::new(false),
         menu_apps: std::sync::Mutex::new(None),
-        retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+        retitle_watch: std::sync::Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -84,7 +84,7 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
-        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+        command_usage: jotra_storage::command_usage::CommandUsageStore::new(
             open_database(&db_path).expect("usage db"),
         ),
         config_diagnostics: std::sync::Mutex::new(Vec::new()),
@@ -94,9 +94,9 @@ fn make_state(dir: &TempDir) -> AppState {
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
-        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(
-            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+            jotra_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
@@ -171,7 +171,7 @@ fn a_stamp_for_a_file_that_does_not_exist_yet_matches_the_event_path_once_it_exi
 /// Opens the file at `path` through the command layer and saves `content`,
 /// which is the only way a save reaches the ignore set.
 #[cfg(target_os = "macos")]
-fn save_through_writ(state: &AppState, path: &std::path::Path, content: &str) {
+fn save_through_jotra(state: &AppState, path: &std::path::Path, content: &str) {
     let canonical = canonicalize_for_authorization(path).expect("canonical");
     state.authorized_paths.record_for_open(canonical.clone());
     let opened = open_file_from_path(state, &canonical).expect("open");
@@ -193,7 +193,7 @@ fn arabic_filename_stamp_matches_the_watcher_event_path() {
 
     let note = state.notes_root().join("ملاحظات المشروع.md");
     std::fs::write(&note, "قبل").unwrap();
-    save_through_writ(&state, &note, "بعد");
+    save_through_jotra(&state, &note, "بعد");
 
     assert!(stamp_is_findable_from_the_event_path(&state, &note));
 }
@@ -211,7 +211,7 @@ fn nfd_accented_filename_stamp_matches_the_watcher_event_path() {
     std::fs::write(&decomposed, "avant").unwrap();
     let composed = state.notes_root().join("caf\u{00e9}.md");
 
-    save_through_writ(&state, &composed, "après");
+    save_through_jotra(&state, &composed, "après");
 
     assert!(stamp_is_findable_from_the_event_path(&state, &decomposed));
     assert!(stamp_is_findable_from_the_event_path(&state, &composed));

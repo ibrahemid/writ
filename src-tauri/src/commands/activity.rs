@@ -14,12 +14,12 @@
 use std::path::Path;
 use std::time::Instant;
 
+use jotra_core::activity::{ActivityRecord, PendingClient};
+use jotra_core::cli_install::{client_command, ClientCommandFacts, InstallTarget};
+use jotra_core::config::mcp::{ClientApproval, McpConfig};
 use tauri::{AppHandle, Manager};
-use writ_core::activity::{ActivityRecord, PendingClient};
-use writ_core::cli_install::{client_command, ClientCommandFacts, InstallTarget};
-use writ_core::config::mcp::{ClientApproval, McpConfig};
 
-use crate::events::emitter::{emit_event, WritFrontendEvent};
+use crate::events::emitter::{emit_event, JotraFrontendEvent};
 use crate::poison::recover_poison;
 use crate::state::AppState;
 
@@ -58,7 +58,7 @@ pub struct McpClients {
 /// The command a client is given, and the file it runs.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct McpServerCommand {
-    /// The `writ` binary, as an absolute path when one was found.
+    /// The `jotra` binary, as an absolute path when one was found.
     pub path: String,
     /// The whole line to paste into a client's configuration.
     pub command: String,
@@ -83,22 +83,22 @@ pub struct McpTools {
 
 /// IPC: the tools an approved program can call.
 ///
-/// Read from `writ_core::tools`, the same list the server registers and the
+/// Read from `jotra_core::tools`, the same list the server registers and the
 /// gate splits on, so the settings row cannot promise a tool that is not there
-/// or hide one that is. The app does not depend on `writ-mcp` for this: the
+/// or hide one that is. The app does not depend on `jotra-mcp` for this: the
 /// names are policy and live in core.
 #[tauri::command]
 pub fn mcp_tools() -> McpTools {
     McpTools {
-        read: writ_core::tools::READ_TOOLS
+        read: jotra_core::tools::READ_TOOLS
             .iter()
             .map(|name| name.to_string())
             .collect(),
-        write: writ_core::tools::WRITE_TOOLS
+        write: jotra_core::tools::WRITE_TOOLS
             .iter()
             .map(|name| name.to_string())
             .collect(),
-        context: writ_core::tools::CONTEXT_TOOLS
+        context: jotra_core::tools::CONTEXT_TOOLS
             .iter()
             .map(|name| name.to_string())
             .collect(),
@@ -108,30 +108,30 @@ pub fn mcp_tools() -> McpTools {
 // --- Activity ---------------------------------------------------------------
 
 /// The newest records, newest first, held to [`MAX_ACTIVITY_LIMIT`].
-pub fn activity_recent_inner(writ_dir: &Path, limit: usize) -> Vec<ActivityRecord> {
-    writ_storage::activity_log::read_recent(writ_dir, limit.min(MAX_ACTIVITY_LIMIT))
+pub fn activity_recent_inner(jotra_dir: &Path, limit: usize) -> Vec<ActivityRecord> {
+    jotra_storage::activity_log::read_recent(jotra_dir, limit.min(MAX_ACTIVITY_LIMIT))
 }
 
 /// Forgets both generations of the log.
-pub fn activity_clear_inner(writ_dir: &Path) -> Result<(), String> {
-    writ_storage::activity_log::clear(writ_dir).map_err(|error| error.to_string())
+pub fn activity_clear_inner(jotra_dir: &Path) -> Result<(), String> {
+    jotra_storage::activity_log::clear(jotra_dir).map_err(|error| error.to_string())
 }
 
 /// IPC: the newest activity records.
 #[tauri::command]
 pub fn activity_recent(app: AppHandle, limit: usize) -> Vec<ActivityRecord> {
     let state = app.state::<AppState>();
-    activity_recent_inner(&state.writ_dir, limit)
+    activity_recent_inner(&state.jotra_dir, limit)
 }
 
 /// IPC: forget everything the log holds.
 #[tauri::command]
 pub fn activity_clear(app: AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
-    activity_clear_inner(&state.writ_dir)?;
+    activity_clear_inner(&state.jotra_dir)?;
     // The panel asked for this, but a second view of the same log has not; the
     // event is what tells it the list is now empty.
-    if let Err(error) = emit_event(&app, WritFrontendEvent::ActivityChanged {}) {
+    if let Err(error) = emit_event(&app, JotraFrontendEvent::ActivityChanged {}) {
         tracing::warn!(error = %error, "failed to emit activity event");
     }
     Ok(())
@@ -184,7 +184,7 @@ pub fn set_client_permission_inner(
     Ok(())
 }
 
-/// Sets whether one client may see the file open in Writ and its selection
+/// Sets whether one client may see the file open in Jotra and its selection
 /// (ADR-053), adding it to the list when it is not there yet.
 ///
 /// Its own grant: reading and writing stay as they were, and a client added
@@ -216,7 +216,7 @@ pub fn set_client_context_inner(
 }
 
 /// Sets whether each of one client's writes waits for the person to apply or
-/// discard it in Writ (ADR-053), adding the client when it is not there yet.
+/// discard it in Jotra (ADR-053), adding the client when it is not there yet.
 ///
 /// Its own setting: reading, writing and the open file stay as they were. It
 /// is read only while the client may write, so a client added here writes
@@ -313,7 +313,7 @@ pub fn mcp_clients(app: AppHandle) -> McpClients {
         mcp_clients_inner(&guard.mcp)
     };
     McpClients {
-        waiting: waiting_in(&state.writ_dir, &approved),
+        waiting: waiting_in(&state.jotra_dir, &approved),
         approved,
     }
 }
@@ -323,15 +323,15 @@ pub fn mcp_clients(app: AppHandle) -> McpClients {
 /// A program can be in both files for one call: the server writes the waiting
 /// entry, the user approves it in the app, and the entry is dropped there. If a
 /// write fails on the way, the approval is what counts.
-pub fn waiting_in(writ_dir: &Path, approved: &[ClientApproval]) -> Vec<PendingClient> {
-    undecided(writ_storage::pending_clients::read(writ_dir), approved)
+pub fn waiting_in(jotra_dir: &Path, approved: &[ClientApproval]) -> Vec<PendingClient> {
+    undecided(jotra_storage::pending_clients::read(jotra_dir), approved)
 }
 
 pub fn waiting_settled_in(
-    writ_dir: &Path,
+    jotra_dir: &Path,
     approved: &[ClientApproval],
 ) -> Option<Vec<PendingClient>> {
-    writ_storage::pending_clients::read_settled(writ_dir)
+    jotra_storage::pending_clients::read_settled(jotra_dir)
         .map(|waiting| undecided(waiting, approved))
 }
 
@@ -360,13 +360,13 @@ pub fn announce_waiting(app: &AppHandle) {
 /// A file caught mid-write sends nothing: the write that completes it raises
 /// its own change, and an empty list in between would hide every waiting
 /// program.
-pub fn announce_waiting_inner(state: &AppState) -> Option<WritFrontendEvent> {
+pub fn announce_waiting_inner(state: &AppState) -> Option<JotraFrontendEvent> {
     let approved = {
         let guard = recover_poison(state.config.lock(), "commands::activity::announce_waiting");
         mcp_clients_inner(&guard.mcp)
     };
-    waiting_settled_in(&state.writ_dir, &approved)
-        .map(|waiting| WritFrontendEvent::McpPending { waiting })
+    waiting_settled_in(&state.jotra_dir, &approved)
+        .map(|waiting| JotraFrontendEvent::McpPending { waiting })
 }
 
 /// What the app hands `pending_clients` before it writes the waiting file:
@@ -374,8 +374,8 @@ pub fn announce_waiting_inner(state: &AppState) -> Option<WritFrontendEvent> {
 /// not come back to it as the server's (the watcher rule).
 fn stamp_waiting_write(state: &AppState) -> impl FnOnce(&[u8]) + '_ {
     move |bytes| {
-        let key = writ_core::watcher::ignore::data_key(&crate::watcher::handler::ignore_key_path(
-            &writ_storage::pending_clients::path(&state.writ_dir),
+        let key = jotra_core::watcher::ignore::data_key(&crate::watcher::handler::ignore_key_path(
+            &jotra_storage::pending_clients::path(&state.jotra_dir),
         ));
         let mut ignore = recover_poison(
             state.watcher_ignore.lock(),
@@ -476,7 +476,7 @@ pub async fn mcp_set_client_permission(
     })
 }
 
-/// IPC: set whether one client may see the file open in Writ (ADR-053).
+/// IPC: set whether one client may see the file open in Jotra (ADR-053).
 ///
 /// Asks nothing outside the webview, as a grant of reading does not: rule 3.8
 /// confirms writing alone.
@@ -492,7 +492,7 @@ pub fn mcp_set_client_context(
 }
 
 /// IPC: set whether each of one client's writes waits for the person's answer
-/// in Writ (ADR-053).
+/// in Jotra (ADR-053).
 ///
 /// Asks nothing outside the webview: the setting holds writes back and never
 /// lets one through that the grant of writing did not already allow.
@@ -524,7 +524,7 @@ pub fn mcp_deny_client(app: AppHandle, name: String) -> Result<McpClients, Strin
 }
 
 pub fn deny_unnamed_inner(state: &AppState, name: &str) -> Result<McpClients, String> {
-    writ_storage::pending_clients::forget(&state.writ_dir, name, stamp_waiting_write(state))
+    jotra_storage::pending_clients::forget(&state.jotra_dir, name, stamp_waiting_write(state))
         .map_err(|error| error.to_string())?;
     Ok(clients_now(state, "commands::activity::mcp_deny_client"))
 }
@@ -559,8 +559,8 @@ pub fn return_to_waiting_inner(
         return Err(reason);
     }
     settings_moved();
-    writ_storage::pending_clients::put_back(
-        &state.writ_dir,
+    jotra_storage::pending_clients::put_back(
+        &state.jotra_dir,
         waiting_again(&undone),
         stamp_waiting_write(state),
     )
@@ -593,7 +593,7 @@ fn clients_now(state: &AppState, location: &'static str) -> McpClients {
         mcp_clients_inner(&guard.mcp)
     };
     McpClients {
-        waiting: waiting_in(&state.writ_dir, &approved),
+        waiting: waiting_in(&state.jotra_dir, &approved),
         approved,
     }
 }
@@ -606,7 +606,7 @@ fn clients_now(state: &AppState, location: &'static str) -> McpClients {
 fn tell_settings_moved(app: &AppHandle) {
     if let Err(error) = emit_event(
         app,
-        WritFrontendEvent::ConfigChanged {
+        JotraFrontendEvent::ConfigChanged {
             keys: vec!["mcp".to_string()],
         },
     ) {
@@ -653,14 +653,14 @@ fn write_approvals(
     // failed write leaves a stale entry, which the filter in `waiting_in` hides
     // anyway once the name is on the approved list.
     if let Err(error) =
-        writ_storage::pending_clients::forget(&state.writ_dir, name, stamp_waiting_write(&state))
+        jotra_storage::pending_clients::forget(&state.jotra_dir, name, stamp_waiting_write(&state))
     {
         tracing::warn!(error = %error, "failed to clear the waiting client");
     }
 
     let approved = mcp_clients_inner(&updated.mcp);
     Ok(McpClients {
-        waiting: waiting_in(&state.writ_dir, &approved),
+        waiting: waiting_in(&state.jotra_dir, &approved),
         approved,
     })
 }
@@ -675,7 +675,7 @@ const SERVE_VERB: &str = "mcp";
 /// Quoted, because an app installed under a folder with a space in its name is
 /// the normal case on macOS. A client launched from the desktop inherits a
 /// short PATH, so [`resolved_command`] hands this a full path wherever one is
-/// known; on Windows the installer puts `writ.exe` on the PATH itself and the
+/// known; on Windows the installer puts `jotra.exe` on the PATH itself and the
 /// bare name is what resolves.
 pub fn server_command_for(binary: &Path) -> McpServerCommand {
     let path = binary.display().to_string();
@@ -697,8 +697,8 @@ pub async fn mcp_server_command() -> Result<McpServerCommand, String> {
     .await
 }
 
-/// The `writ` this app would have a client launch
-/// ([`writ_core::cli_install::client_command`]): the copy bundled with the
+/// The `jotra` this app would have a client launch
+/// ([`jotra_core::cli_install::client_command`]): the copy bundled with the
 /// running build, the installed copy for an AppImage whose own copy is gone
 /// once it quits, and the install target for a development run.
 pub(crate) fn resolved_command() -> McpServerCommand {
@@ -725,7 +725,7 @@ pub(crate) fn resolved_command() -> McpServerCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use writ_core::activity::ClientId;
+    use jotra_core::activity::ClientId;
 
     fn approved(name: &str, read: bool, write: bool) -> ClientApproval {
         ClientApproval {
@@ -1021,9 +1021,9 @@ mod tests {
     #[test]
     fn a_waiting_file_caught_mid_write_is_not_an_empty_list() {
         let dir = tempfile::TempDir::new().expect("temp dir");
-        writ_storage::pending_clients::note_calls(dir.path(), &ClientId::named("Zed"), 1)
+        jotra_storage::pending_clients::note_calls(dir.path(), &ClientId::named("Zed"), 1)
             .expect("note");
-        let file = writ_storage::pending_clients::path(dir.path());
+        let file = jotra_storage::pending_clients::path(dir.path());
         let whole = std::fs::read(&file).expect("the file");
         std::fs::write(&file, &whole[..whole.len() - 3]).expect("cut it short");
 
@@ -1042,7 +1042,7 @@ mod tests {
     fn the_settled_list_leaves_out_programs_already_decided_on() {
         let dir = tempfile::TempDir::new().expect("temp dir");
         for name in ["Claude Code", "Zed"] {
-            writ_storage::pending_clients::note_calls(dir.path(), &ClientId::named(name), 1)
+            jotra_storage::pending_clients::note_calls(dir.path(), &ClientId::named(name), 1)
                 .expect("note");
         }
 
@@ -1057,17 +1057,17 @@ mod tests {
 
     #[test]
     fn the_command_names_the_binary_and_the_verb() {
-        let command = server_command_for(Path::new("/Applications/Writ.app/Contents/MacOS/writ"));
-        assert_eq!(command.path, "/Applications/Writ.app/Contents/MacOS/writ");
+        let command = server_command_for(Path::new("/Applications/Jotra.app/Contents/MacOS/jotra"));
+        assert_eq!(command.path, "/Applications/Jotra.app/Contents/MacOS/jotra");
         assert_eq!(
             command.command,
-            "\"/Applications/Writ.app/Contents/MacOS/writ\" mcp"
+            "\"/Applications/Jotra.app/Contents/MacOS/jotra\" mcp"
         );
     }
 
     #[test]
     fn a_path_with_a_space_is_quoted() {
-        let command = server_command_for(Path::new("/Users/a b/Writ.app/Contents/MacOS/writ"));
+        let command = server_command_for(Path::new("/Users/a b/Jotra.app/Contents/MacOS/jotra"));
         assert!(command.command.starts_with('"'));
         assert!(command.command.ends_with("\" mcp"));
     }
@@ -1084,10 +1084,10 @@ mod tests {
 
     #[test]
     fn the_flags_cross_ipc_beside_the_command() {
-        let json = serde_json::to_value(server_command_for(Path::new("/usr/local/bin/writ")))
+        let json = serde_json::to_value(server_command_for(Path::new("/usr/local/bin/jotra")))
             .expect("serialise");
         assert_eq!(json["needs_install"], false);
         assert_eq!(json["needs_move"], false);
-        assert_eq!(json["command"], "\"/usr/local/bin/writ\" mcp");
+        assert_eq!(json["command"], "\"/usr/local/bin/jotra\" mcp");
     }
 }

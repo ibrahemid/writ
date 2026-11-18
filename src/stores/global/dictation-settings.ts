@@ -23,7 +23,7 @@ export interface DictationProviderOption {
   model: string | null;
 }
 
-/** Mirrors `writ_core::dictation::PRESETS`; Rust reads the base URL and key page. */
+/** Mirrors `jotra_core::dictation::PRESETS`; Rust reads the base URL and key page. */
 export const DICTATION_PROVIDERS: readonly DictationProviderOption[] = [
   { id: "openai", label: "OpenAI", model: "gpt-transcribe" },
   { id: "groq", label: "Groq", model: "whisper-large-v3-turbo" },
@@ -81,7 +81,7 @@ export function isLanguageUnsupported(
   );
 }
 
-/** Mirrors `writ_core::dictation::language::speaks`. */
+/** Mirrors `jotra_core::dictation::language::speaks`. */
 function speaks(localeLanguage: string, code: string): boolean {
   return localeLanguage === code || (code === "no" && localeLanguage === "nb");
 }
@@ -112,7 +112,7 @@ export function isAiConnectionReady(state: AiEndpointState | null, model: string
   return model.trim() !== "";
 }
 
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 function createDictationSettingsStore() {
   const [capabilities, setCapabilities] = createSignal<DictationCapabilities | null>(null);
   const [languages, setLanguages] = createSignal<DictationLanguage[]>([]);

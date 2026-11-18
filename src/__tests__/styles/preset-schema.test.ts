@@ -31,7 +31,7 @@ const DECLARED = new Set(
 const OVERRIDABLE_GROUPS = ["bg", "fg", "border", "accent"] as const;
 
 function cssName(key: string): string {
-  return `--writ-${key.replaceAll(".", "-")}`;
+  return `--jotra-${key.replaceAll(".", "-")}`;
 }
 
 describe("preset schema", () => {

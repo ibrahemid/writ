@@ -6,7 +6,7 @@ import { rendererRegistry } from "../../stores/global/renderer-registry";
 import type { BufferDocument } from "../../types/buffer";
 
 // The folder graph is a layer over the note, and the preview underneath keeps
-// its element: taking a loaded writ-preview:// iframe out of the page freezes
+// its element: taking a loaded jotra-preview:// iframe out of the page freezes
 // the macOS webview outright (PR #127). The layer hides the pane with `hidden`
 // and never removes it, and this is what holds that.
 

@@ -18,7 +18,7 @@ import {
 const mockedGet = vi.mocked(getCommandUsage);
 const mockedRecord = vi.mocked(recordCommandUses);
 
-// Command usage lives in writ.db (ADR-048); the store keeps the palette's copy
+// Command usage lives in jotra.db (ADR-048); the store keeps the palette's copy
 // and writes the runs a burst added once the burst ends.
 describe("commandUsageStore", () => {
   beforeEach(async () => {
@@ -57,7 +57,7 @@ describe("commandUsageStore", () => {
     ]);
   });
 
-  it("loads what writ.db holds and keeps runs recorded during the read", async () => {
+  it("loads what jotra.db holds and keeps runs recorded during the read", async () => {
     let answer: (value: Record<string, { count: number; last_used_ms: number }>) => void = () => {};
     mockedGet.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
 

@@ -171,5 +171,5 @@ export function createContextPackStore() {
   };
 }
 
-// Singleton state — Writ is single-window: one pack dialog.
+// Singleton state — Jotra is single-window: one pack dialog.
 export const contextPackStore = createRoot(createContextPackStore);

@@ -6,24 +6,24 @@
 .editor-bar {
   display: flex;
   align-items: center;
-  gap: var(--writ-space-4);
-  padding: var(--writ-space-2) var(--writ-space-4);
-  background: var(--writ-bg-selected);
-  border-bottom: 1px solid var(--writ-border);
-  border-left: 2px solid var(--editor-bar-rail, var(--writ-border));
-  box-shadow: var(--writ-shadow-popover);
-  font-size: var(--writ-ui-sm);
-  color: var(--writ-fg);
+  gap: var(--jotra-space-4);
+  padding: var(--jotra-space-2) var(--jotra-space-4);
+  background: var(--jotra-bg-selected);
+  border-bottom: 1px solid var(--jotra-border);
+  border-left: 2px solid var(--editor-bar-rail, var(--jotra-border));
+  box-shadow: var(--jotra-shadow-popover);
+  font-size: var(--jotra-ui-sm);
+  color: var(--jotra-fg);
   flex-shrink: 0;
 }
 
 .removed-on-disk-bar,
 .rename-skipped-bar {
-  --editor-bar-rail: var(--writ-status-warning);
+  --editor-bar-rail: var(--jotra-status-warning);
 }
 
 .save-failure-bar {
-  --editor-bar-rail: var(--writ-status-error);
+  --editor-bar-rail: var(--jotra-status-error);
 }
 
 /* A bar whose text is a list stands its actions at the top of it. */
@@ -50,12 +50,12 @@
 }
 
 .editor-bar-note {
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
 }
 
 .editor-bar-actions {
   display: flex;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
   flex-shrink: 0;
 }
 

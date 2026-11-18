@@ -3,22 +3,46 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Writ</title>
+    <title>Jotra</title>
     <link rel="stylesheet" href="/src/styles/global.css" />
     <script>
       // Pre-paint theme restore: apply the last resolved token set and the root
       // attributes the generated sheet keys its dark and accent layers on,
       // before the module bundle runs, so a saved theme never flashes the
-      // default. Mirror written by themeStore.applyToRoot (writ-theme-vars-v3).
+      // default. Mirror written by themeStore.applyToRoot (jotra-theme-vars-v3).
+      // The mirror an earlier build saved moves to that key first, its property
+      // names renamed, unless the key already holds one (ADR-059 decision 12).
       (function () {
         try {
-          var raw = localStorage.getItem("writ-theme-vars-v3");
+          var key = "jotra-theme-vars-v3";
+          var raw = localStorage.getItem(key);
+          var legacyKey = "writ-theme-vars-v3";
+          var legacyPrefix = "--writ-";
+          var legacyRaw = localStorage.getItem(legacyKey);
+          if (legacyRaw !== null) {
+            if (raw === null) {
+              var legacySaved = JSON.parse(legacyRaw);
+              var legacyVars = legacySaved.vars || {};
+              var renamed = {};
+              for (var legacyName in legacyVars) {
+                if (
+                  Object.prototype.hasOwnProperty.call(legacyVars, legacyName) &&
+                  legacyName.indexOf(legacyPrefix) === 0
+                ) {
+                  renamed["--jotra-" + legacyName.slice(legacyPrefix.length)] = legacyVars[legacyName];
+                }
+              }
+              raw = JSON.stringify({ vars: renamed, attrs: legacySaved.attrs || {} });
+              localStorage.setItem(key, raw);
+            }
+            localStorage.removeItem(legacyKey);
+          }
           if (!raw) return;
           var saved = JSON.parse(raw);
           var root = document.documentElement;
           var vars = saved.vars || {};
           for (var key in vars) {
-            if (Object.prototype.hasOwnProperty.call(vars, key) && key.indexOf("--writ-") === 0) {
+            if (Object.prototype.hasOwnProperty.call(vars, key) && key.indexOf("--jotra-") === 0) {
               root.style.setProperty(key, vars[key]);
             }
           }

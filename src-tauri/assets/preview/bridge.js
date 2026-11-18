@@ -1,10 +1,10 @@
 "use strict";
-// First-party preview bridge. Runs inside the cross-origin writ-preview://
+// First-party preview bridge. Runs inside the cross-origin jotra-preview://
 // document iframe and talks to the app shell over postMessage. Authored as an
 // IIFE reading window / document / parent as free identifiers so the exact
 // shipped source is exercisable under a test harness. No eval, no network.
 (function (win, doc, parentWin) {
-  var SRC = "writ-preview";
+  var SRC = "jotra-preview";
   // Pixel tolerance for recognising the echo of a programmatic scroll: covers
   // sub-pixel (HiDPI) landing and rounding, far below any meaningful user
   // scroll. Pixel-space comparison is robust to event coalescing, unlike a
@@ -195,7 +195,7 @@
     if (from > 0) target = target.splitText(from);
     if (to - from < target.nodeValue.length) target.splitText(to - from);
     var mark = doc.createElement("mark");
-    mark.className = "writ-find";
+    mark.className = "jotra-find";
     target.parentNode.replaceChild(mark, target);
     mark.appendChild(target);
     return mark;
@@ -273,7 +273,7 @@
       var on = i === findIndex;
       var marks = marksByMatch[i];
       for (var j = 0; j < marks.length; j++) {
-        marks[j].className = on ? "writ-find writ-find-current" : "writ-find";
+        marks[j].className = on ? "jotra-find jotra-find-current" : "jotra-find";
       }
     }
   }
@@ -347,7 +347,7 @@
       // are set explicitly: an HTML buffer served dark carries a :root
       // re-declaration that removing the attribute would not undo.
       doc.documentElement.setAttribute(
-        "data-writ-theme",
+        "data-jotra-theme",
         d.theme === "dark" ? "dark" : "light",
       );
     } else if (d.type === "setZoom") {

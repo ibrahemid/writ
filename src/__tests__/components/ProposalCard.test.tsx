@@ -270,7 +270,7 @@ describe("a proposal card", () => {
 
     const shown = container.querySelector(".chat-proposal-path") as HTMLElement;
     expect(shown.textContent).toBe("Ideas/Launch.md");
-    expect(container.querySelector(".writ-tooltip-anchor")).toBeNull();
+    expect(container.querySelector(".jotra-tooltip-anchor")).toBeNull();
   });
 
   it("an outside proposal reads as its file name", async () => {
@@ -286,7 +286,7 @@ describe("a proposal card", () => {
     // Two files of one name in two repositories are told apart by the path,
     // which is what the tip under the pointer carries.
     vi.useFakeTimers();
-    fireEvent.pointerEnter(container.querySelector(".writ-tooltip-anchor") as Element);
+    fireEvent.pointerEnter(container.querySelector(".jotra-tooltip-anchor") as Element);
     vi.advanceTimersByTime(500);
     expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(path);
     vi.useRealTimers();

@@ -232,7 +232,7 @@ describe("EditorInstance: the markdown extensions load for a markdown file", () 
     bufferContent.set("G4", MD_SOURCE);
     const { container } = await mount(mockBuffer("G4", "plan.txt", "/files/plan.txt"));
 
-    expect(container.querySelector(".writ-link")).not.toBeNull();
+    expect(container.querySelector(".jotra-link")).not.toBeNull();
   });
 
   it("registers no markdown format command on a .txt buffer", async () => {

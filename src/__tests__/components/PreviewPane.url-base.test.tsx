@@ -67,7 +67,7 @@ describe("PreviewPane and the host's preview base", () => {
 
   afterEach(() => {
     cleanup();
-    setPreviewUrlPrefix("writ-preview://");
+    setPreviewUrlPrefix("jotra-preview://");
   });
 
   it("renders the shown buffer once the base arrives after mount", async () => {
@@ -86,16 +86,16 @@ describe("PreviewPane and the host's preview base", () => {
     expect(mocks.forceRender).not.toHaveBeenCalled();
     expect(iframeSrc(container)).toBe("about:blank");
 
-    setPreviewUrlPrefix("writ-preview://");
+    setPreviewUrlPrefix("jotra-preview://");
 
     await waitFor(() => {
-      expect(iframeSrc(container)).toMatch(/^writ-preview:\/\/document\/A\?v=1$/);
+      expect(iframeSrc(container)).toMatch(/^jotra-preview:\/\/document\/A\?v=1$/);
     });
     expect(mocks.forceRender).toHaveBeenCalledTimes(1);
   });
 
   it("builds the document URL from the Windows base when the host gives it", async () => {
-    setPreviewUrlPrefix("http://writ-preview.");
+    setPreviewUrlPrefix("http://jotra-preview.");
     const { container } = render(() => (
       <WindowProvider windowId={9401}>
         <PreviewPane buffer={buffer("B")} contentType="html" isActive={true} />
@@ -105,7 +105,7 @@ describe("PreviewPane and the host's preview base", () => {
     showInEditor(win, "B", "<body>B</body>");
 
     await waitFor(() => {
-      expect(iframeSrc(container)).toMatch(/^http:\/\/writ-preview\.document\/B\?v=1$/);
+      expect(iframeSrc(container)).toMatch(/^http:\/\/jotra-preview\.document\/B\?v=1$/);
     });
   });
 });

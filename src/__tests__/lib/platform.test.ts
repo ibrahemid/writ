@@ -11,19 +11,19 @@ afterEach(() => {
 describe("resolvePlatform", () => {
   it("honours the dev override", () => {
     for (const platform of ["mac", "win", "linux"] as const) {
-      vi.stubEnv("VITE_WRIT_PLATFORM", platform);
+      vi.stubEnv("VITE_JOTRA_PLATFORM", platform);
       expect(resolvePlatform()).toBe(platform);
     }
   });
 
   it("ignores an override that names no shell", () => {
-    vi.stubEnv("VITE_WRIT_PLATFORM", "sunos");
+    vi.stubEnv("VITE_JOTRA_PLATFORM", "sunos");
     expect(resolvePlatform()).toBe(detectPlatform());
   });
 
   it("falls back to the host in a production build", () => {
     vi.stubEnv("DEV", false);
-    vi.stubEnv("VITE_WRIT_PLATFORM", "win");
+    vi.stubEnv("VITE_JOTRA_PLATFORM", "win");
     expect(resolvePlatform()).toBe(detectPlatform());
   });
 });

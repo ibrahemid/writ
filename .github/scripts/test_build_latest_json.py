@@ -22,10 +22,10 @@ import build_latest_json  # noqa: E402
 
 RELEASE_ENV = {"VERSION": "0.3.0", "TAG": "v0.3.0", "REPO": "ibrahemid/writ"}
 
-MAC_BUNDLE = "Writ_universal.app.tar.gz"
-WINDOWS_MSI = "Writ_0.3.0_x64_en-US.msi"
-LINUX_APPIMAGE = "Writ_0.3.0_amd64.AppImage"
-LINUX_DEB = "Writ_0.3.0_amd64.deb"
+MAC_BUNDLE = "Jotra_universal.app.tar.gz"
+WINDOWS_MSI = "Jotra_0.3.0_x64_en-US.msi"
+LINUX_APPIMAGE = "Jotra_0.3.0_amd64.AppImage"
+LINUX_DEB = "Jotra_0.3.0_amd64.deb"
 
 FULL_ASSET_SET = (MAC_BUNDLE, WINDOWS_MSI, LINUX_APPIMAGE, LINUX_DEB)
 
@@ -130,7 +130,7 @@ class BuildLatestJsonTest(unittest.TestCase):
 
     def test_amd64_deb_wins_over_a_deb_that_sorts_earlier(self) -> None:
         self.write_assets(*FULL_ASSET_SET)
-        self.write_asset("Writ_0.3.0_aarch64.deb")
+        self.write_asset("Jotra_0.3.0_aarch64.deb")
 
         code, manifest, _ = self.run_script()
 
@@ -148,14 +148,14 @@ class BuildLatestJsonTest(unittest.TestCase):
         # x86_64-unknown-linux-gnu). Adding an arm64 deb to the matrix makes
         # this mis-serve, and this test is where that shows up.
         self.write_assets(MAC_BUNDLE, WINDOWS_MSI, LINUX_APPIMAGE)
-        self.write_asset("Writ_0.3.0_aarch64.deb")
+        self.write_asset("Jotra_0.3.0_aarch64.deb")
 
         code, manifest, _ = self.run_script()
 
         self.assertEqual(code, 0)
         self.assertTrue(
             manifest["platforms"]["linux-x86_64-deb"]["url"].endswith(
-                "Writ_0.3.0_aarch64.deb"
+                "Jotra_0.3.0_aarch64.deb"
             )
         )
 

@@ -1,5 +1,5 @@
 import type { BufferDocument, FileOpenMode, FileOpenResult } from "../../src/types/buffer";
-import type { WritConfig } from "../../src/types/config";
+import type { JotraConfig } from "../../src/types/config";
 import { encodingName } from "../../src/lib/text-encoding";
 import type { IpcBridge } from "../ipc";
 import { classifyFile, classifySize, onceOpen, sniffsBinary } from "./classify";
@@ -50,7 +50,7 @@ export function refuseOnThrow<T>(body: () => T, describe: (error: unknown) => st
 
 export const stampNow = () => new Date().toISOString();
 
-/** writ_core::hash::comparison_digest_hex: SHA-256 of the UTF-8 text with LF line breaks. */
+/** jotra_core::hash::comparison_digest_hex: SHA-256 of the UTF-8 text with LF line breaks. */
 export async function digestText(text: string): Promise<string> {
   const bytes = new TextEncoder().encode(text.replace(/\r\n?/g, "\n"));
   const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
@@ -63,7 +63,7 @@ export class DemoState {
   readonly index: NotesIndex;
   readonly history: NoteHistory;
   readonly buffers = new Map<string, BufferDocument>();
-  config: WritConfig;
+  config: JotraConfig;
   private nextId = 1;
 
   constructor(readonly bridge: IpcBridge) {
@@ -94,7 +94,7 @@ export class DemoState {
   async emitExternalWrite(path: string, text: string): Promise<void> {
     const tab = this.findActiveBuffer(path);
     if (!tab) return;
-    this.bridge.emit("writ://buffer-external", {
+    this.bridge.emit("jotra://buffer-external", {
       kind: "buffer:external",
       payload: { bufferId: tab.id, path, change: "modified", newPath: null, diskHash: await digestText(text) },
     });
@@ -151,7 +151,7 @@ export class DemoState {
 
   /**
    * commands::file::open_file: the tier from the size and the binary sniff, a
-   * question for the confirm tier and a refusal past the size Writ opens, both
+   * question for the confirm tier and a refusal past the size Jotra opens, both
    * with no tab, and the tab an open file already has.
    */
   openPath(path: string): FileOpenResult {
@@ -176,7 +176,7 @@ export class DemoState {
   }
 
   /**
-   * commands::file::open_generated_document: a read-only document Writ writes
+   * commands::file::open_generated_document: a read-only document Jotra writes
    * itself, titled as given, in the Normal tier whatever its size.
    */
   openGeneratedDocument(path: string, title: string, content: string): FileOpenResult & { doc: BufferDocument } {
@@ -224,12 +224,12 @@ export class DemoState {
   }
 
   emitNoteChanged(path: string, isRemoved = false): void {
-    this.bridge.emit("writ://notes-changed", { kind: "notes:changed", payload: { path, removed: isRemoved } });
-    this.bridge.emit("writ://workspace-changed", { kind: "workspace:changed", payload: { path, removed: isRemoved } });
+    this.bridge.emit("jotra://notes-changed", { kind: "notes:changed", payload: { path, removed: isRemoved } });
+    this.bridge.emit("jotra://workspace-changed", { kind: "workspace:changed", payload: { path, removed: isRemoved } });
   }
 
   emitConfigChanged(keys: string[]): void {
-    this.bridge.emit("writ://config-changed", { kind: "config:changed", payload: { keys } });
+    this.bridge.emit("jotra://config-changed", { kind: "config:changed", payload: { keys } });
   }
 
   /** Every file under the notes folder; generated documents live outside it. */
@@ -237,7 +237,7 @@ export class DemoState {
     return this.folder.listPaths().filter((path) => path.startsWith(`${NOTES_ROOT}/`));
   }
 
-  /** writ_core::notes::dedupe_file_name inside `dir`, case folded. */
+  /** jotra_core::notes::dedupe_file_name inside `dir`, case folded. */
   findFreeName(dir: string, base: string, ext: string): string {
     const taken = new Set(this.folder.list(dir).map((entry) => entry.name.normalize("NFC").toLowerCase()));
     const join = (candidate: string) => (ext ? `${candidate}.${ext}` : candidate);

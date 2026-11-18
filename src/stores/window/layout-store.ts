@@ -11,7 +11,7 @@ import { previewGetLayout, previewSetLayout } from "../../services/tauri";
 // Per-window active layout per buffer. The pure types + helpers live
 // in lib/preview-layout so components and keymap can reach them without
 // crossing the store layer; this store owns runtime per-window state and
-// persistence to writ-storage via the preview IPC.
+// persistence to jotra-storage via the preview IPC.
 
 export type LayoutStore = ReturnType<typeof createLayoutStore>;
 

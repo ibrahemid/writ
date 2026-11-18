@@ -16,11 +16,11 @@ export function ConflictCopyBadge(props: {
   kind: ConflictCopyKind | null;
   provider?: string | null;
 }) {
-  const label = () => (props.kind === "writ" ? "Writ copy" : "Sync copy");
+  const label = () => (props.kind === "jotra" ? "Jotra copy" : "Sync copy");
 
   const explanation = () => {
-    if (props.kind === "writ") {
-      return `Writ kept this copy when the file changed on disk while it was open. ${NEXT_STEP}`;
+    if (props.kind === "jotra") {
+      return `Jotra kept this copy when the file changed on disk while it was open. ${NEXT_STEP}`;
     }
     const service = props.provider ?? "Your sync service";
     return `${service} kept this copy when the file was edited in two places. ${NEXT_STEP}`;

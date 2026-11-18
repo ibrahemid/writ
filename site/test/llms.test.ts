@@ -9,7 +9,8 @@ import { LLMS_DROP_SELECTORS } from '../src/lib/llms-text';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const DIST = join(ROOT, 'dist');
 const SITE_ORIGIN = 'https://writ.ibrahemid.com';
-const LIST_LINE = /^- \[[^\]]+\]\(https:\/\/writ\.ibrahemid\.com\/[^)\s]*\)(: .+)?$/;
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const LIST_LINE = new RegExp(`^- \\[[^\\]]+\\]\\(${escapeRegExp(SITE_ORIGIN)}/[^)\\s]*\\)(: .+)?$`);
 const REFERENCE = ['/privacy/', '/download/'];
 const OPTIONAL = ['/changelog/', '/press/'];
 
@@ -108,7 +109,7 @@ describe('llms.txt and llms-full.txt', () => {
   });
 
   it('follow the llms.txt layout: name, summary, then Docs, Guides, Reference and Optional link lists', () => {
-    expect(txt.startsWith('# Writ\n\n> ')).toBe(true);
+    expect(txt.startsWith('# Jotra\n\n> ')).toBe(true);
     const headings = txt.split('\n').filter((line) => line.startsWith('## '));
     expect(headings).toEqual(['## Docs', '## Guides', '## Reference', '## Optional']);
     const lists = txt.split('\n').filter((line) => line.startsWith('- '));

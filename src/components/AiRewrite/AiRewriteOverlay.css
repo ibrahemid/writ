@@ -3,19 +3,19 @@
   left: 50%;
   bottom: 20px;
   transform: translateX(-50%);
-  z-index: var(--writ-z-popover);
+  z-index: var(--jotra-z-popover);
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
   width: min(760px, calc(100% - 48px));
   max-height: 52vh;
-  padding: var(--writ-space-3);
-  background: var(--writ-bg-raised);
+  padding: var(--jotra-space-3);
+  background: var(--jotra-bg-raised);
   border: 0;
-  border-radius: var(--writ-r-popover);
-  box-shadow: var(--writ-shadow-popover);
-  font-family: var(--writ-font-ui);
-  animation: ai-overlay-in var(--writ-motion-fast) var(--writ-ease);
+  border-radius: var(--jotra-r-popover);
+  box-shadow: var(--jotra-shadow-popover);
+  font-family: var(--jotra-font-ui);
+  animation: ai-overlay-in var(--jotra-motion-fast) var(--jotra-ease);
 }
 
 /* The entrance the other popovers make: a short rise into place. The
@@ -36,24 +36,24 @@
 .ai-overlay-header {
   display: flex;
   align-items: center;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
 }
 
 .ai-overlay-action {
-  font-size: var(--writ-ui-sm);
+  font-size: var(--jotra-ui-sm);
   font-weight: 600;
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
 }
 
 .ai-overlay-status {
   flex: 1;
   min-width: 0;
-  font-size: var(--writ-ui-xs);
-  color: var(--writ-fg-faint);
+  font-size: var(--jotra-ui-xs);
+  color: var(--jotra-fg-faint);
 }
 
 .ai-overlay-status[data-status="error"] {
-  color: var(--writ-status-error);
+  color: var(--jotra-status-error);
 }
 
 .ai-overlay-instruction {
@@ -64,28 +64,28 @@
   flex: 1;
   min-width: 0;
   min-height: 28px;
-  padding: 0 var(--writ-space-3-5);
-  background: var(--writ-bg-sunken);
+  padding: 0 var(--jotra-space-3-5);
+  background: var(--jotra-bg-sunken);
   border: 0;
-  border-radius: var(--writ-r-control);
-  color: var(--writ-fg);
+  border-radius: var(--jotra-r-control);
+  color: var(--jotra-fg);
   font-family: inherit;
-  font-size: var(--writ-ui-md);
+  font-size: var(--jotra-ui-md);
 }
 
 .ai-overlay-input:focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
-  outline-offset: var(--writ-focus-offset, 2px);
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
+  outline-offset: var(--jotra-focus-offset, 2px);
 }
 
 .ai-overlay-input::placeholder {
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
 }
 
 .ai-overlay-panes {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
   min-height: 0;
   overflow: hidden;
 }
@@ -93,14 +93,14 @@
 .ai-overlay-pane {
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-1);
+  gap: var(--jotra-space-1);
   min-height: 0;
 }
 
 .ai-overlay-pane-label {
-  font-size: var(--writ-ui-xs);
-  color: var(--writ-fg-faint);
-  letter-spacing: var(--writ-ui-tracking);
+  font-size: var(--jotra-ui-xs);
+  color: var(--jotra-fg-faint);
+  letter-spacing: var(--jotra-ui-tracking);
 }
 
 .ai-overlay-pane-body {
@@ -108,22 +108,22 @@
   min-height: 3.5rem;
   max-height: 34vh;
   overflow-y: auto;
-  padding: var(--writ-space-2);
-  background: var(--writ-bg-sunken);
+  padding: var(--jotra-space-2);
+  background: var(--jotra-bg-sunken);
   border: 0;
-  border-radius: var(--writ-r-media);
+  border-radius: var(--jotra-r-media);
   font-family: inherit;
-  font-size: var(--writ-ui-sm);
+  font-size: var(--jotra-ui-sm);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
   -webkit-user-select: text;
   user-select: text;
 }
 
 .ai-overlay-result {
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
 }
 
 .ai-overlay-result.is-streaming::after {
@@ -133,8 +133,8 @@
   height: 1em;
   margin-left: 1px;
   vertical-align: text-bottom;
-  background: var(--writ-accent);
-  animation: ai-overlay-caret calc(var(--writ-motion-ambient) * 10 / 7) steps(2, start) infinite;
+  background: var(--jotra-accent);
+  animation: ai-overlay-caret calc(var(--jotra-motion-ambient) * 10 / 7) steps(2, start) infinite;
 }
 
 @keyframes ai-overlay-caret {
@@ -150,34 +150,34 @@
 }
 
 .ai-overlay-error {
-  color: var(--writ-status-error);
+  color: var(--jotra-status-error);
 }
 
 /* What the rewrite took out and put in, marked where it happened. */
 .ai-overlay-removed {
-  background: color-mix(in srgb, var(--writ-status-error) 18%, transparent);
-  color: var(--writ-fg-muted);
+  background: color-mix(in srgb, var(--jotra-status-error) 18%, transparent);
+  color: var(--jotra-fg-muted);
   text-decoration: line-through;
   text-decoration-thickness: 1px;
 }
 
 .ai-overlay-added {
-  background: color-mix(in srgb, var(--writ-status-success) 20%, transparent);
-  color: var(--writ-fg);
+  background: color-mix(in srgb, var(--jotra-status-success) 20%, transparent);
+  color: var(--jotra-fg);
   text-decoration: none;
 }
 
 /* The chord on a footer button, quieter than its label. */
 .ai-overlay-chord {
-  margin-left: var(--writ-space-1);
+  margin-left: var(--jotra-space-1);
   opacity: 0.7;
-  font-size: var(--writ-ui-xs);
+  font-size: var(--jotra-ui-xs);
 }
 
 .ai-overlay-footer {
   display: flex;
   justify-content: flex-end;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
 }
 
 @media (max-width: 640px) {

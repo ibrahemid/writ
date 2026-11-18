@@ -1,4 +1,4 @@
-// writ_storage::notes_index and the note_index commands over the page's
+// jotra_storage::notes_index and the note_index commands over the page's
 // in-memory folder. Nothing is stored: every answer is derived from the files
 // as they are at the moment of the call, which is what the index holds once a
 // save has been indexed.
@@ -33,7 +33,7 @@ import {
 import { scoreFuzzyMatch } from "./naming";
 import { extension, type VirtualFolder } from "./vfs";
 
-/** writ_storage::notes_index::TEXT_EXTENSIONS: what the index holds. */
+/** jotra_storage::notes_index::TEXT_EXTENSIONS: what the index holds. */
 const TEXT_EXTENSIONS = ["md", "markdown", "txt", "text"];
 
 /** note_index::NAME_CANDIDATE_LIMIT. */

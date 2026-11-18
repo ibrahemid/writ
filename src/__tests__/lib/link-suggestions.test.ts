@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { emptyQueryLinks, isLinkable } from "../../lib/link-suggestions";
 
-const ROOT = "/Users/me/Writ";
+const ROOT = "/Users/me/Jotra";
 
 describe("emptyQueryLinks", () => {
   it("offers recent files before nearby ones, each once, without the file being edited", () => {

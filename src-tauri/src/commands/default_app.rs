@@ -1,7 +1,7 @@
-use tauri::AppHandle;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-use writ_core::default_app::aggregate_status;
-use writ_core::default_app::{claimable_type, claimable_types, ClaimableType, DefaultAppStatus};
+use jotra_core::default_app::aggregate_status;
+use jotra_core::default_app::{claimable_type, claimable_types, ClaimableType, DefaultAppStatus};
+use tauri::AppHandle;
 
 use crate::commands::offload::{run_detached, ERR_COMMAND_STOPPED};
 
@@ -18,8 +18,8 @@ pub enum DefaultAppCommandError {
     /// No claimable group has this id.
     #[error("unknown type group: {0}")]
     UnknownGroup(String),
-    /// This system offers Writ no way to become the default.
-    #[error("Writ cannot set default apps on this system.")]
+    /// This system offers Jotra no way to become the default.
+    #[error("Jotra cannot set default apps on this system.")]
     Unsupported,
     /// The system call that sets or reads the default failed.
     #[error("{0}")]
@@ -32,7 +32,7 @@ impl From<DefaultAppCommandError> for String {
     }
 }
 
-/// IPC: the file-type groups the settings UI can offer to make Writ the default for.
+/// IPC: the file-type groups the settings UI can offer to make Jotra the default for.
 #[tauri::command]
 pub fn list_default_app_types() -> Vec<ClaimableType> {
     claimable_types().to_vec()
@@ -42,7 +42,7 @@ fn group(id: &str) -> Result<&'static ClaimableType, DefaultAppCommandError> {
     claimable_type(id).ok_or_else(|| DefaultAppCommandError::UnknownGroup(id.to_string()))
 }
 
-/// IPC: whether Writ is the default handler for every type in group `id`.
+/// IPC: whether Jotra is the default handler for every type in group `id`.
 ///
 /// macOS asks Launch Services per UTI, Linux asks `xdg-mime` per MIME type,
 /// Windows answers [`DefaultAppStatus::SystemSettings`] (only the user picks a
@@ -95,11 +95,11 @@ fn query_status(_group: &ClaimableType) -> Result<DefaultAppStatus, DefaultAppCo
     Ok(DefaultAppStatus::Unsupported)
 }
 
-/// IPC: make Writ the default handler for every type in group `id`.
+/// IPC: make Jotra the default handler for every type in group `id`.
 ///
 /// macOS sets it through Launch Services and Linux through `xdg-mime default`.
 /// Windows lets no app make itself the default, so its Default apps page
-/// opens for the user to pick Writ there. Any other system, and a Linux
+/// opens for the user to pick Jotra there. Any other system, and a Linux
 /// install with no desktop entry, answers [`DefaultAppCommandError::Unsupported`].
 #[tauri::command]
 pub async fn set_default_app(app: AppHandle, id: String) -> Result<(), String> {
@@ -133,7 +133,7 @@ fn claim(app: &AppHandle, _group: &ClaimableType) -> Result<(), DefaultAppComman
     use tauri_plugin_opener::OpenerExt;
     app.opener()
         .open_url(
-            writ_core::default_app::WINDOWS_DEFAULT_APPS_URI,
+            jotra_core::default_app::WINDOWS_DEFAULT_APPS_URI,
             None::<&str>,
         )
         .map_err(|e| DefaultAppCommandError::System(e.to_string()))
@@ -153,7 +153,7 @@ fn enrich_with_display_name(
     status: DefaultAppStatus,
     handler_id: Option<&str>,
 ) -> DefaultAppStatus {
-    use writ_core::default_app::DefaultAppStatus::OtherApp;
+    use jotra_core::default_app::DefaultAppStatus::OtherApp;
     if let OtherApp { name: None } = &status {
         if let Some(id) = handler_id {
             let display = macos::display_name_for_bundle(id);
@@ -167,7 +167,7 @@ fn enrich_with_display_name(
 mod linux {
     use std::process::Command;
 
-    use writ_core::default_app::{
+    use jotra_core::default_app::{
         application_dirs, desktop_entry_status, find_desktop_entry, DefaultAppStatus,
     };
 
@@ -182,7 +182,7 @@ mod linux {
         Failed(String),
     }
 
-    /// Writ's desktop entry, when the system has one.
+    /// Jotra's desktop entry, when the system has one.
     pub fn desktop_entry() -> Option<&'static str> {
         let data_home = std::env::var("XDG_DATA_HOME").ok();
         let data_dirs = std::env::var("XDG_DATA_DIRS").ok();
@@ -207,7 +207,7 @@ mod linux {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
-    /// `xdg-mime query default <mime>`, read against Writ's `entry`.
+    /// `xdg-mime query default <mime>`, read against Jotra's `entry`.
     pub fn query_default(mime: &str, entry: &str) -> Result<DefaultAppStatus, XdgError> {
         run(&["query", "default", mime]).map(|answer| desktop_entry_status(&answer, entry))
     }
@@ -365,7 +365,7 @@ mod tests {
 
     // Every UTI the settings UI can claim must be declared as a handled type in
     // the bundle (a `contentTypes` entry or an `exportedType.identifier`), or
-    // Launch Services accepts the set call but Finder never routes opens to Writ
+    // Launch Services accepts the set call but Finder never routes opens to Jotra
     // and the row can never read as default. This guards the claimable table
     // against the tauri.conf.json declarations so the two cannot drift.
     #[test]
@@ -400,7 +400,7 @@ mod tests {
 
     // Every MIME type a group claims on Linux must be one the desktop entry
     // declares, or `xdg-mime default` records a default the file manager never
-    // offers Writ for.
+    // offers Jotra for.
     #[test]
     fn every_claimable_mime_type_is_declared_in_the_bundle() {
         let raw = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json"))
@@ -468,14 +468,14 @@ mod tests {
         }
     }
 
-    // Writ owns the com.writ.* types and imports every other one: exporting
+    // Jotra owns the com.writ.* types and imports every other one: exporting
     // `net.daringfireball.markdown` competes with the type's owner in Launch
     // Services.
     #[test]
-    fn writ_exports_only_its_own_types_and_imports_markdown() {
+    fn jotra_exports_only_its_own_types_and_imports_markdown() {
         for association in bundle_associations() {
             if let Some(id) = association["exportedType"]["identifier"].as_str() {
-                assert!(id.starts_with("com.writ."), "Writ exports `{id}`");
+                assert!(id.starts_with("com.writ."), "Jotra exports `{id}`");
             }
         }
         let plist = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Info.plist"))
@@ -490,7 +490,7 @@ mod tests {
     #[test]
     fn a_system_without_a_way_to_set_defaults_says_so() {
         let message = DefaultAppCommandError::Unsupported.to_string();
-        assert_eq!(message, "Writ cannot set default apps on this system.");
+        assert_eq!(message, "Jotra cannot set default apps on this system.");
         assert_eq!(
             String::from(DefaultAppCommandError::UnknownGroup("x".into())),
             "unknown type group: x"

@@ -18,106 +18,106 @@ const ACCENT_IDS = ["pine", "writ-blue", "terracotta", "slate", "plum", "gold"];
 
 // Every custom property the baseline declares on the light root.
 const BASELINE_ROOT_TOKENS = [
-  "--writ-font-ui",
-  "--writ-font-prose",
-  "--writ-font-prose-alt",
-  "--writ-font-mono",
-  "--writ-ui-size",
-  "--writ-ui-xs",
-  "--writ-ui-xs-lh",
-  "--writ-ui-sm",
-  "--writ-ui-sm-lh",
-  "--writ-ui-md",
-  "--writ-ui-md-lh",
-  "--writ-ui-lg",
-  "--writ-ui-lg-lh",
-  "--writ-ui-tracking",
-  "--writ-prose-size",
-  "--writ-prose-lh",
-  "--writ-prose-measure",
-  "--writ-prose-pad-x",
-  "--writ-prose-pad-y",
-  "--writ-prose-pad-x-em",
-  "--writ-prose-pad-y-em",
-  "--writ-heading-color",
-  "--writ-heading-formatting",
-  "--writ-h1-size",
-  "--writ-h1-weight",
-  "--writ-h1-lh",
-  "--writ-h2-size",
-  "--writ-h2-weight",
-  "--writ-h2-lh",
-  "--writ-h3-size",
-  "--writ-h3-weight",
-  "--writ-h3-lh",
-  "--writ-h4-size",
-  "--writ-h4-weight",
-  "--writ-h4-lh",
-  "--writ-h5-size",
-  "--writ-h5-weight",
-  "--writ-h5-lh",
-  "--writ-h6-size",
-  "--writ-h6-weight",
-  "--writ-h6-lh",
-  "--writ-bg-canvas",
-  "--writ-bg-sidebar",
-  "--writ-bg-raised",
-  "--writ-bg-sunken",
-  "--writ-bg-hover",
-  "--writ-bg-selected",
-  "--writ-border",
-  "--writ-border-soft",
-  "--writ-fg",
-  "--writ-fg-muted",
-  "--writ-fg-faint",
-  "--writ-danger",
-  "--writ-switch-off",
-  "--writ-syn-string",
-  "--writ-shadow-popover",
-  "--writ-shadow-modal",
-  "--writ-shadow-chip",
-  "--writ-accent",
-  "--writ-accent-hover",
-  "--writ-accent-fg",
-  "--writ-r-row",
-  "--writ-r-control",
-  "--writ-r-tab",
-  "--writ-r-popover",
-  "--writ-r-modal",
-  "--writ-r-card",
-  "--writ-r-media",
-  "--writ-r-pill",
-  "--writ-r-window",
-  "--writ-icon-size",
-  "--writ-icon-color",
-  "--writ-icon-opacity",
-  "--writ-icon-opacity-hover",
-  "--writ-statusbar-height",
-  "--writ-sidebar-width",
-  "--writ-sidebar-min-width",
-  "--writ-sidebar-max-width",
-  "--writ-sidebar-row-pitch",
-  "--writ-sidebar-row-fill",
-  "--writ-space-1",
-  "--writ-space-2",
-  "--writ-space-3",
-  "--writ-space-4",
-  "--writ-space-5",
-  "--writ-space-6",
-  "--writ-space-7",
-  "--writ-ease",
-  "--writ-ease-linear",
-  "--writ-motion-fast",
-  "--writ-motion-duration",
-  "--writ-motion-slow",
-  "--writ-motion",
-  "--writ-z-chrome",
-  "--writ-z-window-lights",
-  "--writ-z-popover",
-  "--writ-z-palette",
-  "--writ-z-modal",
-  "--writ-z-toast",
-  "--writ-z-drag",
+  "--jotra-font-ui",
+  "--jotra-font-prose",
+  "--jotra-font-prose-alt",
+  "--jotra-font-mono",
+  "--jotra-ui-size",
+  "--jotra-ui-xs",
+  "--jotra-ui-xs-lh",
+  "--jotra-ui-sm",
+  "--jotra-ui-sm-lh",
+  "--jotra-ui-md",
+  "--jotra-ui-md-lh",
+  "--jotra-ui-lg",
+  "--jotra-ui-lg-lh",
+  "--jotra-ui-tracking",
+  "--jotra-prose-size",
+  "--jotra-prose-lh",
+  "--jotra-prose-measure",
+  "--jotra-prose-pad-x",
+  "--jotra-prose-pad-y",
+  "--jotra-prose-pad-x-em",
+  "--jotra-prose-pad-y-em",
+  "--jotra-heading-color",
+  "--jotra-heading-formatting",
+  "--jotra-h1-size",
+  "--jotra-h1-weight",
+  "--jotra-h1-lh",
+  "--jotra-h2-size",
+  "--jotra-h2-weight",
+  "--jotra-h2-lh",
+  "--jotra-h3-size",
+  "--jotra-h3-weight",
+  "--jotra-h3-lh",
+  "--jotra-h4-size",
+  "--jotra-h4-weight",
+  "--jotra-h4-lh",
+  "--jotra-h5-size",
+  "--jotra-h5-weight",
+  "--jotra-h5-lh",
+  "--jotra-h6-size",
+  "--jotra-h6-weight",
+  "--jotra-h6-lh",
+  "--jotra-bg-canvas",
+  "--jotra-bg-sidebar",
+  "--jotra-bg-raised",
+  "--jotra-bg-sunken",
+  "--jotra-bg-hover",
+  "--jotra-bg-selected",
+  "--jotra-border",
+  "--jotra-border-soft",
+  "--jotra-fg",
+  "--jotra-fg-muted",
+  "--jotra-fg-faint",
+  "--jotra-danger",
+  "--jotra-switch-off",
+  "--jotra-syn-string",
+  "--jotra-shadow-popover",
+  "--jotra-shadow-modal",
+  "--jotra-shadow-chip",
+  "--jotra-accent",
+  "--jotra-accent-hover",
+  "--jotra-accent-fg",
+  "--jotra-r-row",
+  "--jotra-r-control",
+  "--jotra-r-tab",
+  "--jotra-r-popover",
+  "--jotra-r-modal",
+  "--jotra-r-card",
+  "--jotra-r-media",
+  "--jotra-r-pill",
+  "--jotra-r-window",
+  "--jotra-icon-size",
+  "--jotra-icon-color",
+  "--jotra-icon-opacity",
+  "--jotra-icon-opacity-hover",
+  "--jotra-statusbar-height",
+  "--jotra-sidebar-width",
+  "--jotra-sidebar-min-width",
+  "--jotra-sidebar-max-width",
+  "--jotra-sidebar-row-pitch",
+  "--jotra-sidebar-row-fill",
+  "--jotra-space-1",
+  "--jotra-space-2",
+  "--jotra-space-3",
+  "--jotra-space-4",
+  "--jotra-space-5",
+  "--jotra-space-6",
+  "--jotra-space-7",
+  "--jotra-ease",
+  "--jotra-ease-linear",
+  "--jotra-motion-fast",
+  "--jotra-motion-duration",
+  "--jotra-motion-slow",
+  "--jotra-motion",
+  "--jotra-z-chrome",
+  "--jotra-z-window-lights",
+  "--jotra-z-popover",
+  "--jotra-z-palette",
+  "--jotra-z-modal",
+  "--jotra-z-toast",
+  "--jotra-z-drag",
 ];
 
 function blockBody(css: string, selector: string): string {
@@ -157,13 +157,13 @@ describe("generated token outputs", () => {
   });
 
   it("states the prose measure in px, because the app root is not 16px", () => {
-    // global.css sets `html, body { font-size: var(--writ-ui-md) }`, so 1rem is
+    // global.css sets `html, body { font-size: var(--jotra-ui-md) }`, so 1rem is
     // 13px in this app at the default interface size and the baseline 44rem
     // would draw a 572px column. The measure is absolute so the reading column
     // is the 704px the baseline draws.
-    expect(ROOT_DECLS.get("--writ-ui-size")).toBe("13px");
-    expect(ROOT_DECLS.get("--writ-ui-md")).toBe("calc(var(--writ-ui-size) * 13 / 13)");
-    expect(ROOT_DECLS.get("--writ-prose-measure")).toBe("704px");
+    expect(ROOT_DECLS.get("--jotra-ui-size")).toBe("13px");
+    expect(ROOT_DECLS.get("--jotra-ui-md")).toBe("calc(var(--jotra-ui-size) * 13 / 13)");
+    expect(ROOT_DECLS.get("--jotra-prose-measure")).toBe("704px");
     for (const [platform, type] of Object.entries(TYPE)) {
       expect(type.prose.measure, `${platform} prose measure`).toBe("704px");
     }
@@ -171,26 +171,26 @@ describe("generated token outputs", () => {
 
   it("dark scheme redefines every colour token light defines", () => {
     const colorTokens = [
-      "--writ-bg-canvas",
-      "--writ-bg-sidebar",
-      "--writ-bg-raised",
-      "--writ-bg-sunken",
-      "--writ-bg-hover",
-      "--writ-bg-selected",
-      "--writ-border",
-      "--writ-border-soft",
-      "--writ-fg",
-      "--writ-fg-muted",
-      "--writ-fg-faint",
-      "--writ-danger",
-      "--writ-switch-off",
-      "--writ-syn-string",
-      "--writ-shadow-popover",
-      "--writ-shadow-modal",
-      "--writ-shadow-chip",
-      "--writ-accent",
-      "--writ-accent-hover",
-      "--writ-accent-fg",
+      "--jotra-bg-canvas",
+      "--jotra-bg-sidebar",
+      "--jotra-bg-raised",
+      "--jotra-bg-sunken",
+      "--jotra-bg-hover",
+      "--jotra-bg-selected",
+      "--jotra-border",
+      "--jotra-border-soft",
+      "--jotra-fg",
+      "--jotra-fg-muted",
+      "--jotra-fg-faint",
+      "--jotra-danger",
+      "--jotra-switch-off",
+      "--jotra-syn-string",
+      "--jotra-shadow-popover",
+      "--jotra-shadow-modal",
+      "--jotra-shadow-chip",
+      "--jotra-accent",
+      "--jotra-accent-hover",
+      "--jotra-accent-fg",
     ];
     for (const name of colorTokens) {
       expect(DARK_DECLS.has(name), `${name} is not redefined for dark`).toBe(true);
@@ -206,9 +206,9 @@ describe("generated token outputs", () => {
       ]) {
         const decls = declarationsIn(blockBody(THEME_CSS, selector));
         expect([...decls.keys()].sort()).toEqual([
-          "--writ-accent",
-          "--writ-accent-fg",
-          "--writ-accent-hover",
+          "--jotra-accent",
+          "--jotra-accent-fg",
+          "--jotra-accent-hover",
         ]);
       }
     }
@@ -217,45 +217,45 @@ describe("generated token outputs", () => {
   it("the syntax set is the neutrals, so it follows the polarity", () => {
     // ADR-030 decision 3: only strings carry a hue. The names stay, so a
     // terminal preset still paints its own syntax colours at runtime.
-    expect(ROOT_DECLS.get("--writ-syntax-keyword")).toBe("var(--writ-fg)");
-    expect(ROOT_DECLS.get("--writ-syntax-comment")).toBe("var(--writ-fg-faint)");
-    expect(ROOT_DECLS.get("--writ-syntax-string")).toBe("var(--writ-syn-string)");
+    expect(ROOT_DECLS.get("--jotra-syntax-keyword")).toBe("var(--jotra-fg)");
+    expect(ROOT_DECLS.get("--jotra-syntax-comment")).toBe("var(--jotra-fg-faint)");
+    expect(ROOT_DECLS.get("--jotra-syntax-string")).toBe("var(--jotra-syn-string)");
   });
 
   it("pine light hover is #1C6453 and dark hover is #6BCBB0", () => {
-    expect(declarationsIn(blockBody(THEME_CSS, ':root[data-accent="pine"]')).get("--writ-accent-hover")).toBe("#1C6453");
+    expect(declarationsIn(blockBody(THEME_CSS, ':root[data-accent="pine"]')).get("--jotra-accent-hover")).toBe("#1C6453");
     expect(
       declarationsIn(blockBody(THEME_CSS, ':root[data-accent="pine"][data-theme="dark"]')).get(
-        "--writ-accent-hover",
+        "--jotra-accent-hover",
       ),
     ).toBe("#6BCBB0");
-    expect(ROOT_DECLS.get("--writ-accent-hover")).toBe("#1C6453");
-    expect(DARK_DECLS.get("--writ-accent-hover")).toBe("#6BCBB0");
+    expect(ROOT_DECLS.get("--jotra-accent-hover")).toBe("#1C6453");
+    expect(DARK_DECLS.get("--jotra-accent-hover")).toBe("#6BCBB0");
   });
 
   it("reduced-motion block zeroes all three durations", () => {
     const media = THEME_CSS.slice(THEME_CSS.indexOf("@media (prefers-reduced-motion: reduce)"));
-    expect(media).toContain("--writ-motion-fast: 0ms;");
-    expect(media).toContain("--writ-motion-duration: 0ms;");
-    expect(media).toContain("--writ-motion-slow: 0ms;");
+    expect(media).toContain("--jotra-motion-fast: 0ms;");
+    expect(media).toContain("--jotra-motion-duration: 0ms;");
+    expect(media).toContain("--jotra-motion-slow: 0ms;");
   });
 
   it("tokens.ts COLORS and theme.css agree token-for-token", () => {
     const pairs: [keyof (typeof COLORS)["light"], string][] = [
-      ["bgCanvas", "--writ-bg-canvas"],
-      ["bgSidebar", "--writ-bg-sidebar"],
-      ["bgRaised", "--writ-bg-raised"],
-      ["bgSunken", "--writ-bg-sunken"],
-      ["bgHover", "--writ-bg-hover"],
-      ["bgSelected", "--writ-bg-selected"],
-      ["border", "--writ-border"],
-      ["borderSoft", "--writ-border-soft"],
-      ["fg", "--writ-fg"],
-      ["fgMuted", "--writ-fg-muted"],
-      ["fgFaint", "--writ-fg-faint"],
-      ["danger", "--writ-danger"],
-      ["switchOff", "--writ-switch-off"],
-      ["synString", "--writ-syn-string"],
+      ["bgCanvas", "--jotra-bg-canvas"],
+      ["bgSidebar", "--jotra-bg-sidebar"],
+      ["bgRaised", "--jotra-bg-raised"],
+      ["bgSunken", "--jotra-bg-sunken"],
+      ["bgHover", "--jotra-bg-hover"],
+      ["bgSelected", "--jotra-bg-selected"],
+      ["border", "--jotra-border"],
+      ["borderSoft", "--jotra-border-soft"],
+      ["fg", "--jotra-fg"],
+      ["fgMuted", "--jotra-fg-muted"],
+      ["fgFaint", "--jotra-fg-faint"],
+      ["danger", "--jotra-danger"],
+      ["switchOff", "--jotra-switch-off"],
+      ["synString", "--jotra-syn-string"],
     ];
     for (const [key, name] of pairs) {
       expect(COLORS.light[key], `light ${name}`).toBe(ROOT_DECLS.get(name));
@@ -266,9 +266,9 @@ describe("generated token outputs", () => {
 
 describe("platform dark layers", () => {
   const PLATFORMS = ["win", "linux"];
-  // --writ-bg-hover and --writ-bg-selected are currentColor alphas: the same
+  // --jotra-bg-hover and --jotra-bg-selected are currentColor alphas: the same
   // declaration paints both polarities, so a platform re-declares them once.
-  const POLARITY_FREE = new Set(["--writ-bg-hover", "--writ-bg-selected"]);
+  const POLARITY_FREE = new Set(["--jotra-bg-hover", "--jotra-bg-selected"]);
 
   it("re-declare every token whose base value the dark scheme moves", () => {
     for (const platform of PLATFORMS) {
@@ -284,46 +284,46 @@ describe("platform dark layers", () => {
   });
 
   it("carry a dark client-side-decoration shadow, which no other layer declares", () => {
-    // App.css paints the GNOME window shadow itself, so --writ-shadow-csd has
+    // App.css paints the GNOME window shadow itself, so --jotra-shadow-csd has
     // no base value to fall back on and needs its own dark stack.
     const dark = declarationsIn(blockBody(THEME_CSS, ':root[data-platform="linux"][data-theme="dark"]'));
-    expect(dark.has("--writ-shadow-csd")).toBe(true);
-    expect(dark.get("--writ-shadow-csd")).not.toBe(
-      declarationsIn(blockBody(THEME_CSS, ':root[data-platform="linux"]')).get("--writ-shadow-csd"),
+    expect(dark.has("--jotra-shadow-csd")).toBe(true);
+    expect(dark.get("--jotra-shadow-csd")).not.toBe(
+      declarationsIn(blockBody(THEME_CSS, ':root[data-platform="linux"]')).get("--jotra-shadow-csd"),
     );
   });
 });
 
 describe("layers and selection", () => {
   it("seats the banner between the window lights and the popovers", () => {
-    const lights = Number(ROOT_DECLS.get("--writ-z-window-lights"));
-    const popover = Number(ROOT_DECLS.get("--writ-z-popover"));
-    const banner = Number(ROOT_DECLS.get("--writ-z-banner"));
+    const lights = Number(ROOT_DECLS.get("--jotra-z-window-lights"));
+    const popover = Number(ROOT_DECLS.get("--jotra-z-popover"));
+    const banner = Number(ROOT_DECLS.get("--jotra-z-banner"));
     expect(banner).toBe(160);
     expect(banner).toBeGreaterThan(lights);
     expect(banner).toBeLessThan(popover);
   });
 
   it("mixes the match highlight the way the selection is mixed, one step weaker", () => {
-    expect(ROOT_DECLS.get("--writ-selection")).toBe(
-      "color-mix(in srgb, var(--writ-accent) 30%, transparent)",
+    expect(ROOT_DECLS.get("--jotra-selection")).toBe(
+      "color-mix(in srgb, var(--jotra-accent) 30%, transparent)",
     );
-    expect(ROOT_DECLS.get("--writ-selection-match")).toBe(
-      "color-mix(in srgb, var(--writ-accent) 18%, transparent)",
+    expect(ROOT_DECLS.get("--jotra-selection-match")).toBe(
+      "color-mix(in srgb, var(--jotra-accent) 18%, transparent)",
     );
   });
 });
 
 describe("platform radii", () => {
   // The general rule is narrowed to the radii that actually move: requiring
-  // every --writ-r-* in every layer would mint a GNOME selection-bar radius for
+  // every --jotra-r-* in every layer would mint a GNOME selection-bar radius for
   // a selection bar only Windows draws.
   it("state every radius their platform moves off the base value", () => {
     for (const platform of ["win", "linux"] as const) {
       const declared = declarationsIn(blockBody(THEME_CSS, `:root[data-platform="${platform}"]`));
       const moved = Object.entries(RADII[platform])
         .filter(([key, value]) => value !== RADII.mac[key as keyof typeof RADII.mac])
-        .map(([key]) => `--writ-r-${key}`);
+        .map(([key]) => `--jotra-r-${key}`);
       const missing = moved.filter((name) => !declared.has(name));
       expect(missing, `${platform} does not declare: ${missing.join(", ")}`).toEqual([]);
     }
@@ -335,7 +335,7 @@ describe("platform radii", () => {
       ["linux", "9px"],
     ] as const) {
       const declared = declarationsIn(blockBody(THEME_CSS, `:root[data-platform="${platform}"]`));
-      expect(declared.get("--writ-r-action"), platform).toBe(radius);
+      expect(declared.get("--jotra-r-action"), platform).toBe(radius);
       expect(RADII[platform].action, platform).toBe(radius);
     }
   });
@@ -345,9 +345,9 @@ describe("every emitted token is spent", () => {
   // A name nothing reads is a contract that is not enforced: it reads as a
   // promise the app keeps somewhere else, and editing it changes nothing.
   const UNSPENT: Record<string, string> = {
-    "--writ-sidebar-min-width":
+    "--jotra-sidebar-min-width":
       "read as SIDEBAR.minWidth in stores/global/config.ts, not as a custom property",
-    "--writ-sidebar-max-width":
+    "--jotra-sidebar-max-width":
       "read as SIDEBAR.maxWidth in stores/global/config.ts, not as a custom property",
   };
 
@@ -381,10 +381,10 @@ describe("every emitted token is spent", () => {
     const files = SEARCH_ROOTS.flatMap((root) => sources(resolve(ROOT, root))).map((file) =>
       readFileSync(file, "utf8"),
     );
-    // A token another token's value chains to is spent: --writ-motion is
-    // `var(--writ-motion-duration) var(--writ-ease)`, and nothing else reads
+    // A token another token's value chains to is spent: --jotra-motion is
+    // `var(--jotra-motion-duration) var(--jotra-ease)`, and nothing else reads
     // either half.
-    files.push([...THEME_CSS.matchAll(/var\(\s*(--writ-[a-z0-9-]+)/g)].map((m) => m[1]).join(" "));
+    files.push([...THEME_CSS.matchAll(/var\(\s*(--jotra-[a-z0-9-]+)/g)].map((m) => m[1]).join(" "));
     // CSS_VAR is the hand-kept list of names the app passes to cssVar() at
     // runtime rather than writing into a stylesheet.
     const tokensTs = readFileSync(resolve(ROOT, "src/styles/generated/tokens.ts"), "utf8");
@@ -395,7 +395,7 @@ describe("every emitted token is spent", () => {
 
   it("is referenced by something that is not a generated file", () => {
     const texts = corpus();
-    const declared = [...new Set([...THEME_CSS.matchAll(/(--writ-[a-z0-9-]+)\s*:/g)].map((m) => m[1]))];
+    const declared = [...new Set([...THEME_CSS.matchAll(/(--jotra-[a-z0-9-]+)\s*:/g)].map((m) => m[1]))];
     const orphans = declared.filter(
       (name) => !(name in UNSPENT) && !texts.some((text) => isReadBy(name, text)),
     );
@@ -403,8 +403,8 @@ describe("every emitted token is spent", () => {
   });
 
   it("is not vouched for by a longer name that happens to start with it", () => {
-    expect(isReadBy("--writ-win-input", "var(--writ-win-input-active)")).toBe(false);
-    expect(isReadBy("--writ-win-input", "var(--writ-win-input)")).toBe(true);
+    expect(isReadBy("--jotra-win-input", "var(--jotra-win-input-active)")).toBe(false);
+    expect(isReadBy("--jotra-win-input", "var(--jotra-win-input)")).toBe(true);
   });
 
   it("or is listed as owed, with the reason", () => {
@@ -450,8 +450,8 @@ describe("DTCG preset sources", () => {
 
 // A stylesheet may only spend a name the generated sheets or the legacy layer
 // declare. A reference that supplies its own fallback is exempt: that is how a
-// component-set property (--writ-sidebar-live-width) and a platform-only token
-// (--writ-r-tooltip) are read.
+// component-set property (--jotra-sidebar-live-width) and a platform-only token
+// (--jotra-r-tooltip) are read.
 describe("authored stylesheets reference declared tokens", () => {
   const SRC = resolve(ROOT, "src");
   const SKIP = [
@@ -474,12 +474,12 @@ describe("authored stylesheets reference declared tokens", () => {
   }
 
   const DECLARED = new Set(
-    [...THEME_CSS.matchAll(/^\s*(--writ-[a-z0-9-]+)\s*:/gm)].map((m) => m[1]),
+    [...THEME_CSS.matchAll(/^\s*(--jotra-[a-z0-9-]+)\s*:/gm)].map((m) => m[1]),
   );
 
   /** Names one stylesheet spends that nothing declares and nothing falls back for. */
   function undeclaredIn(css: string): string[] {
-    return [...css.matchAll(/var\(\s*(--writ-[a-z0-9-]+)\s*(,)?/g)]
+    return [...css.matchAll(/var\(\s*(--jotra-[a-z0-9-]+)\s*(,)?/g)]
       .filter(([, name, fallback]) => !fallback && !DECLARED.has(name))
       .map(([, name]) => name);
   }
@@ -497,17 +497,17 @@ describe("authored stylesheets reference declared tokens", () => {
   it("catches a planted name no sheet declares", () => {
     // The check is only worth having if a name nobody declares fails it, and
     // only usable if a fallback still passes.
-    expect(undeclaredIn(".x { color: var(--writ-not-a-token) }")).toEqual(["--writ-not-a-token"]);
-    expect(undeclaredIn(".x { width: var(--writ-not-a-token, 4px) }")).toEqual([]);
-    expect(undeclaredIn(".x { color: var(--writ-fg) }")).toEqual([]);
+    expect(undeclaredIn(".x { color: var(--jotra-not-a-token) }")).toEqual(["--jotra-not-a-token"]);
+    expect(undeclaredIn(".x { width: var(--jotra-not-a-token, 4px) }")).toEqual([]);
+    expect(undeclaredIn(".x { color: var(--jotra-fg) }")).toEqual([]);
   });
 
   it("counts the platform blocks as declarations, not just :root", () => {
-    // --writ-r-tooltip exists only under the Windows overlay.
-    expect(DECLARED.has("--writ-r-tooltip")).toBe(true);
-    expect(DECLARED.has("--writ-r-indicator")).toBe(true);
-    expect(DECLARED.has("--writ-r-action")).toBe(true);
-    expect(DECLARED.has("--writ-z-drag")).toBe(true);
-    expect(DECLARED.has("--writ-z-sidebar")).toBe(false);
+    // --jotra-r-tooltip exists only under the Windows overlay.
+    expect(DECLARED.has("--jotra-r-tooltip")).toBe(true);
+    expect(DECLARED.has("--jotra-r-indicator")).toBe(true);
+    expect(DECLARED.has("--jotra-r-action")).toBe(true);
+    expect(DECLARED.has("--jotra-z-drag")).toBe(true);
+    expect(DECLARED.has("--jotra-z-sidebar")).toBe(false);
   });
 });

@@ -4,7 +4,7 @@
  * scripts in index.html and capture.html read the same key and cannot import
  * this.
  */
-export const THEME_MIRROR_KEY = "writ-theme-vars-v3";
+export const THEME_MIRROR_KEY = "jotra-theme-vars-v3";
 
 const ROOT_ATTRIBUTES: ReadonlySet<string> = new Set(["data-theme", "data-accent"]);
 
@@ -19,7 +19,7 @@ export function applyThemeMirror(root: HTMLElement, raw: string | null): void {
     return;
   }
   for (const [key, value] of Object.entries(saved.vars ?? {})) {
-    if (key.startsWith("--writ-") && typeof value === "string") root.style.setProperty(key, value);
+    if (key.startsWith("--jotra-") && typeof value === "string") root.style.setProperty(key, value);
   }
   for (const [name, value] of Object.entries(saved.attrs ?? {})) {
     if (ROOT_ATTRIBUTES.has(name) && typeof value === "string") root.setAttribute(name, value);

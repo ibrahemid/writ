@@ -34,7 +34,7 @@ interface PendingConfirm extends ConfirmRequest {
   resolve: (outcome: ConfirmOutcome) => void;
 }
 
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 const [pending, setPending] = createSignal<PendingConfirm | null>(null);
 const freed: Array<() => void> = [];
 

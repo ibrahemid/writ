@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { frontmatterEnd, isFrontmatterFence } from "../../lib/frontmatter";
 
-// The cases writ-core pins for `split_frontmatter`, read as an offset instead
+// The cases jotra-core pins for `split_frontmatter`, read as an offset instead
 // of a slice. Both sides are exercised together over the wikilink corpus in
 // wikilink.fixture.test.ts; these are the rule on its own.
 describe("frontmatterEnd", () => {
@@ -29,7 +29,7 @@ describe("frontmatterEnd", () => {
     expect(frontmatterEnd("---\na: 1\n---")).toBe(12);
   });
 
-  // The table `crates/writ-render/tests/frontmatter_tests.rs` holds for the
+  // The table `crates/jotra-render/tests/frontmatter_tests.rs` holds for the
   // three Rust copies of the rule, run against the fourth.
   it.each([
     ["---\ntitle: Test\ntags: [a, b]\n---\nBody text\n", "Body text\n"],

@@ -26,7 +26,7 @@ interface Props {
   contentType: string | null;
   // Whether this pane should show a live preview. When false the iframe is
   // navigated to a blank document but kept mounted — the element is NEVER
-  // removed, because tearing down a loaded writ-preview:// iframe hard-freezes
+  // removed, because tearing down a loaded jotra-preview:// iframe hard-freezes
   // the macOS webview (#124). Every preview transition is an src navigation.
   isActive: boolean;
   // Whether the editor is shown alongside this pane (split layout on a
@@ -102,7 +102,7 @@ export default function PreviewPane(props: Props) {
 
   function postToIframe(payload: Record<string, unknown>): void {
     iframeEl?.contentWindow?.postMessage(
-      { source: "writ-preview", dir: "down", ...payload },
+      { source: "jotra-preview", dir: "down", ...payload },
       "*",
     );
   }
@@ -118,7 +118,7 @@ export default function PreviewPane(props: Props) {
   function onWindowMessage(e: MessageEvent) {
     if (e.source !== iframeEl?.contentWindow) return;
     const d = e.data;
-    if (!d || d.source !== "writ-preview" || d.dir !== "up") return;
+    if (!d || d.source !== "jotra-preview" || d.dir !== "up") return;
     if (d.type === "ready") {
       bridge.onIframeMessage({ type: "ready" });
       search.reapply(); // a reload dropped any highlights — restore them
@@ -265,7 +265,7 @@ export default function PreviewPane(props: Props) {
       }
     } catch (err) {
       setState("error");
-      setMessage(userErrorText(err) ?? "Writ could not draw the preview.");
+      setMessage(userErrorText(err) ?? "Jotra could not draw the preview.");
     }
   }
 
@@ -331,7 +331,7 @@ export default function PreviewPane(props: Props) {
 
   // Live app-theme switch: flip the already-loaded preview's reading palette in
   // place via the bridge, no re-render. Fresh renders already bake the matching
-  // data-writ-theme into the served HTML (no load flash); this only covers a
+  // data-jotra-theme into the served HTML (no load flash); this only covers a
   // theme change while a document is parked in the frame.
   createEffect(
     on(
@@ -378,7 +378,7 @@ export default function PreviewPane(props: Props) {
   );
 
   // Bridge messages arrive on the app window; the source check pins them to
-  // this pane's iframe (the only writ-preview:// frame).
+  // this pane's iframe (the only jotra-preview:// frame).
   onMount(() => {
     window.addEventListener("message", onWindowMessage);
   });
@@ -432,7 +432,7 @@ export default function PreviewPane(props: Props) {
         src={renderedSrc()}
         title={props.buffer ? `Preview of ${props.buffer.title}` : "Preview"}
         // allow-scripts keeps scripts running (the document CSP still gates
-        // them); allow-same-origin keeps the writ-preview://document origin so
+        // them); allow-same-origin keeps the jotra-preview://document origin so
         // 'self', the postMessage source check and the bundled fonts work.
         // Nothing else: no allow-top-navigation, allow-popups or allow-forms,
         // so a document cannot navigate the window away or post a form out. The

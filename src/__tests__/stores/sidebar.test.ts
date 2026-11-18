@@ -33,7 +33,7 @@ const folders = await vi.hoisted(async () => {
   return {
     workspaceRoot,
     setWorkspaceRoot,
-    notesRoot: "/Users/me/Writ" as string | null,
+    notesRoot: "/Users/me/Jotra" as string | null,
     streamContent: vi.fn(),
     refreshIndexStatus: vi.fn(async () => ({ file_count: 1, truncated: false, has_workspace: true })),
   };
@@ -73,14 +73,14 @@ import { createSidebarStore, type SidebarStore } from "../../stores/window/sideb
 import { configStore } from "../../stores/global/config";
 import { searchBuffers, getConfig, updateConfig } from "../../services/tauri";
 import { flushAutosave } from "../../services/autosave";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 
 const mockedSearch = vi.mocked(searchBuffers);
 const mockedFlush = vi.mocked(flushAutosave);
 const mockedGetConfig = vi.mocked(getConfig);
 const mockedUpdateConfig = vi.mocked(updateConfig);
 
-function buildConfig(overrides: Partial<WritConfig["sidebar"]> = {}): WritConfig {
+function buildConfig(overrides: Partial<JotraConfig["sidebar"]> = {}): JotraConfig {
   return {
     hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
     sidebar: {
@@ -172,7 +172,7 @@ describe("sidebar-store (per-window factory)", () => {
       await vi.runAllTimersAsync();
 
       const calls = mockedUpdateConfig.mock.calls;
-      const saved = calls[calls.length - 1]?.[0] as WritConfig;
+      const saved = calls[calls.length - 1]?.[0] as JotraConfig;
       expect(saved.sidebar.open).toBe(true);
     });
 
@@ -198,7 +198,7 @@ describe("sidebar-store (per-window factory)", () => {
       expect(sidebarStore.isOpen()).toBe(false);
       await vi.runAllTimersAsync();
       const calls = mockedUpdateConfig.mock.calls;
-      expect((calls[calls.length - 1]?.[0] as WritConfig).sidebar.open).toBe(false);
+      expect((calls[calls.length - 1]?.[0] as JotraConfig).sidebar.open).toBe(false);
     });
   });
 
@@ -340,7 +340,7 @@ describe("sidebar-store (per-window factory)", () => {
   describe("search over the folder opened by hand (NV-03)", () => {
     afterEach(() => {
       folders.setWorkspaceRoot(null);
-      folders.notesRoot = "/Users/me/Writ";
+      folders.notesRoot = "/Users/me/Jotra";
     });
 
     it("searches the open folder beside the notes folder and keeps its matches apart", async () => {
@@ -371,7 +371,7 @@ describe("sidebar-store (per-window factory)", () => {
         async (_q: string, onBatch: (batch: unknown) => void) => {
           onBatch({
             hits: [
-              { path: "Writ/Plan.md", line: 1, snippet: [] },
+              { path: "Jotra/Plan.md", line: 1, snippet: [] },
               { path: "code/app/README.md", line: 2, snippet: [] },
             ],
             outcome: null,
@@ -386,7 +386,7 @@ describe("sidebar-store (per-window factory)", () => {
     });
 
     it("searches only the index when the open folder is the notes folder", async () => {
-      folders.setWorkspaceRoot("/Users/me/Writ");
+      folders.setWorkspaceRoot("/Users/me/Jotra");
 
       sidebarStore.setSearchQuery("plan");
       await vi.advanceTimersByTimeAsync(200);

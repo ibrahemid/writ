@@ -50,7 +50,7 @@
   { "id": "editor.zoomReset", "label": "Reset Editor Font Size", "accelerator": "CmdOrCtrl+0", "menu": "view", "group": 3, "platforms": ["mac", "win", "linux"] },
 
   { "id": "palette.open", "label": "Command Palette…", "accelerator": "Shift+Shift", "menu": "help", "group": 0, "platforms": ["mac", "win", "linux"] },
-  { "id": "help.docs", "label": "Writ Help", "menu": "help", "group": 1, "platforms": ["mac", "win", "linux"] },
+  { "id": "help.docs", "label": "Jotra Help", "menu": "help", "group": 1, "platforms": ["mac", "win", "linux"] },
   { "id": "shortcuts.customize", "label": "Keyboard Shortcuts", "menu": "help", "group": 1, "platforms": ["mac", "win", "linux"] },
   { "id": "help.whatsNew", "label": "What's New", "menu": "help", "group": 1, "platforms": ["mac", "win", "linux"] },
   { "id": "help.showSetup", "label": "Show Setup Again", "menu": "help", "group": 2, "platforms": ["mac", "win", "linux"] },

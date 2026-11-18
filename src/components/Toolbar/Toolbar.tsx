@@ -79,7 +79,7 @@ export default function Toolbar() {
   return (
     <div
       ref={(el) => (barRef = el)}
-      class="writ-toolbar"
+      class="jotra-toolbar"
       classList={{ "leads-lights": leadsLights() }}
       role="toolbar"
       aria-label="File actions"
@@ -91,7 +91,7 @@ export default function Toolbar() {
       <Tooltip label="Toggle sidebar" kbd="sidebar.toggle">
         <Button
           variant="ghost"
-          class="writ-toolbar-btn"
+          class="jotra-toolbar-btn"
           icon="sidebar-simple"
           aria-label="Toggle sidebar"
           onClick={() => executeCommand("sidebar.toggle")}
@@ -103,7 +103,7 @@ export default function Toolbar() {
         <Tooltip label="New file" kbd="note.new">
           <Button
             variant="ghost"
-            class="writ-toolbar-compose"
+            class="jotra-toolbar-compose"
             icon="note-pencil"
             onClick={() => executeCommand("note.new")}
           >
@@ -111,14 +111,14 @@ export default function Toolbar() {
           </Button>
         </Tooltip>
 
-        <div class="writ-toolbar-divider" role="separator" aria-orientation="vertical" />
+        <div class="jotra-toolbar-divider" role="separator" aria-orientation="vertical" />
       </Show>
 
       <Show when={configStore.isAppOn("connections")}>
         <Tooltip label="Connections" kbd="panel.toggle">
           <Button
             variant="ghost"
-            class="writ-toolbar-btn"
+            class="jotra-toolbar-btn"
             icon="link-simple"
             aria-label="Connections"
             pressed={win.rightPanel.isOpen()}
@@ -132,7 +132,7 @@ export default function Toolbar() {
         <Tooltip label="Graph" kbd="folderGraph.open">
           <Button
             variant="ghost"
-            class="writ-toolbar-btn"
+            class="jotra-toolbar-btn"
             icon="graph"
             aria-label="Graph"
             pressed={win.folderGraph.isOpen()}
@@ -145,7 +145,7 @@ export default function Toolbar() {
         <Tooltip label="Chat" kbd={CHAT_TOGGLE_COMMAND_ID}>
           <Button
             variant="ghost"
-            class="writ-toolbar-btn"
+            class="jotra-toolbar-btn"
             icon="chat-text"
             aria-label="Chat"
             pressed={win.chatPanel.isOpen()}
@@ -158,13 +158,13 @@ export default function Toolbar() {
         <Tooltip label={programsLabel()}>
           <Button
             variant="ghost"
-            class="writ-toolbar-btn writ-toolbar-programs"
+            class="jotra-toolbar-btn jotra-toolbar-programs"
             icon="plugs-connected"
             aria-label={programsLabel()}
             onClick={() => executeCommand("activity.open")}
           >
             <Show when={waitingCount() > 0}>
-              <span class="writ-toolbar-dot" data-waiting aria-hidden="true" />
+              <span class="jotra-toolbar-dot" data-waiting aria-hidden="true" />
             </Show>
           </Button>
         </Tooltip>

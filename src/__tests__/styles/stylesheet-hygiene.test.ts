@@ -46,10 +46,10 @@ describe("authored stylesheets", () => {
   it("scope the panel's scroller padding to a platform, as the sidebar's is", () => {
     const css = readFileSync(resolve(ROOT, "src/components/RightPanel/RightPanel.css"), "utf8");
     expect(css).toMatch(
-      /:root\[data-platform="win"\] \.right-panel-scroll\s*\{[^}]*padding-top:\s*var\(--writ-space-2\)/,
+      /:root\[data-platform="win"\] \.right-panel-scroll\s*\{[^}]*padding-top:\s*var\(--jotra-space-2\)/,
     );
     expect(css).toMatch(
-      /:root\[data-platform="linux"\] \.right-panel-scroll\s*\{[^}]*padding-top:\s*var\(--writ-space-2-5\)/,
+      /:root\[data-platform="linux"\] \.right-panel-scroll\s*\{[^}]*padding-top:\s*var\(--jotra-space-2-5\)/,
     );
     expect(css.match(/\.right-panel-empty\s*\{/g)).toHaveLength(1);
   });

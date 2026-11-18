@@ -31,12 +31,12 @@ function chain(rows: FolderNodeRow[]): FolderEdgeRow[] {
 describe("a folder under the cap", () => {
   const ROWS: FolderNodeRow[] = [
     { path: "Archive/old.md", name: "Old", folder: "Archive" },
-    { path: "Projects/writ.md", name: "Writ", folder: "Projects" },
+    { path: "Projects/jotra.md", name: "Jotra", folder: "Projects" },
     { path: "alone.md", name: "Alone", folder: "" },
   ];
   const EDGES: FolderEdgeRow[] = [
-    { from_path: "Projects/writ.md", to_path: "Archive/old.md" },
-    { from_path: "Archive/old.md", to_path: "Projects/writ.md" },
+    { from_path: "Projects/jotra.md", to_path: "Archive/old.md" },
+    { from_path: "Archive/old.md", to_path: "Projects/jotra.md" },
     { from_path: "alone.md", to_path: "alone.md" },
   ];
 
@@ -44,7 +44,7 @@ describe("a folder under the cap", () => {
     const graph = folderGraphOf(ROWS, EDGES);
     expect(graph.nodes.map((node) => node.path)).toEqual([
       "Archive/old.md",
-      "Projects/writ.md",
+      "Projects/jotra.md",
       "alone.md",
     ]);
     expect(graph.total).toBe(3);
@@ -53,7 +53,7 @@ describe("a folder under the cap", () => {
 
   it("draws one line for two notes that link both ways, and none to itself", () => {
     const graph = folderGraphOf(ROWS, EDGES);
-    expect(graph.edges).toEqual([{ from: "Projects/writ.md", to: "Archive/old.md" }]);
+    expect(graph.edges).toEqual([{ from: "Projects/jotra.md", to: "Archive/old.md" }]);
     expect(graph.nodes.find((node) => node.path === "alone.md")?.degree).toBe(0);
     expect(graph.nodes.find((node) => node.path === "Archive/old.md")?.degree).toBe(1);
   });
@@ -226,16 +226,16 @@ describe("folderLegend", () => {
       ["Home", "red"],
       ["Work", "blue"],
     ]);
-    expect(folderLegend(drawn, colors, "grey", "Writ")).toEqual([
+    expect(folderLegend(drawn, colors, "grey", "Jotra")).toEqual([
       { folder: "Home", label: "Home", color: "red" },
       { folder: "Work", label: "Work", color: "blue" },
-      { folder: "", label: "Writ", color: "grey" },
+      { folder: "", label: "Jotra", color: "grey" },
     ]);
   });
 
   it("has no top-level chip when every file is in a folder", () => {
     const drawn = folderGraphOf([{ path: "Work/a.md", name: "A", folder: "Work" }], []).nodes;
-    expect(folderLegend(drawn, new Map(), "grey", "Writ").map((entry) => entry.label)).toEqual([
+    expect(folderLegend(drawn, new Map(), "grey", "Jotra").map((entry) => entry.label)).toEqual([
       "Work",
     ]);
   });

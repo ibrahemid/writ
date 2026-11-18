@@ -77,7 +77,7 @@ async function undoRenameFromToast(token: string): Promise<void> {
 }
 
 /**
- * Whether Writ may move this note to the Trash.
+ * Whether Jotra may move this note to the Trash.
  *
  * A tab can hold a file opened from anywhere, and a Delete on it has to mean
  * "delete my note", never "delete somebody's file". The backend decides the
@@ -160,7 +160,7 @@ async function putBackFromTrash(token: string, name: string): Promise<void> {
  * The text comes from the editor rather than the file, so a copy taken mid-edit
  * carries what is on screen. The note it was copied from is left where it is.
  *
- * A note whose file was deleted outside Writ has no file to fall back to, and
+ * A note whose file was deleted outside Jotra has no file to fall back to, and
  * the copy is the whole point of the offer, so the text the store kept for it
  * is read before disk is.
  */
@@ -206,7 +206,7 @@ export async function saveNoteAs(id: string): Promise<void> {
 }
 
 /**
- * Carries out what the person chose about a file that changed outside Writ.
+ * Carries out what the person chose about a file that changed outside Jotra.
  *
  * The text sent is the one on screen, because that is the only place the
  * unsaved version of the note exists. What comes back is what the tab must do
@@ -233,7 +233,7 @@ export async function resolveNoteChange(
   const live = inView ? win.editor.getActiveText(false) : null;
   const read = inView ? win.editor.liveDoc() : null;
   if (!live || !read) {
-    logFailure("a change outside Writ was answered for a note the editor was not holding");
+    logFailure("a change outside Jotra was answered for a note the editor was not holding");
     return;
   }
   const content = live.text;
@@ -242,7 +242,7 @@ export async function resolveNoteChange(
   try {
     outcome = await noteFiles.resolveExternalChange(id, choice, content);
   } catch (error) {
-    logFailure("a change outside Writ could not be resolved");
+    logFailure("a change outside Jotra could not be resolved");
     showToast(`Could not update "${noteName(id)}": ${formatSaveError(error)}`, "error");
     return;
   }

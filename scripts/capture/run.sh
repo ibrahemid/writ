@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Captures the stills the site uses, from a release build of the current
 # branch, driven by keystrokes posted to that one process and captured by its
-# CGWindowID. Nothing here touches ~/.writ or ~/Writ; the instance runs on a
+# CGWindowID. Nothing here touches ~/.jotra or ~/Jotra; the instance runs on a
 # scratch copy of scripts/capture/fixtures.
 #
 #   scripts/capture/run.sh --all
@@ -17,7 +17,7 @@
 #                     heroes included (REPORT_SCENES only run when named)
 #   --theme           light | dark | both (default both)
 #   --shell           mac | win | linux (default mac; win and linux run a dev
-#                     instance built with VITE_WRIT_PLATFORM, so they are slower)
+#                     instance built with VITE_JOTRA_PLATFORM, so they are slower)
 #   --size            1280x800 | 1440x900 (default 1280x800; hero-window is
 #                     1440x900 unless --size is given)
 #   --no-build        reuse the bundle from the last build
@@ -26,7 +26,7 @@
 #
 # Every key and click waits until this instance is the frontmost app and the
 # machine has been idle for 45 s; the run refuses to start while any other
-# Writ process exists.
+# Jotra process exists.
 #
 # Every scene's config switches on only the apps that scene shows (apps_on);
 # the rest are off, as in a fresh config.
@@ -46,7 +46,7 @@ PROGRAMS_OUT="${CAPTURE_PROGRAMS_OUT:-$ROOT/.status/reports/programs-section}"
 FIXTURE="$HERE/fixtures/home/Notes"
 VERSIONS="$HERE/fixtures/versions"
 DRIVE="$HERE/.bin/drive"
-WORK="${CAPTURE_WORK:-${TMPDIR:-/tmp}/writ-capture-$$}"
+WORK="${CAPTURE_WORK:-${TMPDIR:-/tmp}/jotra-capture-$$}"
 IDLE_FLOOR="${CAPTURE_IDLE_FLOOR:-45}"
 MEDIA_OUT="${CAPTURE_MEDIA_OUT:-$ROOT/site/public/media}"
 README_OUT="${CAPTURE_README_OUT:-$ROOT/docs/media}"
@@ -176,11 +176,11 @@ preflight() {
   else echo "missing tool: the Tauri CLI (cargo-tauri or node_modules/.bin/tauri)" >&2; exit 1
   fi
   case "$WORK" in
-    "$HOME/.writ"*|"$HOME/Writ"*) echo "scratch dir must not be under ~/.writ or ~/Writ" >&2; exit 1 ;;
+    "$HOME/.jotra"*|"$HOME/Jotra"*) echo "scratch dir must not be under ~/.jotra or ~/Jotra" >&2; exit 1 ;;
   esac
-  if pgrep -x writ-tauri >/dev/null 2>&1; then
-    echo "refusing to run: another Writ process exists" >&2
-    pgrep -xl writ-tauri >&2
+  if pgrep -x jotra-tauri >/dev/null 2>&1; then
+    echo "refusing to run: another Jotra process exists" >&2
+    pgrep -xl jotra-tauri >&2
     exit 1
   fi
   if [ ! -x "$DRIVE" ] || [ "$HERE/drive.swift" -nt "$DRIVE" ]; then
@@ -235,9 +235,9 @@ wait_idle() {
 
 TARGET_DIR=$(cd "$ROOT" && cargo metadata --format-version 1 --no-deps 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')
 TRIPLE=$(rustc -vV | sed -n 's/^host: //p')
-APP="$TARGET_DIR/release/bundle/macos/Writ.app"
-APP_BIN="$APP/Contents/MacOS/writ-tauri"
-CLI_BIN="$APP/Contents/MacOS/writ"
+APP="$TARGET_DIR/release/bundle/macos/Jotra.app"
+APP_BIN="$APP/Contents/MacOS/jotra-tauri"
+CLI_BIN="$APP/Contents/MacOS/jotra"
 
 build_release() {
   if [ "$NO_BUILD" -eq 1 ] && [ -x "$APP_BIN" ]; then
@@ -245,16 +245,16 @@ build_release() {
     return
   fi
   log "building the CLI sidecar"
-  (cd "$ROOT" && CARGO_PROFILE_RELEASE_STRIP=false cargo build --release -p writ-cli >"$WORK/build-cli.log" 2>&1)
+  (cd "$ROOT" && CARGO_PROFILE_RELEASE_STRIP=false cargo build --release -p jotra-cli >"$WORK/build-cli.log" 2>&1)
   mkdir -p "$ROOT/src-tauri/binaries"
-  /bin/cp -f "$TARGET_DIR/release/writ" "$ROOT/src-tauri/binaries/writ-$TRIPLE"
+  /bin/cp -f "$TARGET_DIR/release/jotra" "$ROOT/src-tauri/binaries/jotra-$TRIPLE"
   log "building the release app"
   (cd "$ROOT" && CARGO_PROFILE_RELEASE_STRIP=false "${TAURI[@]}" build --bundles app \
       --config '{"bundle":{"createUpdaterArtifacts":false}}' >"$WORK/build-app.log" 2>&1) \
     || { echo "release build failed, see $WORK/build-app.log" >&2; exit 1; }
   [ -x "$APP_BIN" ] || { echo "no app at $APP after the build" >&2; exit 1; }
   log "bundle: $APP"
-  log "sidecar: $(cat "$ROOT/src-tauri/binaries/writ-$TRIPLE" | shasum -a 256 | cut -c1-12) $CLI_BIN"
+  log "sidecar: $(cat "$ROOT/src-tauri/binaries/jotra-$TRIPLE" | shasum -a 256 | cut -c1-12) $CLI_BIN"
 }
 
 # ----------------------------------------------------------- the instance ----
@@ -327,7 +327,7 @@ accent = "pine"
 $APPEARANCE_EXTRA
 
 [theme]
-preset = "writ-$POLARITY"
+preset = "jotra-$POLARITY"
 
 [window]
 width = $W
@@ -439,17 +439,17 @@ begin() {
   log "$scene: launching ($SHELL_KIND shell, ${W}x${H})"
   wait_idle
   if [ "$SHELL_KIND" = mac ]; then
-    WRIT_DATA_DIR="$DATA" WRIT_NOTES_DIR="$NOTES" "$APP_BIN" >"$dir/app.log" 2>&1 &
+    JOTRA_DATA_DIR="$DATA" JOTRA_NOTES_DIR="$NOTES" "$APP_BIN" >"$dir/app.log" 2>&1 &
     APP_PID=$!
   else
     set -m
-    (cd "$ROOT" && WRIT_DATA_DIR="$DATA" WRIT_NOTES_DIR="$NOTES" VITE_WRIT_PLATFORM="$SHELL_KIND" \
-      WRIT_DEV_PORT="$DEV_PORT" "${TAURI[@]}" dev --no-watch \
+    (cd "$ROOT" && JOTRA_DATA_DIR="$DATA" JOTRA_NOTES_DIR="$NOTES" VITE_JOTRA_PLATFORM="$SHELL_KIND" \
+      JOTRA_DEV_PORT="$DEV_PORT" "${TAURI[@]}" dev --no-watch \
       --config "{\"build\":{\"devUrl\":\"http://localhost:$DEV_PORT\"}}") >"$dir/app.log" 2>&1 &
     DEV_PID=$!
     set +m
     for _ in $(seq 1 1200); do
-      APP_PID=$(pgrep -x writ-tauri | head -1 || true)
+      APP_PID=$(pgrep -x jotra-tauri | head -1 || true)
       [ -n "$APP_PID" ] && break
       sleep 1
     done
@@ -485,7 +485,7 @@ quit_app() {
     kill -- -"$DEV_PID" 2>/dev/null || kill "$DEV_PID" 2>/dev/null || true
     wait "$DEV_PID" 2>/dev/null || true
     DEV_PID=""
-    pkill -x writ-tauri 2>/dev/null || true
+    pkill -x jotra-tauri 2>/dev/null || true
   fi
   sleep 0.5
 }
@@ -563,7 +563,7 @@ pointer_away() {
 set_polarity() {
   [ "$POLARITY" = "$1" ] && return
   POLARITY=$1
-  sed -i '' -e "s/^polarity = .*/polarity = \"$1\"/" -e "s/^preset = .*/preset = \"writ-$1\"/" "$DATA/config.toml"
+  sed -i '' -e "s/^polarity = .*/polarity = \"$1\"/" -e "s/^preset = .*/preset = \"jotra-$1\"/" "$DATA/config.toml"
   sleep 2.5
 }
 

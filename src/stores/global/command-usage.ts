@@ -6,7 +6,7 @@ import type { CommandUsage, CommandUse } from "../../types/command-usage";
 
 // Singleton — app-global, not window-scoped (ADR-009 E3).
 // How often each palette command ran, which ranks the palette. Kept in
-// writ.db, not in the config (ADR-048): running a command touches no setting
+// jotra.db, not in the config (ADR-048): running a command touches no setting
 // and no reader of one.
 
 const FLUSH_DEBOUNCE_MS = 750;

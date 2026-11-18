@@ -29,5 +29,5 @@
 /* The pane without focus names its tab in front without the strip's
    emphasis, so the pane taking keystrokes reads at a glance. */
 .pane-group .editor-pane:not(.is-focused) .tab-active .tab-title {
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
 }

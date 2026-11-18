@@ -1,7 +1,7 @@
 //! The title-bar double-click setting as the system holds it. What it asks of
-//! the window is decided in [`writ_core::title_bar`].
+//! the window is decided in [`jotra_core::title_bar`].
 
-use writ_core::title_bar::DoubleClickPreference;
+use jotra_core::title_bar::DoubleClickPreference;
 
 /// Reads `AppleActionOnDoubleClick` and `AppleMiniaturizeOnDoubleClick`
 /// through the app's defaults search list, which ends in the global domain
@@ -10,8 +10,8 @@ use writ_core::title_bar::DoubleClickPreference;
 #[cfg(target_os = "macos")]
 #[must_use]
 pub fn read_double_click_preference() -> DoubleClickPreference {
+    use jotra_core::title_bar::{ACTION_ON_DOUBLE_CLICK_KEY, MINIATURIZE_ON_DOUBLE_CLICK_KEY};
     use objc2_foundation::{NSString, NSUserDefaults};
-    use writ_core::title_bar::{ACTION_ON_DOUBLE_CLICK_KEY, MINIATURIZE_ON_DOUBLE_CLICK_KEY};
 
     let defaults = NSUserDefaults::standardUserDefaults();
     let action_key = NSString::from_str(ACTION_ON_DOUBLE_CLICK_KEY);
@@ -26,7 +26,7 @@ pub fn read_double_click_preference() -> DoubleClickPreference {
     }
 }
 
-/// Windows and Linux keep no setting Writ reads.
+/// Windows and Linux keep no setting Jotra reads.
 #[cfg(not(target_os = "macos"))]
 #[must_use]
 pub fn read_double_click_preference() -> DoubleClickPreference {

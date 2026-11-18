@@ -95,7 +95,7 @@ function sendLinkOpen(
 ) {
   window.dispatchEvent(
     new MessageEvent("message", {
-      data: { source: "writ-preview", dir: "up", type: "link:open", href, x: 40, y: 24 },
+      data: { source: "jotra-preview", dir: "up", type: "link:open", href, x: 40, y: 24 },
       source: source as MessageEventSource | null,
     }),
   );
@@ -138,7 +138,7 @@ describe("preview link confirmation", () => {
     sendLinkOpen(frame, "https://example.com/docs");
 
     await waitFor(() => expect(popovers(container)).toHaveLength(1));
-    expect(popovers(container)[0].hasAttribute("data-writ-focus-silent")).toBe(true);
+    expect(popovers(container)[0].hasAttribute("data-jotra-focus-silent")).toBe(true);
   });
 
   it("shows the destination and opens nothing on the message alone", async () => {
@@ -198,14 +198,14 @@ describe("preview link confirmation", () => {
 
   it("renders a refused link inert with its reason", async () => {
     mocks.classify.mockResolvedValue(
-      refused("scheme", "Writ opens only http, https, and mailto links."),
+      refused("scheme", "Jotra opens only http, https, and mailto links."),
     );
     const { container, frame } = await mountPreview();
     sendLinkOpen(frame, "javascript:alert(1)");
 
     await waitFor(() =>
       expect(container.querySelector(".link-confirm-refused")?.textContent).toBe(
-        "Writ opens only http, https, and mailto links.",
+        "Jotra opens only http, https, and mailto links.",
       ),
     );
     expect(openButton(container)).toBeNull();

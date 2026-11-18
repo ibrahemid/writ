@@ -29,7 +29,7 @@ describe("themeStore", () => {
     expect(DEFAULT_PRESET_ID).toBe("writ-light");
     themeStore.loadConfig({ preset: "", overrides: {} }, { polarity: "light", accent: "pine", prose_face: "system", interface_text_size: null });
     expect(themeStore.presetId()).toBe("writ-light");
-    expect(themeStore.activePreset().name).toBe("Writ Light");
+    expect(themeStore.activePreset().name).toBe("Jotra Light");
     expect(themeStore.polarity()).toBe("light");
   });
 
@@ -40,8 +40,8 @@ describe("themeStore", () => {
   });
 
   it("collapses a group's default leaf onto the group name", () => {
-    // --writ-fg and --writ-border are what the generated sheet declares, so a
-    // preset leaf has to land there and not on --writ-fg-default.
+    // --jotra-fg and --jotra-border are what the generated sheet declares, so a
+    // preset leaf has to land there and not on --jotra-fg-default.
     const tokens = themeStore.resolvedTokens();
     expect(tokens["fg"]).toBe("#e0e0e0");
     expect(tokens["border"]).toBe("#1e1e2e");
@@ -52,8 +52,8 @@ describe("themeStore", () => {
   it("applies tokens to the root element as CSS variables", () => {
     const root = fakeRoot();
     themeStore.applyToRoot(root);
-    expect(root.style.getPropertyValue("--writ-bg-canvas")).toBe("#0e0e14");
-    expect(root.style.getPropertyValue("--writ-fg")).toBe("#e0e0e0");
+    expect(root.style.getPropertyValue("--jotra-bg-canvas")).toBe("#0e0e14");
+    expect(root.style.getPropertyValue("--jotra-fg")).toBe("#e0e0e0");
   });
 
   it("resolves the accent triple for the effective polarity", () => {
@@ -132,7 +132,7 @@ describe("themeStore", () => {
   });
 
   it("choosing a preset pins its own polarity", () => {
-    // The bug: on a dark system with polarity following it, picking Writ Light
+    // The bug: on a dark system with polarity following it, picking Jotra Light
     // set the preset and the pair swap put writ-dark back on the screen.
     const root = fakeRoot();
     themeStore.loadConfig(
@@ -228,10 +228,10 @@ describe("themeStore", () => {
     const root = fakeRoot();
     themeStore.setAppearance({ polarity: "dark", accent: "pine", prose_face: "quattro", interface_text_size: null });
     themeStore.applyToRoot(root);
-    expect(root.style.getPropertyValue("--writ-font-prose")).toBe("var(--writ-font-prose-alt)");
+    expect(root.style.getPropertyValue("--jotra-font-prose")).toBe("var(--jotra-font-prose-alt)");
     themeStore.setAppearance({ polarity: "dark", accent: "pine", prose_face: "system", interface_text_size: null });
     themeStore.applyToRoot(root);
-    expect(root.style.getPropertyValue("--writ-font-prose")).toBe("");
+    expect(root.style.getPropertyValue("--jotra-font-prose")).toBe("");
   });
 
   it("loadConfig translates an override written in the old vocabulary", () => {
@@ -261,10 +261,10 @@ describe("themeStore", () => {
 
     const root = fakeRoot();
     themeStore.applyToRoot(root);
-    expect(root.style.getPropertyValue("--writ-bg-canvas")).toBe("#123456");
-    expect(root.style.getPropertyValue("--writ-fg-faint")).toBe("#abcdef");
-    expect(root.style.getPropertyValue("--writ-accent")).toBe("#ff7b00");
-    expect(root.style.getPropertyValue("--writ-syntax-keyword")).toBe("#0f0f0f");
+    expect(root.style.getPropertyValue("--jotra-bg-canvas")).toBe("#123456");
+    expect(root.style.getPropertyValue("--jotra-fg-faint")).toBe("#abcdef");
+    expect(root.style.getPropertyValue("--jotra-accent")).toBe("#ff7b00");
+    expect(root.style.getPropertyValue("--jotra-syntax-keyword")).toBe("#0f0f0f");
   });
 
   it("loadConfig drops an override naming a token the new vocabulary lost", () => {
@@ -354,26 +354,26 @@ describe("theme polarity and fast boot", () => {
     pin("light");
     themeStore.setPreset("warp-light");
     themeStore.applyToRoot(fakeRoot());
-    const raw = localStorage.getItem("writ-theme-vars-v3");
+    const raw = localStorage.getItem("jotra-theme-vars-v3");
     expect(raw).toBeTruthy();
     const saved = JSON.parse(raw as string) as {
       vars: Record<string, string>;
       attrs: Record<string, string>;
     };
-    expect(saved.vars["--writ-bg-canvas"]).toBe("#fbfbfd");
-    expect(saved.vars["--writ-accent-fg"]).toBe(ACCENTS.pine.light.foreground);
+    expect(saved.vars["--jotra-bg-canvas"]).toBe("#fbfbfd");
+    expect(saved.vars["--jotra-accent-fg"]).toBe(ACCENTS.pine.light.foreground);
     expect(saved.attrs).toEqual({ "data-theme": "light", "data-accent": "pine" });
   });
 
   it("keys the snapshot on a version no earlier build wrote", () => {
     // An older snapshot describes a property set the stylesheets no longer
     // read; replaying it would flash the wrong palette after an update.
-    localStorage.setItem("writ-theme-vars", "{}");
-    localStorage.setItem("writ-theme-vars-v2", "{}");
+    localStorage.setItem("jotra-theme-vars", "{}");
+    localStorage.setItem("jotra-theme-vars-v2", "{}");
     themeStore.applyToRoot(fakeRoot());
-    expect(localStorage.getItem("writ-theme-vars")).toBe("{}");
-    expect(localStorage.getItem("writ-theme-vars-v2")).toBe("{}");
-    expect(localStorage.getItem("writ-theme-vars-v3")).not.toBe("{}");
+    expect(localStorage.getItem("jotra-theme-vars")).toBe("{}");
+    expect(localStorage.getItem("jotra-theme-vars-v2")).toBe("{}");
+    expect(localStorage.getItem("jotra-theme-vars-v3")).not.toBe("{}");
   });
 });
 
@@ -393,7 +393,7 @@ describe("a theme change reaching the root", () => {
     const stop = createRoot((dispose) => {
       createEffect(() => {
         themeStore.resolvedTokens();
-        seen.push(document.documentElement.style.getPropertyValue("--writ-bg-canvas"));
+        seen.push(document.documentElement.style.getPropertyValue("--jotra-bg-canvas"));
       });
       return dispose;
     });
@@ -405,7 +405,7 @@ describe("a theme change reaching the root", () => {
     await Promise.resolve();
     expect(seen).toHaveLength(2);
     expect(seen[1]).not.toBe(wasDark);
-    expect(seen[1]).toBe(document.documentElement.style.getPropertyValue("--writ-bg-canvas"));
+    expect(seen[1]).toBe(document.documentElement.style.getPropertyValue("--jotra-bg-canvas"));
     stop();
   });
 });
@@ -497,14 +497,14 @@ describe("flattening a preset into CSS variables", () => {
     expect(flat["extras.flat"]).toBe("#123456");
   });
 
-  it("writes no --writ-site-* variable to the root", () => {
+  it("writes no --jotra-site-* variable to the root", () => {
     for (const preset of themeStore.presets()) {
       const root = fakeRoot();
       pin(preset.polarity);
       themeStore.setPreset(preset.id);
       themeStore.applyToRoot(root);
       const written = Array.from({ length: root.style.length }, (_, i) => root.style.item(i));
-      expect(written.filter((name) => name.startsWith("--writ-site-")), preset.id).toEqual([]);
+      expect(written.filter((name) => name.startsWith("--jotra-site-")), preset.id).toEqual([]);
     }
   });
 
@@ -512,6 +512,6 @@ describe("flattening a preset into CSS variables", () => {
     const root = fakeRoot();
     expect(themeStore.setOverride("syntax.tag.attribute", "#abcdef")).toBe(true);
     themeStore.applyToRoot(root);
-    expect(root.style.getPropertyValue("--writ-syntax-tag-attribute")).toBe("#abcdef");
+    expect(root.style.getPropertyValue("--jotra-syntax-tag-attribute")).toBe("#abcdef");
   });
 });

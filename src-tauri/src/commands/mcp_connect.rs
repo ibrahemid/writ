@@ -2,9 +2,9 @@
 //! decision AM-D7).
 //!
 //! The webview names a client and nothing else. The arguments, the link and
-//! the bundle are built here, from `writ_core::mcp_clients` and the command
+//! the bundle are built here, from `jotra_core::mcp_clients` and the command
 //! every client is handed (`activity::resolved_command`), so no script in the
-//! window can have Writ run or open anything of its choosing. Writ runs the
+//! window can have Jotra run or open anything of its choosing. Jotra runs the
 //! client's own `mcp add`, opens the install link the client handles, or hands
 //! the system a bundle the client installs: it never writes another program's
 //! configuration.
@@ -16,15 +16,15 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use jotra_core::activity::OffCall;
+use jotra_core::mcp_clients::{
+    bundle_launcher, bundle_manifest, other_client_json, probe_requests, read_probe_line,
+    Connection, McpClient, ProbeLine, SERVE_VERB, USUAL_PROGRAM_FOLDERS,
+};
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
-use writ_core::activity::OffCall;
-use writ_core::mcp_clients::{
-    bundle_manifest, other_client_json, probe_requests, read_probe_line, Connection, McpClient,
-    ProbeLine, BUNDLE_LAUNCHER, SERVE_VERB, USUAL_PROGRAM_FOLDERS,
-};
 
-use crate::events::emitter::WritFrontendEvent;
+use crate::events::emitter::JotraFrontendEvent;
 use crate::state::AppState;
 
 /// How long a client's `mcp add` is given.
@@ -43,12 +43,12 @@ const MAX_SAID: usize = 300;
 pub enum ConnectError {
     /// The command a client would be handed moves or is not installed yet,
     /// so handing it out now would break the client later (U41).
-    #[error("Writ's command is not ready to give a program yet.")]
+    #[error("Jotra's command is not ready to give a program yet.")]
     CommandNotReady,
     /// The card asked for a way this client is not connected.
     #[error("This program is connected another way.")]
     WrongConnection,
-    /// The client's command was found in no folder Writ looked in.
+    /// The client's command was found in no folder Jotra looked in.
     #[error("The {program} command was not found on this computer.")]
     ProgramNotFound {
         /// The command looked for.
@@ -71,7 +71,7 @@ pub enum ConnectError {
         seconds: u64,
     },
     /// The client's command ended with a failure, and this is what it said.
-    #[error("The {program} command could not add Writ: {said}.")]
+    #[error("The {program} command could not add Jotra: {said}.")]
     ProgramFailed {
         /// The command.
         program: String,
@@ -82,22 +82,22 @@ pub enum ConnectError {
     #[error("No app on this computer opened the link. Install the program first.")]
     LinkNotOpened,
     /// The bundle could not be written into the data folder.
-    #[error("Writ.mcpb could not be written: {0}.")]
+    #[error("Jotra.mcpb could not be written: {0}.")]
     BundleNotWritten(String),
     /// No app took the bundle.
-    #[error("No app on this computer opened Writ.mcpb. Install Claude Desktop first.")]
+    #[error("No app on this computer opened Jotra.mcpb. Install Claude Desktop first.")]
     BundleNotOpened,
     /// The server could not be started for the test.
-    #[error("Writ's server could not be started: {0}.")]
+    #[error("Jotra's server could not be started: {0}.")]
     ServerNotStarted(String),
     /// The server did not list its tools in time.
-    #[error("Writ's server did not answer within {0} seconds.")]
+    #[error("Jotra's server did not answer within {0} seconds.")]
     ServerSilent(u64),
     /// The server ended before it listed its tools.
-    #[error("Writ's server stopped before it listed its tools: {0}.")]
+    #[error("Jotra's server stopped before it listed its tools: {0}.")]
     ServerEnded(String),
     /// The server answered the test with an error.
-    #[error("Writ's server answered with an error: {0}.")]
+    #[error("Jotra's server answered with an error: {0}.")]
     ServerFailed(String),
 }
 
@@ -221,7 +221,7 @@ fn is_runnable(path: &Path) -> bool {
 /// more.
 #[cfg(unix)]
 fn login_shell_path() -> Option<String> {
-    use writ_core::mcp_clients::{login_shell_path_script, read_login_shell_path};
+    use jotra_core::mcp_clients::{login_shell_path_script, read_login_shell_path};
     const SHELL_TIMEOUT: Duration = Duration::from_secs(5);
     let shell = std::env::var_os("SHELL")
         .filter(|shell| !shell.is_empty())
@@ -422,16 +422,16 @@ pub fn add_with_client_inner(
 }
 
 /// Writes the Claude Desktop bundle for the command at `server` into
-/// `writ_dir` and answers its path.
-pub fn write_bundle_inner(writ_dir: &Path, server: &Path) -> Result<PathBuf, ConnectError> {
+/// `jotra_dir` and answers its path.
+pub fn write_bundle_inner(jotra_dir: &Path, server: &Path) -> Result<PathBuf, ConnectError> {
     let manifest = bundle_manifest(&server.display().to_string(), env!("CARGO_PKG_VERSION"));
-    writ_storage::mcp_bundle::write_bundle(writ_dir, &manifest, BUNDLE_LAUNCHER)
+    jotra_storage::mcp_bundle::write_bundle(jotra_dir, &manifest, &bundle_launcher())
         .map_err(|error| ConnectError::BundleNotWritten(error.to_string()))
 }
 
 // --- The connection test ------------------------------------------------------
 
-/// Starts `command`, a `writ mcp`, as a client would, and answers how many
+/// Starts `command`, a `jotra mcp`, as a client would, and answers how many
 /// tools it lists.
 ///
 /// It sends `initialize`, then the `initialized` notification and
@@ -519,9 +519,9 @@ fn next_line(lines: &mpsc::Receiver<String>, deadline: Instant) -> Result<ProbeL
 
 // --- A call while the server is off -----------------------------------------
 
-/// The frontend event for the record in `writ_dir`, when there is one.
-pub fn off_call_event(writ_dir: &Path) -> Option<WritFrontendEvent> {
-    writ_storage::off_calls::read(writ_dir).map(|call| WritFrontendEvent::McpOffCall { call })
+/// The frontend event for the record in `jotra_dir`, when there is one.
+pub fn off_call_event(jotra_dir: &Path) -> Option<JotraFrontendEvent> {
+    jotra_storage::off_calls::read(jotra_dir).map(|call| JotraFrontendEvent::McpOffCall { call })
 }
 
 // --- IPC ------------------------------------------------------------------------
@@ -592,7 +592,7 @@ fn open_for_client(
             })
         }
         Connection::Bundle => {
-            let bundle = write_bundle_inner(&state.writ_dir, server)?;
+            let bundle = write_bundle_inner(&state.jotra_dir, server)?;
             app.opener()
                 .open_path(bundle.display().to_string(), None::<&str>)
                 .map_err(|error| {
@@ -624,7 +624,7 @@ pub async fn mcp_server_test() -> Result<ServerTest, String> {
 #[tauri::command]
 pub async fn mcp_off_call(app: AppHandle) -> Result<Option<OffCall>, String> {
     super::offload::run_blocking(app, super::offload::ERR_COMMAND_STOPPED, |state| {
-        Ok(writ_storage::off_calls::read(&state.writ_dir))
+        Ok(jotra_storage::off_calls::read(&state.jotra_dir))
     })
     .await
 }

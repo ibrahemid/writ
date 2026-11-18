@@ -3,7 +3,7 @@ import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { ensureSyntaxTree, syntaxHighlighting } from "@codemirror/language";
-import { writHighlight } from "../../components/Editor/cm-theme";
+import { jotraHighlight } from "../../components/Editor/cm-theme";
 import {
   activeLineStarts,
   buildMarkdownDecorations,
@@ -67,7 +67,7 @@ function renderDoc(doc: string, cursor: number): EditorView {
       doc,
       extensions: [
         markdown({ base: markdownLanguage }),
-        syntaxHighlighting(writHighlight),
+        syntaxHighlighting(jotraHighlight),
         markdownTypographyPlugin,
       ],
       selection: { anchor: cursor },
@@ -552,7 +552,7 @@ describe("horizontal rule decorations", () => {
 
 describe("autolink decorations", () => {
   it("styles a bare url with the link text class", () => {
-    const doc = "visit https://writ.dev today\n";
+    const doc = "visit https://jotra.dev today\n";
     const specs = buildForDoc(doc);
     const link = specs.find(
       (s) => (s.decoration as unknown as { spec: { class?: string } }).spec?.class === "cm-md-link-text",
@@ -565,7 +565,7 @@ describe("autolink decorations", () => {
 // ─── Inline links ─────────────────────────────────────────────────────────
 
 describe("inline link decorations", () => {
-  const doc = "See [Writ](https://example.com) now\ncursor\n";
+  const doc = "See [Jotra](https://example.com) now\ncursor\n";
 
   it("replaces the url and styles only the label on an inactive line", () => {
     const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
@@ -576,7 +576,7 @@ describe("inline link decorations", () => {
         s.to === doc.indexOf("https://") + "https://example.com".length,
     );
     expect(label).toEqual(
-      expect.objectContaining({ from: doc.indexOf("Writ"), to: doc.indexOf("Writ") + 4 }),
+      expect.objectContaining({ from: doc.indexOf("Jotra"), to: doc.indexOf("Jotra") + "Jotra".length }),
     );
     expect(classesOf(url!)).toEqual([]);
     expect(specs.some((s) => classesOf(s).includes("cm-md-url-dim"))).toBe(false);
@@ -602,14 +602,14 @@ describe("inline link decorations", () => {
     const dim = view.contentDOM.querySelector(".cm-md-url-dim");
     expect(dim?.textContent).toBe("https://example.com");
     expect(dim!.querySelector("span")?.textContent).toBe("https://example.com");
-    expect(view.contentDOM.querySelector(".cm-md-link-text")?.textContent).toBe("Writ");
+    expect(view.contentDOM.querySelector(".cm-md-link-text")?.textContent).toBe("Jotra");
     view.destroy();
   });
 
   it("leaves nothing of the url on screen on an inactive line", () => {
     const view = renderDoc(doc, doc.indexOf("cursor"));
     expect(view.contentDOM.textContent).not.toContain("https://example.com");
-    expect(view.contentDOM.querySelector(".cm-md-link-text")?.textContent).toBe("Writ");
+    expect(view.contentDOM.querySelector(".cm-md-link-text")?.textContent).toBe("Jotra");
     view.destroy();
   });
 
@@ -627,31 +627,31 @@ describe("inline link decorations", () => {
 // ─── Link and image titles ────────────────────────────────────────────────
 
 describe("link title decorations", () => {
-  const linkDoc = 'See [Writ](https://example.com "The site") now\ncursor\n';
+  const linkDoc = 'See [Jotra](https://example.com "The site") now\ncursor\n';
 
   it("hides the title with the address on an inactive line", () => {
     const view = renderDoc(linkDoc, linkDoc.indexOf("cursor"));
-    expect(view.contentDOM.querySelector(".cm-line")?.textContent).toBe("See Writ now");
+    expect(view.contentDOM.querySelector(".cm-line")?.textContent).toBe("See Jotra now");
     view.destroy();
   });
 
   it("shows the whole source of a titled link on the active line", () => {
     const view = renderDoc(linkDoc, 0);
     expect(view.contentDOM.querySelector(".cm-line")?.textContent).toBe(
-      'See [Writ](https://example.com "The site") now',
+      'See [Jotra](https://example.com "The site") now',
     );
     view.destroy();
   });
 
   it("leaves a title that starts on the next line alone rather than replacing the break", () => {
     // A replace range may not cross a line break when it comes from a plugin.
-    const wrapped = 'See [Writ](https://example.com\n"The site") now\ncursor\n';
+    const wrapped = 'See [Jotra](https://example.com\n"The site") now\ncursor\n';
     const view = renderDoc(wrapped, wrapped.indexOf("cursor"));
-    expect(view.contentDOM.querySelector(".cm-line")?.textContent).toBe("See Writ");
+    expect(view.contentDOM.querySelector(".cm-line")?.textContent).toBe("See Jotra");
     expect(view.contentDOM.textContent).not.toContain("https://example.com");
     view.destroy();
 
-    const broken = 'See [Writ](https://example.com "The\nsite") now\ncursor\n';
+    const broken = 'See [Jotra](https://example.com "The\nsite") now\ncursor\n';
     const brokenView = renderDoc(broken, broken.indexOf("cursor"));
     expect(brokenView.contentDOM.textContent).not.toContain("https://example.com");
     brokenView.destroy();

@@ -7,12 +7,12 @@ import LocalGraphSection from "../../components/RightPanel/LocalGraphSection";
 // a click.
 
 const TOKEN_VALUES: Record<string, string> = {
-  "--writ-bg-canvas": "rgb(1, 1, 1)",
-  "--writ-fg-muted": "rgb(2, 2, 2)",
-  "--writ-fg": "rgb(3, 3, 3)",
-  "--writ-accent": "rgb(4, 4, 4)",
-  "--writ-border": "rgb(5, 5, 5)",
-  "--writ-bg-raised": "rgb(6, 6, 6)",
+  "--jotra-bg-canvas": "rgb(1, 1, 1)",
+  "--jotra-fg-muted": "rgb(2, 2, 2)",
+  "--jotra-fg": "rgb(3, 3, 3)",
+  "--jotra-accent": "rgb(4, 4, 4)",
+  "--jotra-border": "rgb(5, 5, 5)",
+  "--jotra-bg-raised": "rgb(6, 6, 6)",
 };
 
 const h = vi.hoisted(() => ({

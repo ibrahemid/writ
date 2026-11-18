@@ -11,7 +11,7 @@ use std::net::TcpListener;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use writ_tauri_lib::commands::ai::{probe_local_at, LocalProbeUrls};
+use jotra_tauri_lib::commands::ai::{probe_local_at, LocalProbeUrls};
 
 /// Reads one request off a connection and answers 200, returning the bytes.
 fn record_one(listener: TcpListener) -> String {

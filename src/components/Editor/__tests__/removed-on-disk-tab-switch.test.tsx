@@ -62,7 +62,7 @@ async function flush(n = 30) {
   for (let i = 0; i < n; i++) await Promise.resolve();
 }
 
-describe("a note whose file was deleted outside Writ", () => {
+describe("a note whose file was deleted outside Jotra", () => {
   beforeEach(() => {
     bufferContent.clear();
     deleted.clear();
@@ -94,7 +94,7 @@ describe("a note whose file was deleted outside Writ", () => {
     const text = () => container.querySelector(".cm-content")?.textContent ?? "";
     expect(text()).toContain("the only copy");
 
-    // The file goes outside Writ. The tab is marked and keeps its text.
+    // The file goes outside Jotra. The tab is marked and keeps its text.
     deleted.add("A");
     win!.editor.markRemovedOnDisk("A");
     await flush();
@@ -210,7 +210,7 @@ describe("a note whose file was deleted outside Writ", () => {
   });
 });
 
-describe("a note whose file changed outside Writ", () => {
+describe("a note whose file changed outside Jotra", () => {
   beforeEach(() => {
     bufferContent.clear();
     deleted.clear();
@@ -225,7 +225,7 @@ describe("a note whose file changed outside Writ", () => {
     // text and writes no copy of anything.
     const EditorInstance = (await import("../EditorInstance")).default;
 
-    bufferContent.set("A", "as Writ opened it");
+    bufferContent.set("A", "as Jotra opened it");
     bufferContent.set("B", "other note");
 
     let win: ReturnType<typeof useWindow> | null = null;
@@ -276,7 +276,7 @@ describe("a note whose file changed outside Writ", () => {
     // reverts everything typed under the bar that replaced the deletion.
     const EditorInstance = (await import("../EditorInstance")).default;
 
-    bufferContent.set("A", "as Writ opened it");
+    bufferContent.set("A", "as Jotra opened it");
     bufferContent.set("B", "other note");
 
     let win: ReturnType<typeof useWindow> | null = null;
@@ -343,7 +343,7 @@ describe("a note whose file changed outside Writ", () => {
     const { createExternalEditDeps } = await import("../../../lib/external-edit-deps");
     const { peekUnsavedContent } = await import("../../../services/autosave");
 
-    bufferContent.set("A", "as Writ opened it");
+    bufferContent.set("A", "as Jotra opened it");
     bufferContent.set("B", "other note");
     let win: ReturnType<typeof useWindow> | null = null;
     function Probe() {

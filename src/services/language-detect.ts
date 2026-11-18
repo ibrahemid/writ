@@ -10,7 +10,7 @@ const SHEBANG_MAP: Record<string, string> = {
   php: "php",
 };
 
-// Writ's own extension map. A name whose extension is not here is looked up in
+// Jotra's own extension map. A name whose extension is not here is looked up in
 // the editor's language table (src/editor/languages.ts) before it is called
 // plain text.
 const EXTENSION_MAP: Record<string, string> = {

@@ -144,8 +144,8 @@ describe("ConfirmDialog", () => {
     requestConfirm({ title: "Wipe", message: "irreversible", danger: true });
     await flush();
     const accept = document.querySelector(".confirm-accept");
-    expect(accept?.classList.contains("writ-btn-danger")).toBe(true);
-    expect(accept?.classList.contains("writ-btn-primary")).toBe(true);
+    expect(accept?.classList.contains("jotra-btn-danger")).toBe(true);
+    expect(accept?.classList.contains("jotra-btn-primary")).toBe(true);
   });
 
   it("focuses Cancel for a danger dialog that names no default (PR-06)", async () => {

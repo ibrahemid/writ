@@ -4,13 +4,13 @@
 .first-run-layer {
   position: absolute;
   bottom: 0;
-  z-index: var(--writ-z-chrome);
+  z-index: var(--jotra-z-chrome);
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
   /* The horizontal padding is the note's own, so the line starts where the
      first character of the note does. */
-  padding: var(--writ-space-4) var(--writ-space-7);
+  padding: var(--jotra-space-4) var(--jotra-space-7);
   pointer-events: none;
 }
 
@@ -18,29 +18,29 @@
    looked at again. */
 .first-run-hint {
   margin: 0;
-  font-family: var(--writ-font-ui);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  letter-spacing: var(--writ-ui-tracking);
-  color: var(--writ-fg-faint);
+  font-family: var(--jotra-font-ui);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  letter-spacing: var(--jotra-ui-tracking);
+  color: var(--jotra-fg-faint);
 }
 
 .first-run-offer {
   pointer-events: auto;
   /* The note's measure. A row that runs the width of a wide window puts its
      two controls a screen away from the question they answer. */
-  max-width: var(--writ-prose-measure);
+  max-width: var(--jotra-prose-measure);
   display: flex;
   align-items: center;
-  gap: var(--writ-space-3);
-  padding: var(--writ-space-2) var(--writ-space-3);
-  border: 1px solid var(--writ-border);
-  border-radius: var(--writ-r-card);
-  background: var(--writ-bg-raised);
-  font-family: var(--writ-font-ui);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-fg);
+  gap: var(--jotra-space-3);
+  padding: var(--jotra-space-2) var(--jotra-space-3);
+  border: 1px solid var(--jotra-border);
+  border-radius: var(--jotra-r-card);
+  background: var(--jotra-bg-raised);
+  font-family: var(--jotra-font-ui);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-fg);
 }
 
 .first-run-offer-text {

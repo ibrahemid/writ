@@ -181,7 +181,7 @@ describe("PreviewLayout — rename to renderable extension activates preview (re
       () => {
         const iframe = container.querySelector<HTMLIFrameElement>("iframe.preview-frame");
         expect(iframe).not.toBeNull();
-        expect(iframe!.src).toMatch(/^writ-preview:\/\/document\/R1\?v=[1-9]\d*$/);
+        expect(iframe!.src).toMatch(/^jotra-preview:\/\/document\/R1\?v=[1-9]\d*$/);
       },
       { timeout: 2000 },
     );

@@ -1,0 +1,20 @@
+[package]
+name = "jotra-lint"
+description = "Local spell-check and mechanical-writing engine for the Jotra editor, built on spellbook and Hunspell dictionaries."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[dependencies]
+jotra-core = { path = "../jotra-core" }
+spellbook = "0.4.2"
+pulldown-cmark = { version = "0.13", default-features = false }
+serde = { version = "1", features = ["derive"] }

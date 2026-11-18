@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup } from "@solidjs/testing-library";
 import type { Accessor } from "solid-js";
 import { configStore } from "../../stores/global/config";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 import type { BufferDocument } from "../../types/buffer";
 
 vi.mock("../../services/tauri", () => ({
@@ -48,7 +48,7 @@ import { collectUnsavedContent, resetAutosave } from "../../services/autosave";
 
 const PATH = "/notes/away.md";
 
-function configWithoutStatusBar(): WritConfig {
+function configWithoutStatusBar(): JotraConfig {
   return {
     hotkey: { toggle: "" },
     sidebar: { toggle: "", default_visible: false, position: "left", open: true, width: 240, collapsed: [], hidden: [] },

@@ -112,7 +112,7 @@ export function modelListDisplay(error: ModelListError, host: string): Connectio
 /** The next step after a key is saved and no model is chosen yet. */
 export const CHOOSE_A_MODEL = "Your key is saved. Choose a model to finish.";
 
-// Singleton state — Writ is single-window. Holds the latest probe result and
+// Singleton state — Jotra is single-window. Holds the latest probe result and
 // the one model catalog both the settings panel and the pane read, so the two
 // surfaces cannot disagree about what the connection offers.
 function createAiConnectionStore() {

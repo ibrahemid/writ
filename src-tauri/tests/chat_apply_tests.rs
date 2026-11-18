@@ -6,60 +6,60 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 
-use tempfile::TempDir;
-use writ_core::config::WritConfig;
-use writ_core::events::bus::{EventBus, WritEvent};
-use writ_core::hash::{sha256_bytes, sha256_hex};
-use writ_core::preview::ContentRendererRegistry;
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::change_event::{modification_is_news, ExternalChange};
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
-use writ_tauri_lib::commands::chat::{
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::{EventBus, JotraEvent};
+use jotra_core::hash::{sha256_bytes, sha256_hex};
+use jotra_core::preview::ContentRendererRegistry;
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::change_event::{modification_is_news, ExternalChange};
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::notes_index::NotesIndexStore;
+use jotra_tauri_lib::commands::chat::{
     announce_applied_note, apply_proposal_inner, undo_proposal_to_state,
 };
-use writ_tauri_lib::preview::handler::RenderCache;
-use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::AuthorizedPaths;
-use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::create_ignore_set;
-use writ_tauri_lib::watcher::moves::FileTracking;
-use writ_tauri_lib::watcher::open_files::{start_open_file_watcher, NoOpenNotes};
+use jotra_tauri_lib::preview::handler::RenderCache;
+use jotra_tauri_lib::quit::QuitState;
+use jotra_tauri_lib::security::AuthorizedPaths;
+use jotra_tauri_lib::state::AppState;
+use jotra_tauri_lib::watcher::handler::create_ignore_set;
+use jotra_tauri_lib::watcher::moves::FileTracking;
+use jotra_tauri_lib::watcher::open_files::{start_open_file_watcher, NoOpenNotes};
+use tempfile::TempDir;
 
 fn make_state(dir: &TempDir) -> AppState {
-    let writ_dir = dir.path().to_path_buf();
-    let buffers_dir = writ_dir.join("buffers");
+    let jotra_dir = dir.path().to_path_buf();
+    let buffers_dir = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
 
-    let notes_root = writ_dir.join("Writ");
+    let notes_root = jotra_dir.join("Jotra");
     std::fs::create_dir_all(&notes_root).expect("notes folder");
-    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+    let notes_root = jotra_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
 
     let note_history = Arc::new(
-        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+        jotra_storage::note_history::NoteHistoryStore::open(&jotra_dir).expect("version store"),
     );
 
     AppState {
         store: Mutex::new(BufferStore::new(conn, buffers_dir.clone())),
-        config_store: ConfigStore::new(writ_dir.join("config.toml")),
-        config: Mutex::new(WritConfig::default()),
-        writ_dir,
+        config_store: ConfigStore::new(jotra_dir.join("config.toml")),
+        config: Mutex::new(JotraConfig::default()),
+        jotra_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: std::sync::atomic::AtomicBool::new(false),
         menu_apps: std::sync::Mutex::new(None),
-        retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+        retitle_watch: std::sync::Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -85,7 +85,7 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
-        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+        command_usage: jotra_storage::command_usage::CommandUsageStore::new(
             open_database(&db_path).expect("usage db"),
         ),
         config_diagnostics: std::sync::Mutex::new(Vec::new()),
@@ -95,9 +95,9 @@ fn make_state(dir: &TempDir) -> AppState {
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
-        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(
-            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+            jotra_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
@@ -106,7 +106,7 @@ fn make_state(dir: &TempDir) -> AppState {
     }
 }
 /// A state with the open-file watcher running, and every event it raises.
-fn watching_state(dir: &TempDir) -> (Arc<AppState>, mpsc::Receiver<WritEvent>) {
+fn watching_state(dir: &TempDir) -> (Arc<AppState>, mpsc::Receiver<JotraEvent>) {
     let state = Arc::new(make_state(dir));
     let (tx, rx) = mpsc::channel();
     state.event_bus.subscribe(move |event| {
@@ -141,7 +141,7 @@ fn applying_a_proposal_whose_text_the_note_already_holds_reports_no_change() {
     let outcome = apply_proposal_inner(
         &state.notes_root(),
         &NoOpenNotes,
-        &state.writ_dir,
+        &state.jotra_dir,
         "probe-host",
         &file.to_string_lossy(),
         "the same text\n",
@@ -172,7 +172,7 @@ fn applying_a_proposal_that_moves_bytes_reports_a_change() {
     let outcome = apply_proposal_inner(
         &state.notes_root(),
         &NoOpenNotes,
-        &state.writ_dir,
+        &state.jotra_dir,
         "probe-host",
         &file.to_string_lossy(),
         "after\n",
@@ -195,7 +195,7 @@ fn an_identical_apply_records_no_bytes_written() {
     apply_proposal_inner(
         &state.notes_root(),
         &NoOpenNotes,
-        &state.writ_dir,
+        &state.jotra_dir,
         "probe-host",
         &file.to_string_lossy(),
         "the same text\n",
@@ -205,7 +205,7 @@ fn an_identical_apply_records_no_bytes_written() {
     )
     .expect("the apply returns");
 
-    let records = writ_storage::activity_log::read_recent(&state.writ_dir, usize::MAX);
+    let records = jotra_storage::activity_log::read_recent(&state.jotra_dir, usize::MAX);
     let record = records
         .iter()
         .find(|record| record.action == "apply_proposal")
@@ -231,7 +231,7 @@ fn an_applied_note_that_is_open_gets_one_external_change_for_its_tab() {
     assert_eq!(told.as_deref(), Some("note-1"));
     let event = events.try_recv().expect("the tab was told");
     match event {
-        WritEvent::BufferExternal {
+        JotraEvent::BufferExternal {
             buffer_id, change, ..
         } => {
             assert_eq!(buffer_id, "note-1");
@@ -262,7 +262,7 @@ fn an_undo_puts_the_text_back_and_tells_the_tab_holding_the_note() {
     let applied = apply_proposal_inner(
         &state.notes_root(),
         &NoOpenNotes,
-        &state.writ_dir,
+        &state.jotra_dir,
         "probe-host",
         "Launch.md",
         "after\n",
@@ -282,7 +282,7 @@ fn an_undo_puts_the_text_back_and_tells_the_tab_holding_the_note() {
     let told = std::iter::from_fn(|| events.try_recv().ok()).any(|event| {
         matches!(
             event,
-            WritEvent::BufferExternal { ref buffer_id, change: ExternalChange::Modified, .. }
+            JotraEvent::BufferExternal { ref buffer_id, change: ExternalChange::Modified, .. }
                 if buffer_id == "note-1"
         )
     });
@@ -315,11 +315,11 @@ fn an_applied_note_nobody_has_open_tells_no_tab() {
 /// before this one left it.
 fn open_row(state: &AppState, id: &str, file: &std::path::Path, content: &str) {
     let then = chrono::Utc::now() - chrono::Duration::seconds(30);
-    let doc = writ_core::buffer::document::BufferDocument {
+    let doc = jotra_core::buffer::document::BufferDocument {
         id: id.to_string(),
         title: "Launch".to_string(),
         filename: format!("{id}.md"),
-        status: writ_core::buffer::document::BufferStatus::Active,
+        status: jotra_core::buffer::document::BufferStatus::Active,
         language: None,
         source_path: Some(file.to_string_lossy().into_owned()),
         cursor_pos: 0,
@@ -330,7 +330,7 @@ fn open_row(state: &AppState, id: &str, file: &std::path::Path, content: &str) {
         closed_at: None,
         read_only: false,
         size_bytes: content.len() as u64,
-        line_ending: writ_core::notes::line_ending::LineEnding::Lf,
+        line_ending: jotra_core::notes::line_ending::LineEnding::Lf,
         encoding: None,
     };
     let store = state.store.lock().expect("store");
@@ -346,12 +346,12 @@ fn an_applied_edit_is_not_reverted_by_recovery() {
 
     // The 120 s heartbeat, which used to copy every open note's file into an
     // unclean snapshot that the next launch wrote back.
-    writ_tauri_lib::heartbeat::beat(&state);
+    jotra_tauri_lib::heartbeat::beat(&state);
 
     apply_proposal_inner(
         &state.notes_root(),
         &NoOpenNotes,
-        &state.writ_dir,
+        &state.jotra_dir,
         "probe-host",
         &file.to_string_lossy(),
         "after\n",
@@ -363,7 +363,7 @@ fn an_applied_edit_is_not_reverted_by_recovery() {
 
     // What the tab does with the change: it reads the file back, which is
     // also where the row learns what the file now holds.
-    let read = writ_tauri_lib::commands::buffer::read_buffer_content_inner(&state, "note-1")
+    let read = jotra_tauri_lib::commands::buffer::read_buffer_content_inner(&state, "note-1")
         .expect("the tab reloads");
     assert_eq!(String::from_utf8(read).expect("text"), "after\n");
 
@@ -371,7 +371,7 @@ fn an_applied_edit_is_not_reverted_by_recovery() {
     // edit, because nothing but text a save could not write is kept for it.
     let restored = {
         let store = state.store.lock().expect("store");
-        writ_tauri_lib::state::restore_unsaved_text(
+        jotra_tauri_lib::state::restore_unsaved_text(
             &store,
             &state.notes_root(),
             state.default_extension(),

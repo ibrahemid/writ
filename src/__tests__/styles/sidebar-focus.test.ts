@@ -2,10 +2,10 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-// The ring follows the host: focus.css moves --writ-focus-outline and
-// --writ-focus-offset per shell, and the chrome either spends those tokens or
+// The ring follows the host: focus.css moves --jotra-focus-outline and
+// --jotra-focus-offset per shell, and the chrome either spends those tokens or
 // says nothing and lets the global :focus-visible rule draw. A control that is
-// deliberately silent says so on the element, through data-writ-focus-silent,
+// deliberately silent says so on the element, through data-jotra-focus-silent,
 // so one decision has one mechanism.
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
@@ -36,9 +36,9 @@ describe("the focus ring in the chrome", () => {
   // cannot be a token, because it is drawn inside a control that runs to the
   // window edge.
   it("is silenced on the element wherever a control is deliberately quiet", () => {
-    expect(read("src/components/ContextMenu/ContextMenu.tsx")).toMatch(/data-writ-focus-silent/);
-    expect(read("src/components/Graph/FolderGraphView.tsx")).toMatch(/data-writ-focus-silent/);
-    expect(read("src/components/Sidebar/SearchBar.tsx")).toMatch(/data-writ-focus-silent/);
+    expect(read("src/components/ContextMenu/ContextMenu.tsx")).toMatch(/data-jotra-focus-silent/);
+    expect(read("src/components/Graph/FolderGraphView.tsx")).toMatch(/data-jotra-focus-silent/);
+    expect(read("src/components/Sidebar/SearchBar.tsx")).toMatch(/data-jotra-focus-silent/);
   });
 
   // A ring drawn outside a full-height separator brackets the pane beside it,
@@ -52,11 +52,11 @@ describe("the focus ring in the chrome", () => {
       [SIDEBAR, ".sidebar-section-toggle:focus-visible", "-2px"],
       [SIDEBAR, ".sidebar-section-action:focus-visible", "-1px"],
       [PANEL, ".right-panel-resizer:focus-visible", "-2px"],
-      [PANEL, ".right-panel-row:focus-visible", "var\\(--writ-focus-offset-inset[,)]"],
+      [PANEL, ".right-panel-row:focus-visible", "var\\(--jotra-focus-offset-inset[,)]"],
     ] as const) {
       const body = ruleBody(css, selector);
       expect(body, `${selector} is declared`).toBeTruthy();
-      expect(body!).toMatch(/outline:\s*var\(--writ-focus-outline[,)]/);
+      expect(body!).toMatch(/outline:\s*var\(--jotra-focus-outline[,)]/);
       expect(body!).toMatch(new RegExp(`outline-offset:\\s*${offset}`));
     }
   });
@@ -66,9 +66,9 @@ describe("the focus ring in the chrome", () => {
   // token says how far inward, and it is the same on all three shells.
   it("draws a row's ring inside the row, from one token", () => {
     const FOCUS = read("src/styles/focus.css");
-    expect(ruleBody(FOCUS, ":root")).toMatch(/--writ-focus-offset-inset:\s*-2px/);
+    expect(ruleBody(FOCUS, ":root")).toMatch(/--jotra-focus-offset-inset:\s*-2px/);
     for (const root of [':root[data-platform="win"]', ':root[data-platform="linux"]']) {
-      expect(ruleBody(FOCUS, root), root).not.toMatch(/--writ-focus-offset-inset/);
+      expect(ruleBody(FOCUS, root), root).not.toMatch(/--jotra-focus-offset-inset/);
     }
 
     const TABBAR = read("src/components/Editor/TabBar.css");
@@ -78,8 +78,8 @@ describe("the focus ring in the chrome", () => {
     ] as const) {
       const body = groupedRuleBody(css, selectors);
       expect(body, `${selectors.join(", ")} is declared`).toBeTruthy();
-      expect(body!).toMatch(/outline:\s*var\(--writ-focus-outline[,)]/);
-      expect(body!).toMatch(/outline-offset:\s*var\(--writ-focus-offset-inset[,)]/);
+      expect(body!).toMatch(/outline:\s*var\(--jotra-focus-outline[,)]/);
+      expect(body!).toMatch(/outline-offset:\s*var\(--jotra-focus-offset-inset[,)]/);
     }
 
     // The rows are not left on the outward offset by the shared list either.
@@ -92,7 +92,7 @@ describe("the focus ring in the chrome", () => {
 
   it("keeps the background that stands in for the ring on a menu item", () => {
     expect(read("src/components/ContextMenu/ContextMenu.css")).toMatch(
-      /\.context-menu-item:focus-visible\s*\{[^}]*background:\s*var\(--writ-bg-hover\)/,
+      /\.context-menu-item:focus-visible\s*\{[^}]*background:\s*var\(--jotra-bg-hover\)/,
     );
   });
 });
@@ -102,7 +102,7 @@ describe("the search field's focus state", () => {
 
   it("keeps the macOS halo", () => {
     expect(SEARCH).toMatch(
-      /^\.search-field:focus-within\s*\{[^}]*box-shadow:[^}]*var\(--writ-accent\)/m,
+      /^\.search-field:focus-within\s*\{[^}]*box-shadow:[^}]*var\(--jotra-accent\)/m,
     );
   });
 
@@ -111,7 +111,7 @@ describe("the search field's focus state", () => {
       SEARCH,
     );
     expect(win, "the Windows half is declared").toBeTruthy();
-    expect(win![1]).toMatch(/border-bottom:\s*2px solid var\(--writ-accent\)/);
+    expect(win![1]).toMatch(/border-bottom:\s*2px solid var\(--jotra-accent\)/);
     expect(win![1]).toMatch(/box-shadow:\s*none/);
   });
 
@@ -120,7 +120,7 @@ describe("the search field's focus state", () => {
       SEARCH,
     );
     expect(linux, "the GNOME half is declared").toBeTruthy();
-    expect(linux![1]).toMatch(/outline:\s*var\(--writ-focus-outline[,)]/);
-    expect(linux![1]).toMatch(/outline-offset:\s*var\(--writ-focus-offset[,)]/);
+    expect(linux![1]).toMatch(/outline:\s*var\(--jotra-focus-outline[,)]/);
+    expect(linux![1]).toMatch(/outline-offset:\s*var\(--jotra-focus-offset[,)]/);
   });
 });

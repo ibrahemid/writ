@@ -10,7 +10,7 @@ import {
 } from "./dialogs";
 import { showToast } from "./notifications";
 
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 const waiting: Array<{ held: HeldWrite; until: number }> = [];
 let showing = false;
 

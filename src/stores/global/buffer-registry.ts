@@ -21,7 +21,7 @@ import { unreadTabs } from "./unread-tabs";
  * none of them is thrown:
  *
  * - `opened`: the file has a row, new or (`existed`) already in a tab.
- * - `declined`: the file is over the size Writ opens without asking and the
+ * - `declined`: the file is over the size Jotra opens without asking and the
  *   person said Cancel. Nothing was read, and nothing is said about it.
  * - `refused`: the file was not opened; `reason` is the second half of
  *   "Could not open <name>: ".
@@ -46,14 +46,14 @@ export class OpenRefusedError extends Error {
 }
 
 /**
- * A tab whose file Writ has not read was asked for its text before its open
+ * A tab whose file Jotra has not read was asked for its text before its open
  * answered: one restored unread at launch, or one whose read found the file
- * past the size Writ opens. Its file is read once its open answers, and never
+ * past the size Jotra opens. Its file is read once its open answers, and never
  * past that size.
  */
 export class UnreadTabReadError extends Error {
   constructor(readonly bufferId: string) {
-    super("a tab whose file Writ has not read is read only once its open answers");
+    super("a tab whose file Jotra has not read is read only once its open answers");
     this.name = "UnreadTabReadError";
   }
 }
@@ -116,8 +116,8 @@ function createBufferRegistry() {
   }
 
   // The tabs the last session left open. Rust measures each tab's file while
-  // listing it, so a file that grew past the size Writ opens without asking
-  // while Writ was closed stays unread here, before any tab is shown.
+  // listing it, so a file that grew past the size Jotra opens without asking
+  // while Jotra was closed stays unread here, before any tab is shown.
   async function loadSession(): Promise<void> {
     await load();
     unreadTabs.takeRestored(activeTabs());
@@ -169,7 +169,7 @@ function createBufferRegistry() {
   // it is not, and the row that comes back is the only honest name for it. A
   // file that was closed comes back active, so the entry is replaced rather
   // than left as the tab bar last saw it. The open answers as any open does,
-  // so a day's file over the size Writ opens without asking is asked about.
+  // so a day's file over the size Jotra opens without asking is asked about.
   async function todaysNote(): Promise<OpenOutcome> {
     await flushAutosave();
     const today = await api.todaysNote();
@@ -229,7 +229,7 @@ function createBufferRegistry() {
     }
     await api.closeBuffer(id);
     // The preview pane is a window-lifetime singleton (never unmounted, to
-    // avoid the writ-preview:// iframe teardown freeze), so it no longer evicts
+    // avoid the jotra-preview:// iframe teardown freeze), so it no longer evicts
     // the host render cache per buffer. Evict here, at the close that ends the
     // buffer's session.
     void api.previewClose(id).catch(() => {});
@@ -280,8 +280,8 @@ function createBufferRegistry() {
   }
 
   // Reopening a closed file reads it, so it answers as an open does: a file
-  // that grew past the size Writ opens without asking while it was closed is
-  // asked about first, and one past the size Writ opens stays closed.
+  // that grew past the size Jotra opens without asking while it was closed is
+  // asked about first, and one past the size Jotra opens stays closed.
   async function restoreBuffer(id: string): Promise<OpenOutcome> {
     const closed = buffers().find((b) => b.id === id);
     const path = closed?.source_path ?? closed?.title ?? id;
@@ -304,7 +304,7 @@ function createBufferRegistry() {
   const unreadOpens = new Map<string, Promise<OpenOutcome>>();
 
   // A tab restored unread at launch answers as reopening a closed file does:
-  // its file is measured again, one over the size Writ opens without asking is
+  // its file is measured again, one over the size Jotra opens without asking is
   // asked about, and the read waits for Open. Cancel leaves the tab unread,
   // and a refusal stays in the tab, which says why.
   function openUnreadTab(id: string): Promise<OpenOutcome> {
@@ -435,7 +435,7 @@ function createBufferRegistry() {
     return { kind: "opened", doc, existed, mode: result.mode };
   }
 
-  // A file over the size Writ opens without asking: the size is stated before
+  // A file over the size Jotra opens without asking: the size is stated before
   // anything reads it, and the progress runs from Open until the editor shows
   // the text (the tab store hands it on, or ends it when no tab shows it).
   async function openAfterAsking(
@@ -498,7 +498,7 @@ function createBufferRegistry() {
 
   // A tab restored unread at launch is read only once its open answers: a
   // read before that loads a file nobody said Open to, or one past the size
-  // Writ opens. Rust measures a file before it reads it, so one that grew
+  // Jotra opens. Rust measures a file before it reads it, so one that grew
   // past that size since its open comes back as the refusal's code: the tab
   // is unread from then on, refused, and its pane says why.
   async function readContent(id: string): Promise<string> {

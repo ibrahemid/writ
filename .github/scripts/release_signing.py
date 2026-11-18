@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Signs Writ's updater payloads and release checksums with the updater key, and checks them.
+"""Signs Jotra's updater payloads and release checksums with the updater key, and checks them.
 
 The key is the one `tauri signer generate` writes: TAURI_SIGNING_PRIVATE_KEY
 holds the base64 of a minisign secret key (or a path to that file), and
@@ -180,7 +180,7 @@ def secret_key_file(env: Mapping[str, str]) -> Iterator[pathlib.Path]:
         ) from error
     if not decoded.startswith(b"untrusted comment:"):
         raise SigningError(f"{KEY_ENV} does not decode to a minisign secret key")
-    directory = pathlib.Path(tempfile.mkdtemp(prefix="writ-updater-key-"))
+    directory = pathlib.Path(tempfile.mkdtemp(prefix="jotra-updater-key-"))
     try:
         path = directory / "updater.key"
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -227,7 +227,7 @@ def minisign_verify(minisign: str, key: PublicKey, file: pathlib.Path, minisig_t
         raise SigningError(
             f"{file.name} is signed with key {signed_by}, and installed copies trust key {key.key_id}"
         )
-    with tempfile.TemporaryDirectory(prefix="writ-verify-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="jotra-verify-") as scratch:
         signature = pathlib.Path(scratch) / f"{file.name}.minisig"
         signature.write_text(minisig_text)
         result = subprocess.run(
@@ -257,7 +257,7 @@ def sign_payloads(files: list[pathlib.Path], version: str, minisign: str, env: M
         if not file.is_file():
             raise SigningError(f"no payload at {file}")
     password = password_line(env)
-    with secret_key_file(env) as key, tempfile.TemporaryDirectory(prefix="writ-sign-") as scratch:
+    with secret_key_file(env) as key, tempfile.TemporaryDirectory(prefix="jotra-sign-") as scratch:
         for file in files:
             minisig = pathlib.Path(scratch) / f"{file.name}.minisig"
             minisign_sign(minisign, key, password, file, minisig, trusted_comment(file.name, version))

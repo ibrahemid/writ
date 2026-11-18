@@ -1,0 +1,24 @@
+{
+  "stroke": { "width": 37, "widthForm": "macos", "smallSizes": [[16, 1.5], [32, 2], [64, 3]], "proportionalFrom": 128 },
+  "primitives": [
+    {"id": "stem", "type": "polyline", "points": [[616.5, 366.3], [616.5, 629.2]]},
+    {"id": "hook", "type": "arc", "center": [491, 629.2], "radius": 125.5, "startDegrees": 0, "sweepDegrees": 180},
+    {"id": "dot", "type": "dot", "center": [616.5, 251.3], "diameterInStrokes": 1.6}
+  ],
+  "optical": [
+    {"target": "glyph", "forms": ["macos"], "sizes": [16], "translatePx": [0.28, 1.46]},
+    {"target": "dot", "forms": ["macos"], "sizes": [16], "translatePx": [0, -1.9]},
+    {"target": "glyph", "forms": ["macos"], "sizes": [32], "translatePx": [0.35, 0.7]},
+    {"target": "dot", "forms": ["macos"], "sizes": [32], "translatePx": [0, -1.08]},
+    {"target": "glyph", "forms": ["macos"], "sizes": [64], "translatePx": [0.19, -0.1]},
+    {"target": "glyph", "forms": ["flat"], "sizes": [16], "translatePx": [0.07, 0.74]},
+    {"target": "dot", "forms": ["flat"], "sizes": [16], "translatePx": [0, -1.68]},
+    {"target": "glyph", "forms": ["flat"], "sizes": [24], "translatePx": [0.46, 0.72]},
+    {"target": "dot", "forms": ["flat"], "sizes": [24], "translatePx": [0, -1.13]},
+    {"target": "glyph", "forms": ["flat"], "sizes": [32], "translatePx": [0.14, 0.98]},
+    {"target": "dot", "forms": ["flat"], "sizes": [32], "translatePx": [0, -0.86]},
+    {"target": "glyph", "forms": ["flat"], "sizes": [48], "translatePx": [-0.29, 0.23]},
+    {"target": "dot", "forms": ["flat"], "sizes": [48], "translatePx": [0, -0.53]},
+    {"target": "glyph", "forms": ["flat"], "sizes": [64], "translatePx": [-0.21, 0.47]}
+  ]
+}

@@ -54,7 +54,7 @@ function store() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  h.getNotesRoot.mockResolvedValue("/Users/me/Writ");
+  h.getNotesRoot.mockResolvedValue("/Users/me/Jotra");
   h.noteAllTags.mockResolvedValue([
     { tag: "launch", count: 3 },
     { tag: "draft", count: 1 },
@@ -62,8 +62,8 @@ beforeEach(() => {
   h.collectUnsavedContent.mockReturnValue([]);
   h.writeClipboardText.mockResolvedValue(undefined);
   h.activeTabs = [
-    { id: "plan", source_path: "/Users/me/Writ/work/Plan.md" },
-    { id: "budget", source_path: "/Users/me/Writ/work/Budget.md" },
+    { id: "plan", source_path: "/Users/me/Jotra/work/Plan.md" },
+    { id: "budget", source_path: "/Users/me/Jotra/work/Budget.md" },
     { id: "log", source_path: "/var/log/system.log" },
   ];
   h.activeTabId = "plan";
@@ -78,7 +78,7 @@ describe("the context pack", () => {
     expect(s.isOpen()).toBe(true);
     expect(s.kind()).toBe("linked");
     expect(h.promptContextPack).toHaveBeenCalledWith(
-      { kind: "linked", path: "/Users/me/Writ/work/Plan.md" },
+      { kind: "linked", path: "/Users/me/Jotra/work/Plan.md" },
       [],
     );
     expect(s.pack()?.files.map((file) => file.path)).toEqual(["work/Plan.md", "work/Budget.md"]);
@@ -93,7 +93,7 @@ describe("the context pack", () => {
     await s.open();
 
     expect(h.promptContextPack.mock.calls[0][1]).toEqual([
-      { path: "/Users/me/Writ/work/Budget.md", text: "typed a moment ago" },
+      { path: "/Users/me/Jotra/work/Budget.md", text: "typed a moment ago" },
     ]);
   });
 
@@ -105,7 +105,7 @@ describe("the context pack", () => {
     expect(s.file()).toBeNull();
     expect(s.kind()).toBe("folder");
     expect(h.promptContextPack).toHaveBeenCalledWith(
-      { kind: "folder", path: "/Users/me/Writ" },
+      { kind: "folder", path: "/Users/me/Jotra" },
       [],
     );
   });
@@ -118,7 +118,7 @@ describe("the context pack", () => {
     await vi.waitFor(() => expect(h.promptContextPack).toHaveBeenCalledTimes(2));
     expect(h.promptContextPack.mock.calls[1][0]).toEqual({
       kind: "folder",
-      path: "/Users/me/Writ/work",
+      path: "/Users/me/Jotra/work",
     });
 
     await vi.waitFor(() => expect(s.tag()).toBe("launch"));

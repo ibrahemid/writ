@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createRoot } from "solid-js";
 
 // A program that calls while Connected programs is off is refused by the
-// server, which writes its name down; Writ offers the app once, as one line
+// server, which writes its name down; Jotra offers the app once, as one line
 // with Turn on, under the same switch as the other offers.
 
 const h = vi.hoisted(() => ({

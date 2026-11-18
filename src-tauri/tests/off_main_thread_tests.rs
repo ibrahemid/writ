@@ -8,40 +8,40 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use tempfile::TempDir;
-use writ_core::config::WritConfig;
-use writ_core::events::bus::EventBus;
-use writ_core::preview::ContentRendererRegistry;
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
-use writ_tauri_lib::commands::buffer::{
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::EventBus;
+use jotra_core::preview::ContentRendererRegistry;
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::notes_index::NotesIndexStore;
+use jotra_tauri_lib::commands::buffer::{
     close_buffers_inner, save_buffer_content_inner, save_in_turn,
 };
-use writ_tauri_lib::commands::chat::apply_proposal_to_state;
-use writ_tauri_lib::commands::file::open_file_from_path;
-use writ_tauri_lib::commands::history::search_buffers_inner;
-use writ_tauri_lib::preview::handler::RenderCache;
-use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
-use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::create_ignore_set;
+use jotra_tauri_lib::commands::chat::apply_proposal_to_state;
+use jotra_tauri_lib::commands::file::open_file_from_path;
+use jotra_tauri_lib::commands::history::search_buffers_inner;
+use jotra_tauri_lib::preview::handler::RenderCache;
+use jotra_tauri_lib::quit::QuitState;
+use jotra_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
+use jotra_tauri_lib::state::AppState;
+use jotra_tauri_lib::watcher::handler::create_ignore_set;
+use tempfile::TempDir;
 
 fn make_state(dir: &TempDir) -> AppState {
-    let writ_dir = dir.path().join("data");
-    let buffers_dir = writ_dir.join("buffers");
+    let jotra_dir = dir.path().join("data");
+    let buffers_dir = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
-    let notes_root = dir.path().join("Writ");
+    let notes_root = dir.path().join("Jotra");
     std::fs::create_dir_all(&notes_root).expect("notes folder");
-    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+    let notes_root = jotra_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
     let notes_index = Arc::new(NotesIndexStore::open(&db_path).expect("notes index db"));
@@ -49,20 +49,20 @@ fn make_state(dir: &TempDir) -> AppState {
     store.set_notes_root(notes_root.clone());
     store.set_notes_index(Arc::clone(&notes_index));
     let note_history = Arc::new(
-        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+        jotra_storage::note_history::NoteHistoryStore::open(&jotra_dir).expect("version store"),
     );
 
     AppState {
         store: Mutex::new(store),
-        config_store: ConfigStore::new(writ_dir.join("config.toml")),
-        config: Mutex::new(WritConfig::default()),
-        writ_dir,
+        config_store: ConfigStore::new(jotra_dir.join("config.toml")),
+        config: Mutex::new(JotraConfig::default()),
+        jotra_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: AtomicBool::new(false),
         menu_apps: Mutex::new(None),
-        retitle_watch: Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+        retitle_watch: Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -88,7 +88,7 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
-        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+        command_usage: jotra_storage::command_usage::CommandUsageStore::new(
             open_database(&db_path).expect("usage db"),
         ),
         config_diagnostics: Mutex::new(Vec::new()),
@@ -98,9 +98,9 @@ fn make_state(dir: &TempDir) -> AppState {
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
-        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(
-            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+            jotra_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
@@ -142,7 +142,7 @@ fn the_wait_for_a_window_nothing_shows_gives_up_at_its_limit() {
 fn startup_maintenance_vacuums_a_database_that_is_mostly_free_pages() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
-    let side = open_database(&state.writ_dir.join("writ.db")).expect("db");
+    let side = open_database(&state.jotra_dir.join("jotra.db")).expect("db");
     side.execute_batch(
         "CREATE TABLE bloat (body BLOB);
          WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 2400)
@@ -153,7 +153,7 @@ fn startup_maintenance_vacuums_a_database_that_is_mostly_free_pages() {
     .expect("bloat");
     drop(side);
     let before = state.store.lock().unwrap().database_stats().expect("stats");
-    assert!(before.freelist_count > writ_core::maintenance::VACUUM_MIN_FREE_PAGES);
+    assert!(before.freelist_count > jotra_core::maintenance::VACUUM_MIN_FREE_PAGES);
 
     state.run_startup_maintenance();
     let after = state.store.lock().unwrap().database_stats().expect("stats");
@@ -276,7 +276,7 @@ fn a_chat_edit_of_an_open_file_checks_it_after_a_save_still_landing() {
     std::fs::write(&file, "X\n").unwrap();
     let file = std::path::PathBuf::from(canonicalize_for_authorization(&file).expect("canonical"));
     let id = open(&state, &file);
-    let offered_against = writ_core::hash::sha256_hex(b"X\n");
+    let offered_against = jotra_core::hash::sha256_hex(b"X\n");
 
     let landing = state.buffer_writes.turn(&id);
     std::thread::scope(|scope| {
@@ -311,8 +311,8 @@ fn a_chat_edit_of_an_open_file_checks_it_after_a_save_still_landing() {
 #[cfg(unix)]
 #[test]
 fn a_rename_reads_its_file_with_the_store_free() {
+    use jotra_tauri_lib::commands::notes::rename_note_inner;
     use std::io::Write;
-    use writ_tauri_lib::commands::notes::rename_note_inner;
 
     let dir = TempDir::new().unwrap();
     let state = Arc::new(make_state(&dir));

@@ -3,21 +3,21 @@
 //! The sibling of [`super::wikilinks`], asking the same index the same
 //! question and reading it under the same rules (ADR-034), with one thing
 //! more: an embed shows the target's text, so this reads the file. What it
-//! reads and how deep it goes are `writ-render`'s policy — this module answers
+//! reads and how deep it goes are `jotra-render`'s policy — this module answers
 //! and hands over bytes.
 
 use std::path::Path;
 use std::sync::Arc;
 
-use writ_core::notes::guard::is_not_downloaded;
-use writ_core::notes::links::Resolution;
-use writ_core::preview::AssetScope;
-use writ_render::{EmbedBase, EmbedResolution, EmbedTarget, NoteEmbedResolver, MAX_EMBED_DEPTH};
-use writ_storage::notes_index::{self, NotesIndexStore};
+use jotra_core::notes::guard::is_not_downloaded;
+use jotra_core::notes::links::Resolution;
+use jotra_core::preview::AssetScope;
+use jotra_render::{EmbedBase, EmbedResolution, EmbedTarget, NoteEmbedResolver, MAX_EMBED_DEPTH};
+use jotra_storage::notes_index::{self, NotesIndexStore};
 
 use super::renderers::markdown::asset_url;
 use super::wikilinks::IndexWikilinks;
-use writ_render::WikilinkResolver;
+use jotra_render::WikilinkResolver;
 
 /// Largest note read for an embed.
 ///
@@ -32,7 +32,7 @@ const MAX_EMBED_BYTES: u64 = 1024 * 1024;
 ///
 /// Injected rather than called so an evicted note is testable on any platform
 /// and without a sync provider. Production passes
-/// [`writ_storage::buffer_store::dataless_flags`].
+/// [`jotra_storage::buffer_store::dataless_flags`].
 pub type DatalessProbe = fn(&Path) -> Option<u32>;
 
 /// Resolves the note embeds of one rendered note.
@@ -85,7 +85,7 @@ impl IndexEmbeds {
         )
     }
 
-    /// The target as `writ-render` writes it when it renders a link instead of
+    /// The target as `jotra-render` writes it when it renders a link instead of
     /// the note's content.
     fn target_for(&self, inner: &str, path: &str) -> EmbedTarget {
         let rendered = self.links.resolve(inner);
@@ -170,8 +170,8 @@ impl EmbedBase for IndexEmbeds {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use jotra_core::notes::guard::SF_DATALESS;
     use std::fs;
-    use writ_core::notes::guard::SF_DATALESS;
 
     /// The probe production uses: the filesystem has nothing to report.
     fn local(_: &Path) -> Option<u32> {
@@ -195,9 +195,9 @@ mod tests {
         fs::write(root.join("two/Twice.md"), "two\n").expect("two note");
         fs::write(root.join("From.md"), "![[Note]]\n").expect("from");
 
-        let db_path = dir.path().join("writ.db");
-        let conn = writ_storage::database::connection::open_database(&db_path).expect("open");
-        writ_storage::database::migrations::run_migrations(&conn).expect("migrations");
+        let db_path = dir.path().join("jotra.db");
+        let conn = jotra_storage::database::connection::open_database(&db_path).expect("open");
+        jotra_storage::database::migrations::run_migrations(&conn).expect("migrations");
         drop(conn);
 
         let index = Arc::new(NotesIndexStore::open(&db_path).expect("index"));
@@ -227,7 +227,7 @@ mod tests {
             } => {
                 assert!(markdown.contains("Note body."));
                 assert_eq!(target.label, "Note");
-                assert_eq!(target.href.as_deref(), Some("writ-note:Note.md"));
+                assert_eq!(target.href.as_deref(), Some("jotra-note:Note.md"));
                 assert!(target.key.ends_with("Note.md"));
             }
             _ => panic!("Note names one note"),
@@ -253,9 +253,9 @@ mod tests {
         .expect("guest");
         fs::write(root.join("one/Host.md"), "![[Guest]]\n").expect("host");
 
-        let db_path = dir.path().join("writ.db");
-        let conn = writ_storage::database::connection::open_database(&db_path).expect("open");
-        writ_storage::database::migrations::run_migrations(&conn).expect("migrations");
+        let db_path = dir.path().join("jotra.db");
+        let conn = jotra_storage::database::connection::open_database(&db_path).expect("open");
+        jotra_storage::database::migrations::run_migrations(&conn).expect("migrations");
         drop(conn);
 
         let index = Arc::new(NotesIndexStore::open(&db_path).expect("index"));
@@ -272,15 +272,15 @@ mod tests {
     #[test]
     fn an_embedded_note_resolves_its_links_and_images_from_its_own_folder() {
         let (_dir, resolver) = two_folder_fixture();
-        let html = writ_render::render_markdown_fragment_with(
+        let html = jotra_render::render_markdown_fragment_with(
             "![[Guest]]\n",
             None,
             None,
             Some(&resolver as &dyn NoteEmbedResolver),
         )
         .html;
-        assert!(html.contains("writ-note:two/Twice.md"), "{html}");
-        assert!(!html.contains("writ-note:one/Twice.md"), "{html}");
+        assert!(html.contains("jotra-note:two/Twice.md"), "{html}");
+        assert!(!html.contains("jotra-note:one/Twice.md"), "{html}");
         assert!(html.contains("two/pic.png"), "{html}");
     }
 
@@ -321,7 +321,7 @@ mod tests {
         fs::remove_file(dir.path().join("notes/Note.md")).expect("remove");
         match resolver.resolve("Note", 0, &[key.as_str()]) {
             EmbedResolution::Cut { target } => {
-                assert_eq!(target.href.as_deref(), Some("writ-note:Note.md"))
+                assert_eq!(target.href.as_deref(), Some("jotra-note:Note.md"))
             }
             _ => panic!("a note the page is inside is cut"),
         }

@@ -76,7 +76,7 @@ class PartialWidget extends WidgetType {
 }
 
 const partialTheme = EditorView.baseTheme({
-  ".cm-dictation-partial": { color: "var(--writ-fg-muted)" },
+  ".cm-dictation-partial": { color: "var(--jotra-fg-muted)" },
 });
 
 function anchorOf(view: EditorView): DictationAnchor | null {

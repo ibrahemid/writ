@@ -17,7 +17,7 @@ const block = (selector: string): string => {
 
 describe("status bar fit", () => {
   it("keeps a gap between the save chip and the fields", () => {
-    expect(block(".statusbar")).toMatch(/gap:\s*var\(--writ-space-4\)/);
+    expect(block(".statusbar")).toMatch(/gap:\s*var\(--jotra-space-4\)/);
   });
 
   it("is a size container so fields can shed as the editor narrows", () => {

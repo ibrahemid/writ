@@ -1,19 +1,19 @@
 .tab-item {
   display: flex;
   align-items: center;
-  padding: 0 var(--writ-space-3-5);
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  color: var(--writ-fg);
-  transition: background var(--writ-motion);
+  padding: 0 var(--jotra-space-3-5);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  color: var(--jotra-fg);
+  transition: background var(--jotra-motion);
 }
 
 .tab-item:hover {
-  background: var(--writ-bg-hover);
+  background: var(--jotra-bg-hover);
 }
 
-.tab-item:hover .writ-icon {
-  opacity: var(--writ-icon-opacity-hover);
+.tab-item:hover .jotra-icon {
+  opacity: var(--jotra-icon-opacity-hover);
 }
 
 /* The control that opens the row fills it; the row's own gap spaces what it
@@ -35,8 +35,8 @@
 }
 
 .tab-item:has(.tab-item-main:focus-visible) {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
-  outline-offset: var(--writ-focus-offset-inset, -2px);
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
+  outline-offset: var(--jotra-focus-offset-inset, -2px);
 }
 
 .tab-item-title {
@@ -47,7 +47,7 @@
   white-space: nowrap;
 }
 
-.tab-item-main > .writ-tooltip-anchor {
+.tab-item-main > .jotra-tooltip-anchor {
   flex: 1;
   min-width: 0;
   display: block;
@@ -55,19 +55,19 @@
 }
 
 .tab-item-secondary {
-  color: var(--writ-fg-faint);
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
+  color: var(--jotra-fg-faint);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
 }
 
 .tab-item-trailing {
   margin-left: auto;
-  color: var(--writ-fg-faint);
-  font-family: var(--writ-font-mono);
+  color: var(--jotra-fg-faint);
+  font-family: var(--jotra-font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
-  padding-left: var(--writ-space-2-5);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
+  padding-left: var(--jotra-space-2-5);
   font-weight: 400;
 }
 
@@ -79,14 +79,14 @@
 /* The targets' 3px overhang on each side meets in the gap, never overlaps. */
 .tab-item-actions {
   display: flex;
-  gap: var(--writ-space-2-5);
+  gap: var(--jotra-space-2-5);
   opacity: 0;
 }
 
 /* Over the time it replaces, so the name keeps the row's width. */
 .tab-item.has-trailing .tab-item-actions {
   position: absolute;
-  right: var(--writ-space-3);
+  right: var(--jotra-space-3);
 }
 
 .tab-item:hover .tab-item-actions,
@@ -106,41 +106,41 @@
   padding: 0;
   border: none;
   background: transparent;
-  border-radius: var(--writ-r-control);
+  border-radius: var(--jotra-r-control);
   cursor: pointer;
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
   font: inherit;
   line-height: 1;
 }
 
-.tab-item-action .writ-icon {
+.tab-item-action .jotra-icon {
   color: currentColor;
   opacity: 1;
 }
 
 .tab-item-action:hover {
-  color: var(--writ-fg);
-  background: var(--writ-bg-hover);
+  color: var(--jotra-fg);
+  background: var(--jotra-bg-hover);
 }
 
 .tab-item-close:hover {
-  color: var(--writ-status-error);
+  color: var(--jotra-status-error);
 }
 
 /* The icon carries the inset on Windows, so the row's own gap goes. */
 :root[data-platform="win"] .tab-item {
   column-gap: 0;
-  padding: 0 var(--writ-space-4) 0 0;
+  padding: 0 var(--jotra-space-4) 0 0;
 }
 
-:root[data-platform="win"] .tab-item-main > .writ-icon {
-  margin: 0 var(--writ-space-4);
+:root[data-platform="win"] .tab-item-main > .jotra-icon {
+  margin: 0 var(--jotra-space-4);
 }
 
 :root[data-platform="win"] .tab-item-title {
-  margin-left: var(--writ-space-2);
+  margin-left: var(--jotra-space-2);
 }
 
 :root[data-platform="linux"] .tab-item {
-  padding: 0 var(--writ-space-3);
+  padding: 0 var(--jotra-space-3);
 }

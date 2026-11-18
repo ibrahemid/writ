@@ -21,11 +21,13 @@ import {
   type PaneLayout,
 } from "../../lib/pane-layout";
 import { logFailure } from "../../lib/log";
+import { LEGACY_PANES_STORAGE_KEY } from "../../lib/legacy-names";
+import { adoptLegacyStorageKey } from "../../lib/legacy-storage";
 
 export type PaneStore = ReturnType<typeof createPaneStore>;
 
 /** Where the layout is kept between launches: the webview's own storage (ADR-056). */
-export const PANES_STORAGE_KEY = "writ.editor.panes.v1";
+export const PANES_STORAGE_KEY = "jotra.editor.panes.v1";
 
 /**
  * Hears a tab leaving a pane: `to` is the pane it moved to, or null when it is
@@ -92,6 +94,7 @@ export function createPaneStore() {
    * keeps every later change.
    */
   function restore(open: readonly string[]): void {
+    adoptLegacyStorageKey(LEGACY_PANES_STORAGE_KEY, PANES_STORAGE_KEY);
     let raw: unknown = null;
     try {
       const text = localStorage.getItem(PANES_STORAGE_KEY);
