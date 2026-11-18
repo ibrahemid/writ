@@ -76,3 +76,4 @@ scripts/check_old_name.py -- rename tooling spells the old name
 scripts/old-name-allowlist.txt -- rename tooling spells the old name
 scripts/test_rename_product.py -- rename tooling spells the old name
 scripts/test_check_old_name.py -- rename tooling spells the old name
+src/__tests__/editor/fixtures/editor-corpus.ts :lines /(~\/Writ \| head|"name": "writ"|writ\.example)/ -- fixture: benchmark corpus bytes stay fixed so timings compare across versions
