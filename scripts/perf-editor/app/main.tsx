@@ -554,17 +554,25 @@ function emitWindowShown(): void {
   emitEvent?.("jotra://window-shown", { kind: "window:shown", payload: { rust_elapsed_us: 0 } });
 }
 
-/** The undo depth, the selection and the line at the top of the view of the editor in front. */
-function editorSnapshot() {
+/**
+ * The undo depth, the selection and the line at the top of the view of the
+ * editor in front, with how far in px the top of the view sits below the top
+ * of the line at `topAnchor` (the line at the top when left out).
+ */
+function editorSnapshot(topAnchor?: number) {
   const view = activeWindow().editor.getView();
   if (!view) return null;
   const visibleTop = view.scrollDOM.getBoundingClientRect().top - view.documentTop;
+  const topBlock = view.lineBlockAtHeight(Math.max(0, visibleTop));
+  const anchor = topAnchor ?? topBlock.from;
   return {
     bufferId: activeWindow().editor.currentBufferId(),
     undoDepth: undoDepth(view.state),
     anchor: view.state.selection.main.anchor,
     head: view.state.selection.main.head,
-    topLine: view.state.doc.lineAt(view.lineBlockAtHeight(Math.max(0, visibleTop)).from).number,
+    topLine: view.state.doc.lineAt(topBlock.from).number,
+    topAnchor: anchor,
+    topOffset: anchor <= view.state.doc.length ? visibleTop - view.lineBlockAt(anchor).top : null,
     length: view.state.doc.length,
   };
 }
@@ -608,7 +616,7 @@ async function tabRoundTrip(otherId: string) {
     await waitUntil(() => win.editor.currentBufferId() === id, "the switch back");
     const switchBackMs = (await nextFrame()) - started;
     await nextFrame();
-    return { before, after: editorSnapshot(), switchBackMs, ...stopRecording() };
+    return { before, after: editorSnapshot(before?.topAnchor), switchBackMs, ...stopRecording() };
   } finally {
     recording.on = false;
   }

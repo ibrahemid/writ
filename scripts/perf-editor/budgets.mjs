@@ -165,6 +165,7 @@ export const FIND_RATE = {
 export const TAB_SWITCH = {
   scenarios: ["prose-4.9MiB", "md-4.9MiB", "prose-50MiB"],
   other: { name: "other.txt", kind: "prose", size: 16 * 1024 },
+  topDriftPx: 2,
 };
 
 export const PAIRED_TYPING = {
@@ -274,6 +275,16 @@ export function pairedTyping(rounds) {
   return { compared, problems: [...new Set(problems)] };
 }
 
+/**
+ * How far in px the top of the view moved in the document over a tab switch,
+ * both snapshots measured from the same line; null when they were not.
+ */
+export function tabSwitchTopDrift(before, after) {
+  if (!before || !after || before.topAnchor !== after.topAnchor) return null;
+  if (before.topOffset === null || after.topOffset === null) return null;
+  return after.topOffset - before.topOffset;
+}
+
 /** What a switch to another tab and back changed in the editor and asked the host. */
 export function tabSwitchProblems({ before, after, ipcCalls, bigCalls }) {
   if (!before || !after) return ["the editor was not there to compare"];
@@ -292,7 +303,14 @@ export function tabSwitchProblems({ before, after, ipcCalls, bigCalls }) {
   if (after.anchor !== before.anchor || after.head !== before.head) {
     problems.push(`the selection went from ${before.anchor}-${before.head} to ${after.anchor}-${after.head}`);
   }
-  if (after.topLine !== before.topLine) problems.push(`the top visible line went from ${before.topLine} to ${after.topLine}`);
+  const drift = tabSwitchTopDrift(before, after);
+  if (drift === null) {
+    problems.push(`the top of the view was not measured from line ${before.topLine} after the switch`);
+  } else if (Math.abs(drift) > TAB_SWITCH.topDriftPx) {
+    problems.push(
+      `the top of the view moved ${drift.toFixed(2)} px in the document, over ${TAB_SWITCH.topDriftPx} px (top line ${before.topLine} to ${after.topLine})`,
+    );
+  }
   return problems;
 }
 

@@ -422,7 +422,7 @@ on the budgets in the table above.
 |---|---|---|---|
 | Find rate | `prose-50MiB`, `prose-300MiB`, `log-300MiB-counts` | 1.6 ms per MiB, the slower word's median of 3 runs | `--strict` |
 | Whole-document calls | every scenario that opens as LargeFile | none in the open, the typing pause or the typing pause with Find open | every run |
-| Tab switch back | `prose-4.9MiB`, `md-4.9MiB`, `prose-50MiB` | one `note_file_unchanged`, no `read_buffer_content` or `note_disk_state` and no whole-document call; the undo depth, the selection and the top visible line as they were | every run |
+| Tab switch back | `prose-4.9MiB`, `md-4.9MiB`, `prose-50MiB` | one `note_file_unchanged`, no `read_buffer_content` or `note_disk_state` and no whole-document call; the undo depth and the selection as they were, and the top of the view within 2 px of where it sat in the document | every run |
 | Paired typing | `prose-4.9MiB`, 12 rounds | the counts on and Find open within 2 times the noise of the counts off, at p50 and max | `--strict` |
 <!-- editor-perf-section-6:end -->
 
@@ -459,8 +459,11 @@ being the editor's own. From the switch back to two frames later the page asks
 `note_file_unchanged` once, sends no `read_buffer_content` or
 `note_disk_state`, runs no whole-document call (as counted for Whole-document
 calls, in every tier), and the undo depth (at least 1), the selection's anchor
-and head and the line at the top of the view are what they were before the
-switch.
+and head are what they were before the switch. The top of the view sits within
+2 px of where it sat in the document, measured from the line that was at the
+top before the switch: CodeMirror corrects its scroll anchor only past 1 px,
+and the reading adds the whole-pixel rounding of the scroll position. A real
+jump moves the view a line or more.
 
 **Paired typing:** each of 12 rounds opens `prose-4.9MiB` in three fresh pages:
 the counts off, the counts on (typing once they are exact), and Find open on

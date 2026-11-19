@@ -28,6 +28,7 @@ import {
   pairedTyping,
   percentile,
   tabSwitchProblems,
+  tabSwitchTopDrift,
   wholeDocumentProblems,
 } from "./perf-editor/budgets.mjs";
 import { ROOT, harnessBuildConfig } from "./perf-editor/harness.mjs";
@@ -616,8 +617,9 @@ function printScenario(scenario, result) {
   }
   if (result.tabSwitch?.before) {
     const { before, after, switchBackMs, ipcCalls } = result.tabSwitch;
+    const drift = tabSwitchTopDrift(before, after);
     console.log(
-      `  ${"Tab switch back".padEnd(28)} ${formatValue(switchBackMs, "ms")}; undo ${before.undoDepth} to ${after?.undoDepth}, top line ${before.topLine} to ${after?.topLine}; sent ${Object.keys(ipcCalls).join(", ") || "nothing"}`,
+      `  ${"Tab switch back".padEnd(28)} ${formatValue(switchBackMs, "ms")}; undo ${before.undoDepth} to ${after?.undoDepth}, top line ${before.topLine} to ${after?.topLine} (moved ${drift === null ? "n/a" : `${drift.toFixed(2)} px`}); sent ${Object.keys(ipcCalls).join(", ") || "nothing"}`,
     );
   }
   if (result.selection) {
