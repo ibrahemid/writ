@@ -7,6 +7,7 @@ after its parent exits, and reading that pipe to its end then never returns.
 from __future__ import annotations
 
 import dataclasses
+import io
 import os
 import pathlib
 import shlex
@@ -17,6 +18,7 @@ import sys
 import tempfile
 import unittest
 from collections.abc import Mapping, Sequence
+from typing import TextIO
 
 STOP_GRACE = 15.0
 TASKKILL_TIMEOUT = 60.0
@@ -56,6 +58,12 @@ def read_text(path: pathlib.Path) -> str:
 
 def get_tail(text: str, limit: int = OUTPUT_TAIL) -> str:
     return text if len(text) <= limit else text[-limit:]
+
+
+def prepare_output_streams(*streams: TextIO) -> None:
+    for stream in streams or (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
 
 
 def get_group_options() -> dict[str, bool]:

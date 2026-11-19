@@ -30,7 +30,7 @@ import time
 import unittest
 from collections.abc import Callable
 
-from check_process import ImmediateTextResult, ProcessDeadlineError, run_bounded, start_process
+from check_process import ImmediateTextResult, ProcessDeadlineError, prepare_output_streams, run_bounded, start_process
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 PRODUCT = "Jotra"
@@ -588,6 +588,7 @@ class UpgradeTests(unittest.TestCase):
 
 
 def main() -> int:
+    prepare_output_streams()
     suite = unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
     result = unittest.TextTestRunner(verbosity=2, resultclass=ImmediateTextResult).run(suite)
     for test, reason in result.skipped:

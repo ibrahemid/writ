@@ -8,7 +8,7 @@ import tempfile
 import time
 import unittest
 
-from check_process import ImmediateTextResult, ProcessDeadlineError, run_bounded, start_process
+from check_process import ImmediateTextResult, ProcessDeadlineError, prepare_output_streams, run_bounded, start_process
 
 POSIX_ONLY = unittest.skipIf(sys.platform == "win32", "process groups are POSIX")
 
@@ -143,6 +143,33 @@ class ImmediateTextResultTests(unittest.TestCase):
         runner.run(unittest.defaultTestLoader.loadTestsFromTestCase(Checks))
         self.assertIn("protocol='writ'", stream.getvalue())
         self.assertNotIn("protocol='jotra'", stream.getvalue())
+
+
+class PrepareOutputStreamsTests(unittest.TestCase):
+    def test_a_legacy_code_page_stream_writes_utf8(self) -> None:
+        raw = io.BytesIO()
+        stream = io.TextIOWrapper(raw, encoding="cp1252")
+        with self.assertRaises(UnicodeEncodeError):
+            stream.write("█ progress\n")
+            stream.flush()
+        prepare_output_streams(stream)
+        stream.write("█ progress\n")
+        stream.flush()
+        self.assertEqual(raw.getvalue(), "█ progress\n".encode())
+
+    def test_an_unencodable_character_is_escaped(self) -> None:
+        raw = io.BytesIO()
+        stream = io.TextIOWrapper(raw, encoding="cp1252")
+        prepare_output_streams(stream)
+        stream.write("lone \udc80 surrogate\n")
+        stream.flush()
+        self.assertEqual(raw.getvalue(), b"lone \\udc80 surrogate\n")
+
+    def test_a_stream_without_an_encoding_is_left_alone(self) -> None:
+        stream = io.StringIO()
+        prepare_output_streams(stream)
+        stream.write("█")
+        self.assertEqual(stream.getvalue(), "█")
 
 
 if __name__ == "__main__":
