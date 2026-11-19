@@ -395,6 +395,12 @@ describe("editor perf gate tab switch", () => {
       "the top of the view was not measured from line 18012 after the switch",
     ]);
     expect(tabSwitchTopDrift(kept, { ...kept, topOffset: null })).toBeNull();
+    const unmeasured = { ...kept, topOffset: Number.NaN };
+    expect(tabSwitchTopDrift(kept, unmeasured)).toBeNull();
+    expect(tabSwitchTopDrift(unmeasured, kept)).toBeNull();
+    expect(tabSwitchProblems({ before: kept, after: unmeasured, ipcCalls: checked })).toEqual([
+      "the top of the view was not measured from line 18012 after the switch",
+    ]);
   });
 
   it("fails a switch back that did not ask whether the file changed, or asked twice", () => {

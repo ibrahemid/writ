@@ -281,7 +281,7 @@ export function pairedTyping(rounds) {
  */
 export function tabSwitchTopDrift(before, after) {
   if (!before || !after || before.topAnchor !== after.topAnchor) return null;
-  if (before.topOffset === null || after.topOffset === null) return null;
+  if (!Number.isFinite(before.topOffset) || !Number.isFinite(after.topOffset)) return null;
   return after.topOffset - before.topOffset;
 }
 
