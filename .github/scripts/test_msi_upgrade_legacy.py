@@ -28,6 +28,9 @@ import sys
 import tempfile
 import time
 import unittest
+from collections.abc import Callable
+
+from check_process import ImmediateTextResult, ProcessDeadlineError, run_bounded, start_process
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 PRODUCT = "Jotra"
@@ -61,6 +64,11 @@ DEFAULT_PROGIDS = REPO_ROOT / "src-tauri/wix/legacy-progids.wxs"
 MSIEXEC_SUCCESS = {0, 3010}
 ERROR_NO_MORE_ITEMS = 259
 LAUNCH_TIMEOUT = 90.0
+COMMAND_TIMEOUT = 120.0
+MSIEXEC_TIMEOUT = 300.0
+LEGACY_LAUNCHER_TIMEOUT = 60.0
+STOP_TIMEOUT = 30.0
+OPEN_COMMAND = re.compile(r'"([^"]+)" "%1"')
 
 
 class MsiCheckError(RuntimeError):
@@ -93,10 +101,8 @@ def get_msi_path(variable: str) -> pathlib.Path | None:
     return path
 
 
-def run_command(*args: str, env: dict[str, str] | None = None, timeout: float = 600) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        args, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False, env=env, timeout=timeout
-    )
+def run_command(*args: str, env: dict[str, str] | None = None, timeout: float = COMMAND_TIMEOUT) -> subprocess.CompletedProcess[str]:
+    return run_bounded(args, timeout=timeout, env=env)
 
 
 def require_output(result: subprocess.CompletedProcess[str]) -> str:
@@ -116,6 +122,28 @@ def parse_progid_extensions(text: str) -> list[str]:
 
 def open_command(install_dir: str) -> str:
     return f'"{pathlib.PureWindowsPath(install_dir, LAUNCHER)}" "%1"'
+
+
+def get_long_path(path: str) -> str:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    function = kernel32.GetLongPathNameW
+    function.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+    function.restype = wintypes.DWORD
+    size = function(path, None, 0)
+    buffer = ctypes.create_unicode_buffer(max(size, 1))
+    if size == 0 or function(path, buffer, size) == 0:
+        raise MsiCheckError(f"GetLongPathNameW({path}) failed with Windows error {ctypes.get_last_error()}")
+    return buffer.value
+
+
+def get_open_command_target(command: object, resolve: Callable[[str], str] = get_long_path) -> str:
+    match = OPEN_COMMAND.fullmatch(command) if isinstance(command, str) else None
+    if match is None:
+        raise MsiCheckError(f'open command {command!r} is not "<program>" "%1"')
+    return resolve(match.group(1))
 
 
 def expand_path_entries(machine: str, user: str, expand=os.path.expandvars) -> list[str]:
@@ -238,7 +266,10 @@ def install_msi(msi: pathlib.Path, log: pathlib.Path, install_dir: str | None = 
     command = f'msiexec /i "{msi}" /qn /norestart /l*v "{log}"'
     if install_dir:
         command += f' INSTALLDIR="{install_dir}"'
-    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    try:
+        result = run_bounded(command, timeout=MSIEXEC_TIMEOUT)
+    except ProcessDeadlineError as error:
+        raise MsiCheckError(f"{error}\nlog tail:\n{read_log_tail(log)}") from error
     if result.returncode not in MSIEXEC_SUCCESS:
         raise MsiCheckError(f"{command} exited {result.returncode}; log tail:\n{read_log_tail(log)}")
     print(f"installed {msi.name} (msiexec exit {result.returncode}, log {log})", flush=True)
@@ -254,9 +285,13 @@ def list_processes(image: str) -> list[dict[str, object]]:
 
 def stop_processes(image: str) -> None:
     run_command("taskkill", "/F", "/T", "/IM", image)
-    deadline = time.monotonic() + 30
-    while list_processes(image) and time.monotonic() < deadline:
+    deadline = time.monotonic() + STOP_TIMEOUT
+    remaining = list_processes(image)
+    while remaining and time.monotonic() < deadline:
         time.sleep(1)
+        remaining = list_processes(image)
+    if remaining:
+        raise MsiCheckError(f"{image} still runs {STOP_TIMEOUT:.0f}s after taskkill: {remaining}")
 
 
 def read_shortcut_target(path: pathlib.Path) -> str:
@@ -296,6 +331,16 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(
             open_command("C:\\Apps\\Writ Custom\\"), '"C:\\Apps\\Writ Custom\\jotra-tauri.exe" "%1"'
         )
+
+    def test_a_protocol_command_names_its_program_through_the_resolved_path(self) -> None:
+        long_paths = {"C:\\PROGRA~1\\Writ\\JOTRA-~1.EXE": "C:\\Program Files\\Writ\\jotra-tauri.exe"}
+        target = get_open_command_target('"C:\\PROGRA~1\\Writ\\JOTRA-~1.EXE" "%1"', long_paths.__getitem__)
+        self.assertEqual(normalize_dir(target), normalize_dir("C:\\Program Files\\Writ\\jotra-tauri.exe"))
+
+    def test_a_protocol_command_without_the_quoted_argument_is_refused(self) -> None:
+        for command in ('"C:\\Writ\\jotra-tauri.exe"', 'C:\\Writ\\jotra-tauri.exe "%1"', '"C:\\Writ\\jotra-tauri.exe" %1', None):
+            with self.subTest(command=command), self.assertRaises(MsiCheckError):
+                get_open_command_target(command, str)
 
     def test_path_entries_expand_and_skip_blanks(self) -> None:
         entries = expand_path_entries(
@@ -453,12 +498,15 @@ class UpgradeTests(unittest.TestCase):
         )
 
     def test_the_login_item_moves_to_the_new_name_and_keeps_its_state(self) -> None:
-        subprocess.Popen([str(pathlib.Path(self.install_dir, LAUNCHER))])
-        deadline = time.monotonic() + LAUNCH_TIMEOUT
-        while time.monotonic() < deadline:
-            if read_registry_value("HKCU", RUN_KEY, LEGACY_PRODUCT) is None:
-                break
-            time.sleep(1)
+        started = start_process([str(pathlib.Path(self.install_dir, LAUNCHER))])
+        try:
+            deadline = time.monotonic() + LAUNCH_TIMEOUT
+            while time.monotonic() < deadline:
+                if read_registry_value("HKCU", RUN_KEY, LEGACY_PRODUCT) is None:
+                    break
+                time.sleep(1)
+        finally:
+            started.stop()
         current = read_registry_value("HKCU", RUN_KEY, PRODUCT)
         legacy = read_registry_value("HKCU", RUN_KEY, LEGACY_PRODUCT)
         self.assertIsNone(legacy, f"Run\\{LEGACY_PRODUCT} is still {legacy!r} {LAUNCH_TIMEOUT:.0f}s after launch")
@@ -469,14 +517,17 @@ class UpgradeTests(unittest.TestCase):
         self.assertIsNone(legacy_approval, f"StartupApproved\\Run\\{LEGACY_PRODUCT} is still {legacy_approval!r}")
 
     def test_both_url_protocols_open_the_new_launcher(self) -> None:
-        expected = open_command(self.install_dir)
+        expected = normalize_dir(str(pathlib.PureWindowsPath(self.install_dir, LAUNCHER)))
         for protocol in PROTOCOLS:
             with self.subTest(protocol=protocol):
                 key = rf"{CLASSES_KEY}\{protocol}"
                 marker = read_registry_value("HKLM", key, "URL Protocol")
                 self.assertEqual(marker, "", f"HKLM\\{key} URL Protocol: {marker!r}")
                 command = read_registry_value("HKLM", rf"{key}\shell\open\command", "")
-                self.assertEqual(command, expected, f"HKLM\\{key}\\shell\\open\\command: {command!r}")
+                target = get_open_command_target(command)
+                self.assertEqual(
+                    normalize_dir(target), expected, f"HKLM\\{key}\\shell\\open\\command is {command!r}, which opens {target}"
+                )
 
     def test_the_legacy_progids_open_the_new_launcher(self) -> None:
         fragment = pathlib.Path(os.environ.get(PROGIDS_VARIABLE) or DEFAULT_PROGIDS)
@@ -493,25 +544,29 @@ class UpgradeTests(unittest.TestCase):
 
     def test_the_legacy_launcher_starts_jotra_with_its_arguments(self) -> None:
         stop_processes(LAUNCHER)
-        with tempfile.TemporaryDirectory(prefix="msi-upgrade-open-") as folder:
+        with tempfile.TemporaryDirectory(prefix="msi-upgrade-open-", ignore_cleanup_errors=True) as folder:
             document = pathlib.Path(folder, "opened by the legacy launcher.md")
             document.write_text("# check\n")
-            result = run_command(str(pathlib.Path(self.install_dir, LEGACY_LAUNCHER)), str(document), timeout=60)
-            self.assertEqual(result.returncode, 0, f"{LEGACY_LAUNCHER} {document}: {result.stdout}{result.stderr}")
-            expected = normalize_dir(str(pathlib.Path(self.install_dir, LAUNCHER)))
-            deadline = time.monotonic() + LAUNCH_TIMEOUT
-            started: list[dict[str, object]] = []
-            while time.monotonic() < deadline:
-                started = [p for p in list_processes(LAUNCHER) if normalize_dir(str(p.get("ExecutablePath") or "")) == expected]
-                if started:
-                    break
-                time.sleep(1)
-            self.assertTrue(started, f"no {expected} started by {LEGACY_LAUNCHER}; running: {list_processes(LAUNCHER)}")
-            self.assertTrue(
-                any(str(document) in str(p.get("CommandLine") or "") for p in started),
-                f"{LAUNCHER} started without {document}: {started}",
-            )
-            stop_processes(LAUNCHER)
+            try:
+                result = run_command(
+                    str(pathlib.Path(self.install_dir, LEGACY_LAUNCHER)), str(document), timeout=LEGACY_LAUNCHER_TIMEOUT
+                )
+                self.assertEqual(result.returncode, 0, f"{LEGACY_LAUNCHER} {document}: {result.stdout}{result.stderr}")
+                expected = normalize_dir(str(pathlib.Path(self.install_dir, LAUNCHER)))
+                deadline = time.monotonic() + LAUNCH_TIMEOUT
+                started: list[dict[str, object]] = []
+                while time.monotonic() < deadline:
+                    started = [p for p in list_processes(LAUNCHER) if normalize_dir(str(p.get("ExecutablePath") or "")) == expected]
+                    if started:
+                        break
+                    time.sleep(1)
+                self.assertTrue(started, f"no {expected} started by {LEGACY_LAUNCHER} within {LAUNCH_TIMEOUT:.0f}s; running: {list_processes(LAUNCHER)}")
+                self.assertTrue(
+                    any(str(document) in str(p.get("CommandLine") or "") for p in started),
+                    f"{LAUNCHER} started without {document}: {started}",
+                )
+            finally:
+                stop_processes(LAUNCHER)
 
     def test_winget_lists_one_entry(self) -> None:
         winget = shutil.which("winget")
@@ -534,7 +589,7 @@ class UpgradeTests(unittest.TestCase):
 
 def main() -> int:
     suite = unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
-    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    result = unittest.TextTestRunner(verbosity=2, resultclass=ImmediateTextResult).run(suite)
     for test, reason in result.skipped:
         print(f"skipped {test}: {reason}", file=sys.stderr)
     return 0 if result.wasSuccessful() and not result.skipped else 1

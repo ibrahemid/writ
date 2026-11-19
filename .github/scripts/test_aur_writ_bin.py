@@ -31,6 +31,7 @@ import tempfile
 import unittest
 import uuid
 
+from check_process import ImmediateTextResult, run_bounded
 from test_deb_upgrade_legacy import parse_desktop_entry
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -38,6 +39,8 @@ DEFAULT_PKGBUILD = REPO_ROOT / "packaging/aur/writ-bin/PKGBUILD"
 DEFAULT_LICENSE = REPO_ROOT / "LICENSE"
 BUMP_SCRIPT = REPO_ROOT / "scripts/packaging_bump_aur.py"
 DEFAULT_IMAGE = "archlinux:base-devel"
+DOCKER_TIMEOUT = 600.0
+REMOVE_TIMEOUT = 120.0
 PACKAGE = "writ-bin"
 OPT = "/opt/jotra"
 LEGACY_OPT = "/opt/writ"
@@ -132,11 +135,11 @@ class Container:
         self.run_host("docker", "run", "--detach", "--name", self.name, self.image, "sleep", "infinity")
 
     def stop(self) -> None:
-        subprocess.run(["docker", "rm", "--force", self.name], capture_output=True, check=False)
+        run_bounded(["docker", "rm", "--force", self.name], timeout=REMOVE_TIMEOUT)
 
     def run_host(self, *args: str) -> str:
         print(f"$ {shlex.join(args)}", flush=True)
-        result = subprocess.run(args, capture_output=True, text=True, check=False)
+        result = run_bounded(args, timeout=DOCKER_TIMEOUT)
         if result.returncode != 0:
             raise AurCheckError(f"{shlex.join(args)} exited {result.returncode}\n{result.stdout}{result.stderr}")
         return result.stdout
@@ -144,7 +147,7 @@ class Container:
     def run(self, script: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         args = ["docker", "exec", self.name, "bash", "-euo", "pipefail", "-c", script]
         print(f"$ {script}", flush=True)
-        result = subprocess.run(args, capture_output=True, text=True, check=False)
+        result = run_bounded(args, timeout=DOCKER_TIMEOUT)
         print(f"exit {result.returncode}\n{result.stdout}{result.stderr}", flush=True)
         if check and result.returncode != 0:
             raise AurCheckError(f"{script} exited {result.returncode} in {self.image}\n{result.stdout}{result.stderr}")
@@ -325,7 +328,7 @@ class UpgradeTests(unittest.TestCase):
 
 def main() -> int:
     suite = unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
-    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    result = unittest.TextTestRunner(verbosity=2, resultclass=ImmediateTextResult).run(suite)
     for test, reason in result.skipped:
         print(f"skipped {test}: {reason}", file=sys.stderr)
     return 0 if result.wasSuccessful() and not result.skipped else 1

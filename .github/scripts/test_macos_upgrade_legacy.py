@@ -32,6 +32,8 @@ import tempfile
 import time
 import unittest
 
+from check_process import ImmediateTextResult, run_bounded, stop_process_tree
+
 APPLICATIONS = pathlib.Path("/Applications")
 BUNDLE_NAME = "Jotra.app"
 LEGACY_BUNDLE_NAME = "Writ.app"
@@ -59,6 +61,10 @@ SWAP_JXA = (
 LAUNCH_TIMEOUT = 120.0
 STABLE_SECONDS = 5.0
 MCP_TIMEOUT = 60.0
+COMMAND_TIMEOUT = 120.0
+INSTALL_TIMEOUT = 300.0
+STOP_TIMEOUT = 30.0
+KILL_TIMEOUT = 10.0
 LOG_FOLDERS = (pathlib.Path.home() / ".jotra/logs", pathlib.Path.home() / ".writ/logs")
 
 
@@ -82,8 +88,8 @@ def get_artifact_path(variable: str) -> pathlib.Path | None:
     return path
 
 
-def run_command(*args: str, timeout: float = 600) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, capture_output=True, text=True, check=False, timeout=timeout)
+def run_command(*args: str, timeout: float = COMMAND_TIMEOUT) -> subprocess.CompletedProcess[str]:
+    return run_bounded(args, timeout=timeout)
 
 
 def require_output(result: subprocess.CompletedProcess[str]) -> str:
@@ -168,7 +174,7 @@ def replace_bundle(archive: pathlib.Path, target: pathlib.Path) -> str:
     except OSError as error:
         if is_permission_error(error):
             command = privileged_swap_command(staged, target, backup)
-            result = run_command("sudo", "-n", "/bin/sh", "-c", command)
+            result = run_command("sudo", "-n", "/bin/sh", "-c", command, timeout=INSTALL_TIMEOUT)
             if result.returncode != 0:
                 raise MacosCheckError(
                     f"the privileged swap exited {result.returncode}: {result.stderr.strip()} (swap error: {error})"
@@ -238,20 +244,26 @@ def wait_for_settled_app(expected_path: str, timeout: float = LAUNCH_TIMEOUT) ->
     return processes
 
 
-def stop_app_processes(timeout: float = 30) -> None:
+def signal_app_processes(sent: signal.Signals, timeout: float) -> list[AppProcess]:
     for process in list_app_processes():
         try:
-            os.kill(process.pid, signal.SIGTERM)
+            os.kill(process.pid, sent)
         except ProcessLookupError:
             continue
     deadline = time.monotonic() + timeout
-    while list_app_processes() and time.monotonic() < deadline:
+    remaining = list_app_processes()
+    while remaining and time.monotonic() < deadline:
         time.sleep(1)
-    for process in list_app_processes():
-        try:
-            os.kill(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            continue
+        remaining = list_app_processes()
+    return remaining
+
+
+def stop_app_processes(timeout: float = STOP_TIMEOUT) -> None:
+    if not signal_app_processes(signal.SIGTERM, timeout):
+        return
+    remaining = signal_app_processes(signal.SIGKILL, KILL_TIMEOUT)
+    if remaining:
+        raise MacosCheckError(f"app processes still run after SIGTERM and SIGKILL: {remaining}")
 
 
 def describe_state() -> str:
@@ -276,9 +288,9 @@ def install_previous(previous: pathlib.Path, owner: str) -> None:
         if path.exists() or path.is_symlink():
             raise MacosCheckError(f"{path} exists before the previous release is installed")
     if owner == "admin":
-        require_output(run_command("sudo", "-n", "installer", "-pkg", str(previous), "-target", "/"))
+        require_output(run_command("sudo", "-n", "installer", "-pkg", str(previous), "-target", "/", timeout=INSTALL_TIMEOUT))
     else:
-        require_output(run_command("tar", "-xzf", str(previous), "-C", str(APPLICATIONS)))
+        require_output(run_command("tar", "-xzf", str(previous), "-C", str(APPLICATIONS), timeout=INSTALL_TIMEOUT))
     if not LEGACY_BUNDLE.is_dir():
         raise MacosCheckError(f"{previous.name} left no {LEGACY_BUNDLE}")
     expected_uid = 0 if owner == "admin" else os.getuid()
@@ -300,7 +312,12 @@ def read_response(lines: list[str], request_id: int) -> dict[str, object] | None
 
 def exchange_mcp(command: str) -> tuple[dict[str, object], dict[str, object]]:
     process = subprocess.Popen(
-        [command, "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        [command, "mcp"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
     )
     assert process.stdin is not None and process.stdout is not None
     received: list[str] = []
@@ -321,8 +338,11 @@ def exchange_mcp(command: str) -> tuple[dict[str, object], dict[str, object]]:
                 response = read_response([line], request_id)
                 if response is not None:
                     return response
-        process.kill()
-        _, stderr = process.communicate(timeout=10)
+        stop_process_tree(process, KILL_TIMEOUT)
+        try:
+            _, stderr = process.communicate(timeout=KILL_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            stderr = f"(stderr was still open {KILL_TIMEOUT:.0f}s after the process group was killed)"
         raise MacosCheckError(f"{command} mcp sent no answer to request {request_id}; stdout {received}; stderr {stderr}")
 
     try:
@@ -347,9 +367,10 @@ def exchange_mcp(command: str) -> tuple[dict[str, object], dict[str, object]]:
         if process.poll() is None:
             process.stdin.close()
             try:
-                process.wait(timeout=10)
+                process.wait(timeout=KILL_TIMEOUT)
             except subprocess.TimeoutExpired:
-                process.kill()
+                pass
+        stop_process_tree(process, KILL_TIMEOUT)
 
 
 class ParseTests(unittest.TestCase):
@@ -467,7 +488,14 @@ class UpgradeTests(unittest.TestCase):
             raise MacosCheckError(f"{OWNER_VARIABLE} is {owner}, not one of {OWNERS}")
         cls.version = version
         cls.owner = owner
+        try:
+            cls.start_upgraded_app(previous, current, owner)
+        except BaseException:
+            stop_app_processes()
+            raise
 
+    @classmethod
+    def start_upgraded_app(cls, previous: pathlib.Path, current: pathlib.Path, owner: str) -> None:
         install_previous(previous, owner)
         require_output(run_command("/usr/bin/open", str(LEGACY_BUNDLE)))
         legacy_path = executable_path(LEGACY_BUNDLE, LEGACY_EXECUTABLE)
@@ -475,7 +503,7 @@ class UpgradeTests(unittest.TestCase):
         while time.monotonic() < deadline and legacy_path not in [p.path for p in list_app_processes()]:
             time.sleep(1)
         if legacy_path not in [p.path for p in list_app_processes()]:
-            raise MacosCheckError(f"the previous release did not start from {legacy_path}\n{describe_state()}")
+            raise MacosCheckError(f"the previous release did not start from {legacy_path} within {LAUNCH_TIMEOUT:.0f}s\n{describe_state()}")
         print(f"previous release running: {list_app_processes()}", flush=True)
 
         cls.branch = replace_bundle(current, LEGACY_BUNDLE)
@@ -536,7 +564,7 @@ class UpgradeTests(unittest.TestCase):
 
 def main() -> int:
     suite = unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
-    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    result = unittest.TextTestRunner(verbosity=2, resultclass=ImmediateTextResult).run(suite)
     for test, reason in result.skipped:
         print(f"skipped {test}: {reason}", file=sys.stderr)
     return 0 if result.wasSuccessful() and not result.skipped else 1

@@ -1217,6 +1217,7 @@ jobs:
     name: Upgrade the deb over the previous release
     needs: [plan, build]
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -1265,6 +1266,7 @@ jobs:
     name: Keep the desktop integration through a deb update
     needs: [plan, build]
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -1315,6 +1317,7 @@ jobs:
     needs: [plan, build, sign-updater]
     if: ${{ !cancelled() && needs.plan.result == 'success' && needs.build.result == 'success' && needs.sign-updater.result == 'success' }}
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -1390,6 +1393,7 @@ jobs:
     needs: [plan, build, sign-updater]
     if: ${{ !cancelled() && needs.plan.result == 'success' && needs.build.result == 'success' && needs.sign-updater.result == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -1463,6 +1467,7 @@ jobs:
       && (needs.sign-windows.result == 'success'
         || (needs.sign-windows.result == 'skipped' && needs.signing-config.outputs.windows != 'true')) }}
     runs-on: windows-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     strategy:
@@ -1527,7 +1532,8 @@ jobs:
     name: Update the macOS app over the previous release (${{ matrix.owner }}-owned)
     needs: [plan, sign-macos]
     if: ${{ !cancelled() && needs.plan.result == 'success' && needs.sign-macos.result == 'success' }}
-    runs-on: macos-latest
+    runs-on: macos-15-intel
+    timeout-minutes: 30
     permissions:
       contents: read
     strategy:

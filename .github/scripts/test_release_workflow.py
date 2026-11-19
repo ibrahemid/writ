@@ -33,6 +33,16 @@ UPGRADE_SCRIPTS = {
     "macos-upgrade": "test_macos_upgrade_legacy.py",
 }
 NEW_UPGRADE_JOBS = set(UPGRADE_SCRIPTS) - {"deb-upgrade"}
+CHECK_DEADLINES = {
+    "deb-upgrade": 10,
+    "deb-desktop-upgrade": 15,
+    "install-sh-upgrade": 10,
+    "aur-upgrade": 20,
+    "msi-upgrade": 30,
+    "macos-upgrade": 30,
+}
+UPGRADE_CHECKS_DEADLINES = {"plan": 5, "build": 90, **CHECK_DEADLINES}
+INTEL_MACOS = "macos-15-intel"
 PREVIOUS_RELEASE_LINES = (
     "GH_TOKEN: ${{ github.token }}",
     "SOURCE_REPOSITORY_ID: '1278853784'",
@@ -579,7 +589,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(
             job_condition(job), "${{ !cancelled() && needs.plan.result == 'success' && needs.sign-macos.result == 'success' }}"
         )
-        self.assertEqual(job_field(job, "runs-on"), "macos-latest")
+        self.assertEqual(job_field(job, "runs-on"), INTEL_MACOS)
         self.assertIn("- owner: user\n            previous: '*_universal.app.tar.gz'", job)
         self.assertIn("- owner: admin\n            previous: '*_universal.pkg'", job)
         [download] = self.steps_using("macos-upgrade", "actions/download-artifact")
@@ -874,6 +884,29 @@ class UpgradeChecksWorkflowTests(unittest.TestCase):
                 self.assertIn('if [ "$DOWNLOAD" != success ]; then', script)
                 self.assertIn(f"The Build ({legs[artifact]}) job of this run uploaded no {artifact} artifact", script)
                 self.assertTrue(script.rstrip().endswith(f"ls -la {folder}"))
+
+    def test_every_job_and_every_release_upgrade_check_has_a_deadline(self) -> None:
+        self.assertEqual(set(CHECK_DEADLINES), set(UPGRADE_SCRIPTS))
+        for name, job in self.jobs.items():
+            with self.subTest(workflow="upgrade-checks.yml", job=name):
+                self.assertIn(name, UPGRADE_CHECKS_DEADLINES)
+                self.assertEqual(job_field(job, "timeout-minutes"), str(UPGRADE_CHECKS_DEADLINES[name]))
+        for name, minutes in CHECK_DEADLINES.items():
+            with self.subTest(workflow="release.yml", job=name):
+                self.assertEqual(job_field(self.release[name], "timeout-minutes"), str(minutes))
+                self.assertLessEqual(minutes, 30)
+
+    def test_the_macos_legs_run_on_the_intel_label_ci_uses_and_signing_keeps_its_runner(self) -> None:
+        self.assertIn(f"          - os: {INTEL_MACOS}\n", CI.read_text())
+        build = self.jobs["build"]
+        self.assertEqual(job_field(build, "runs-on"), "${{ matrix.runner }}")
+        for selector, runner in (("macos-latest", INTEL_MACOS), ("windows-latest", "windows-latest"), ("ubuntu-22.04", "ubuntu-22.04")):
+            with self.subTest(leg=selector):
+                self.assertIn(f"          - os: {selector}\n            runner: {runner}\n", build)
+        self.assertEqual(job_field(self.jobs["macos-upgrade"], "runs-on"), INTEL_MACOS)
+        self.assertEqual(job_field(self.release["macos-upgrade"], "runs-on"), INTEL_MACOS)
+        self.assertEqual(job_field(self.release["sign-macos"], "runs-on"), "macos-latest")
+        self.assertIn("          - os: macos-latest\n", self.release["build"])
 
     def test_no_checkout_runs_after_a_download_it_would_delete(self) -> None:
         for workflow, jobs in (("upgrade-checks.yml", self.jobs), ("release.yml", self.release)):

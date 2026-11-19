@@ -46,6 +46,7 @@ jobs:
   plan:
     name: Pick the version to build
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -76,8 +77,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # os picks the release build's steps for the leg; runner is the machine it runs on.
         include:
           - os: macos-latest
+            runner: macos-15-intel
             label: macOS (universal)
             platform: macos
             python: python3
@@ -85,6 +88,7 @@ jobs:
             tauri_args: --target universal-apple-darwin
             bundles: app
           - os: windows-latest
+            runner: windows-latest
             label: Windows (x64)
             platform: windows
             python: python
@@ -92,6 +96,7 @@ jobs:
             tauri_args: --target x86_64-pc-windows-msvc
             bundles: msi
           - os: ubuntu-22.04
+            runner: ubuntu-22.04
             label: Linux (x64)
             platform: linux
             python: python3
@@ -99,7 +104,8 @@ jobs:
             tauri_args: --target x86_64-unknown-linux-gnu
             bundles: deb,appimage
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -308,6 +314,7 @@ jobs:
     needs: [plan, build]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -369,6 +376,7 @@ jobs:
     needs: [plan, build]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -430,6 +438,7 @@ jobs:
     needs: [plan, build]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -512,6 +521,7 @@ jobs:
     needs: [plan, build]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -586,6 +596,7 @@ jobs:
     needs: [plan, build]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: windows-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -653,7 +664,8 @@ jobs:
     name: Update the macOS app over the previous release (${{ matrix.owner }}-owned)
     needs: [plan, build]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
-    runs-on: macos-latest
+    runs-on: macos-15-intel
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

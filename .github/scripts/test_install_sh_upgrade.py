@@ -27,6 +27,8 @@ import sys
 import tempfile
 import unittest
 
+from check_process import ImmediateTextResult, run_bounded
+
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_SCRIPT = REPO_ROOT / "install.sh"
 KEY_LINE = re.compile(r'^MINISIGN_PUBKEY="[A-Za-z0-9+/=]+"$', re.MULTILINE)
@@ -41,6 +43,8 @@ RELEASE_FILES = ("{asset}", "{asset}.sig", "SHA256SUMS.txt", "SHA256SUMS.txt.min
 LEGACY_LAYOUT = ".local/share/writ"
 LAYOUT = ".local/share/jotra"
 BIN_DIR = ".local/bin"
+COMMAND_TIMEOUT = 120.0
+INSTALL_TIMEOUT = 300.0
 
 CURL = """#!/bin/sh
 printf '%s\\n' "$*" >> "$CURL_LOG"
@@ -155,7 +159,7 @@ def make_host(root: pathlib.Path) -> dict[str, str]:
 
 
 def run_script(script: pathlib.Path, env: dict[str, str], tag: str) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(["sh", str(script)], capture_output=True, text=True, env={**env, "FAKE_TAG": tag}, check=False)
+    result = run_bounded(["sh", str(script)], timeout=INSTALL_TIMEOUT, env={**env, "FAKE_TAG": tag})
     print(f"sh {script.name} for {tag} exited {result.returncode}\n{result.stdout}{result.stderr}", flush=True)
     return result
 
@@ -174,7 +178,7 @@ def require_install(result: subprocess.CompletedProcess[str], version: str, env:
 
 
 def get_version_output(command: pathlib.Path, env: dict[str, str]) -> str:
-    result = subprocess.run([str(command), "--version"], capture_output=True, text=True, env=env, check=False)
+    result = run_bounded([str(command), "--version"], timeout=COMMAND_TIMEOUT, env=env)
     return f"exit {result.returncode}: {result.stdout.strip()} {result.stderr.strip()}".strip()
 
 
@@ -323,7 +327,7 @@ class UpgradeTests(unittest.TestCase):
 
 def main() -> int:
     suite = unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
-    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    result = unittest.TextTestRunner(verbosity=2, resultclass=ImmediateTextResult).run(suite)
     for test, reason in result.skipped:
         print(f"skipped {test}: {reason}", file=sys.stderr)
     return 0 if result.wasSuccessful() and not result.skipped else 1

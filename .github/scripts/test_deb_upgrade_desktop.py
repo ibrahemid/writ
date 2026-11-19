@@ -18,12 +18,12 @@ import os
 import pathlib
 import shlex
 import shutil
-import signal
 import subprocess
 import sys
 import time
 import unittest
 
+from check_process import ImmediateTextResult, StartedProcess, run_bounded, start_process
 from test_deb_upgrade_legacy import get_deb_path, get_package_status, parse_desktop_entry, read_control_fields
 
 LEGACY_PACKAGE = "writ"
@@ -50,14 +50,16 @@ TOOLS = ("xdg-utils", "libglib2.0-bin", "kde-cli-tools", "libkf5service-bin", "x
 FROM_VARIABLE = "DEB_UPGRADE_FROM"
 TO_VARIABLE = "DEB_UPGRADE_TO"
 LAUNCH_TIMEOUT = 90.0
+COMMAND_TIMEOUT = 120.0
+INSTALL_TIMEOUT = 300.0
 
 
 class DesktopCheckError(RuntimeError):
     pass
 
 
-def run_command(*args: str, env: dict[str, str] | None = None, timeout: float = 900) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, capture_output=True, text=True, check=False, env=env, timeout=timeout)
+def run_command(*args: str, env: dict[str, str] | None = None, timeout: float = COMMAND_TIMEOUT) -> subprocess.CompletedProcess[str]:
+    return run_bounded(args, timeout=timeout, env=env)
 
 
 def require_output(result: subprocess.CompletedProcess[str]) -> str:
@@ -110,31 +112,10 @@ def describe_mime_state(desktop: str) -> str:
     return "\n".join(lines)
 
 
-def start_app() -> subprocess.Popen[str]:
+def start_app() -> StartedProcess:
     env = {**desktop_environment("GNOME"), "WEBKIT_DISABLE_COMPOSITING_MODE": "1", "WEBKIT_DISABLE_DMABUF_RENDERER": "1"}
     env.pop("QT_QPA_PLATFORM")
-    return subprocess.Popen(
-        ["dbus-run-session", "--", "xvfb-run", "-a", LAUNCHER],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        env=env,
-        start_new_session=True,
-    )
-
-
-def stop_app(process: subprocess.Popen[str]) -> str:
-    for sent in (signal.SIGTERM, signal.SIGKILL):
-        try:
-            os.killpg(process.pid, sent)
-        except ProcessLookupError:
-            break
-        try:
-            output, _ = process.communicate(timeout=15)
-            return output or ""
-        except subprocess.TimeoutExpired:
-            continue
-    return ""
+    return start_process(["dbus-run-session", "--", "xvfb-run", "-a", LAUNCHER], env=env, merge_output=True)
 
 
 class ParseTests(unittest.TestCase):
@@ -184,9 +165,9 @@ class UpgradeTests(unittest.TestCase):
         previous_package = read_control_fields(previous).get("Package")
         if previous_package != LEGACY_PACKAGE:
             raise DesktopCheckError(f"{previous.name} is package {previous_package}, not {LEGACY_PACKAGE}")
-        require_output(run_command("sudo", "apt-get", "update"))
-        require_output(run_command("sudo", "apt-get", "install", "--yes", "--no-install-recommends", *TOOLS))
-        require_output(run_command("sudo", "apt-get", "install", "--yes", str(previous)))
+        require_output(run_command("sudo", "apt-get", "update", timeout=INSTALL_TIMEOUT))
+        require_output(run_command("sudo", "apt-get", "install", "--yes", "--no-install-recommends", *TOOLS, timeout=INSTALL_TIMEOUT))
+        require_output(run_command("sudo", "apt-get", "install", "--yes", str(previous), timeout=INSTALL_TIMEOUT))
         if get_package_status(LEGACY_PACKAGE) != "installed":
             raise DesktopCheckError(f"{previous.name} left {LEGACY_PACKAGE} {get_package_status(LEGACY_PACKAGE)}")
 
@@ -201,7 +182,7 @@ class UpgradeTests(unittest.TestCase):
         LEGACY_AUTOSTART.write_text(cls.seeded)
         print(f"previous release installed; {MIME_TYPE} opens with {before}; login item at {LEGACY_AUTOSTART}", flush=True)
 
-        require_output(run_command("sudo", "apt-get", "install", "--yes", str(current)))
+        require_output(run_command("sudo", "apt-get", "install", "--yes", str(current), timeout=INSTALL_TIMEOUT))
         if get_package_status(PACKAGE) != "installed":
             raise DesktopCheckError(f"{current.name} left {PACKAGE} {get_package_status(PACKAGE)}")
         if shutil.which("kbuildsycoca5"):
@@ -232,14 +213,16 @@ class UpgradeTests(unittest.TestCase):
         )
 
     def test_the_login_item_moves_to_the_new_name(self) -> None:
-        process = start_app()
-        deadline = time.monotonic() + LAUNCH_TIMEOUT
-        while time.monotonic() < deadline and process.poll() is None:
-            if AUTOSTART.is_file() and not LEGACY_AUTOSTART.exists():
-                break
-            time.sleep(1)
-        exited = process.poll()
-        output = stop_app(process)
+        started = start_app()
+        try:
+            deadline = time.monotonic() + LAUNCH_TIMEOUT
+            while time.monotonic() < deadline and started.process.poll() is None:
+                if AUTOSTART.is_file() and not LEGACY_AUTOSTART.exists():
+                    break
+                time.sleep(1)
+            exited = started.process.poll()
+        finally:
+            output, _ = started.stop()
         context = f"app exit {exited}; output tail:\n{output[-3000:]}"
         self.assertTrue(AUTOSTART.is_file(), f"no {AUTOSTART} {LAUNCH_TIMEOUT:.0f}s after launch; {context}")
         self.assertFalse(LEGACY_AUTOSTART.exists(), f"{LEGACY_AUTOSTART} is still there; {context}")
@@ -249,7 +232,7 @@ class UpgradeTests(unittest.TestCase):
 
 def main() -> int:
     suite = unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
-    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    result = unittest.TextTestRunner(verbosity=2, resultclass=ImmediateTextResult).run(suite)
     for test, reason in result.skipped:
         print(f"skipped {test}: {reason}", file=sys.stderr)
     return 0 if result.wasSuccessful() and not result.skipped else 1
