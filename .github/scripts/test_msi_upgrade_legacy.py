@@ -69,6 +69,14 @@ MSIEXEC_TIMEOUT = 300.0
 LEGACY_LAUNCHER_TIMEOUT = 60.0
 STOP_TIMEOUT = 30.0
 OPEN_COMMAND = re.compile(r'"([^"]+)" "%1"')
+SEMVER_IDENTIFIER = r"(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)"
+SEMVER = re.compile(
+    r"(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)"
+    rf"(?:-(?P<pre>{SEMVER_IDENTIFIER}(?:\.{SEMVER_IDENTIFIER})*))?"
+    r"(?:\+(?P<build>[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?",
+    re.ASCII,
+)
+MSI_FOURTH_FIELD_MAX = 65535
 
 
 class MsiCheckError(RuntimeError):
@@ -110,6 +118,20 @@ def require_output(result: subprocess.CompletedProcess[str]) -> str:
         command = " ".join(str(arg) for arg in result.args)
         raise MsiCheckError(f"{command} exited {result.returncode}: {result.stderr.strip()}")
     return result.stdout
+
+
+def get_msi_product_version(version: str) -> str:
+    match = SEMVER.fullmatch(version)
+    if match is None:
+        raise MsiCheckError(f"{version!r} is not a semantic version")
+    core = f"{match['major']}.{match['minor']}.{match['patch']}"
+    for label, field in (("build metadata", match["build"]), ("pre-release identifier", match["pre"])):
+        if field is None:
+            continue
+        if not field.isdigit() or int(field) > MSI_FOURTH_FIELD_MAX:
+            raise MsiCheckError(f"the {label} of {version} must be a number no greater than {MSI_FOURTH_FIELD_MAX} for an MSI")
+        return f"{core}.{field}"
+    return version
 
 
 def normalize_dir(path: str) -> str:
@@ -374,6 +396,24 @@ class ParseTests(unittest.TestCase):
     def test_a_folder_compares_without_case_quotes_or_trailing_separator(self) -> None:
         self.assertEqual(normalize_dir('"C:\\Program Files\\Writ\\"'), normalize_dir("c:\\program files\\writ"))
 
+    def test_the_product_version_carries_a_candidate_number_as_its_fourth_field(self) -> None:
+        cases = {
+            "1.1.0": "1.1.0",
+            "1.1.0-1": "1.1.0.1",
+            "1.0.0-2": "1.0.0.2",
+            "1.1.0+7": "1.1.0.7",
+            "1.1.0-1+7": "1.1.0.7",
+            "1.1.0-65535": "1.1.0.65535",
+        }
+        for version, expected in cases.items():
+            with self.subTest(version=version):
+                self.assertEqual(get_msi_product_version(version), expected)
+
+    def test_a_version_the_msi_bundler_refuses_has_no_product_version(self) -> None:
+        for version in ("1.1.0-rc.1", "1.1.0-1.2", "1.1.0-65536", "1.1.0+build.1", "1.1.0-01", "1.1", "v1.1.0", "1.1.0-"):
+            with self.subTest(version=version), self.assertRaises(MsiCheckError):
+                get_msi_product_version(version)
+
     def test_the_seeded_approval_reads_as_disabled(self) -> None:
         self.assertEqual(len(SEEDED_APPROVAL), 12)
         self.assertEqual(SEEDED_APPROVAL[0], 0x03)
@@ -381,6 +421,7 @@ class ParseTests(unittest.TestCase):
 
 class UpgradeTests(unittest.TestCase):
     version: str
+    product_version: str
     install_dir: str
     legacy_command: str
     legacy_desktop_shortcuts: list[pathlib.Path]
@@ -397,6 +438,7 @@ class UpgradeTests(unittest.TestCase):
         import winreg
 
         cls.version = version
+        cls.product_version = get_msi_product_version(version)
         log_dir = pathlib.Path(os.environ.get(LOG_DIR_VARIABLE) or tempfile.mkdtemp(prefix="msi-upgrade-"))
         log_dir.mkdir(parents=True, exist_ok=True)
         requested = os.environ.get(INSTALL_DIR_VARIABLE, "") or None
@@ -427,7 +469,7 @@ class UpgradeTests(unittest.TestCase):
         entries = list_uninstall_entries()
         self.assertEqual([entry.name for entry in entries], [PRODUCT], f"Apps and Features entries: {entries}")
         [entry] = entries
-        self.assertEqual(entry.version, self.version, f"Apps and Features entry: {entry}")
+        self.assertEqual(entry.version, self.product_version, f"Apps and Features entry: {entry}")
         self.assertEqual(entry.publisher, MANUFACTURER, f"Apps and Features entry: {entry}")
         related = get_related_products(UPGRADE_CODE)
         self.assertEqual(

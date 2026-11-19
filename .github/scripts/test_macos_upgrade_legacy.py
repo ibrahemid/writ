@@ -214,6 +214,10 @@ def read_bundle_info(bundle: pathlib.Path) -> dict[str, object]:
         return plistlib.load(handle)
 
 
+def get_expected_bundle_info(version: str) -> dict[str, str]:
+    return {"CFBundleIdentifier": IDENTIFIER, "CFBundleShortVersionString": version, "CFBundleExecutable": EXECUTABLE}
+
+
 def executable_path(bundle: pathlib.Path, executable: str) -> str:
     return str(bundle / "Contents/MacOS" / executable)
 
@@ -601,6 +605,19 @@ class ParseTests(unittest.TestCase):
                 plistlib.dump({"CFBundleIdentifier": IDENTIFIER, "CFBundleExecutable": EXECUTABLE}, handle)
             self.assertEqual(read_bundle_info(bundle)["CFBundleIdentifier"], IDENTIFIER)
 
+    def test_the_bundle_keeps_a_final_or_a_candidate_version_string_whole(self) -> None:
+        for version in ("1.1.0", "1.1.0-1"):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as folder:
+                bundle = pathlib.Path(folder, BUNDLE_NAME)
+                (bundle / "Contents").mkdir(parents=True)
+                written = {**get_expected_bundle_info(version), "CFBundleVersion": version}
+                with (bundle / "Contents/Info.plist").open("wb") as handle:
+                    plistlib.dump(written, handle)
+                info = read_bundle_info(bundle)
+                expected = get_expected_bundle_info(version)
+                self.assertEqual({key: info.get(key) for key in expected}, expected)
+                self.assertEqual(expected["CFBundleShortVersionString"], version)
+
     def test_one_process_from_the_new_bundle_is_settled(self) -> None:
         expected = executable_path(BUNDLE, EXECUTABLE)
         self.assertTrue(is_settled([AppProcess(1, expected)], expected))
@@ -733,7 +750,7 @@ class UpgradeTests(unittest.TestCase):
     def test_the_bundle_carries_the_new_name(self) -> None:
         self.assertTrue(BUNDLE.is_dir() and not BUNDLE.is_symlink(), f"{BUNDLE} is not a folder\n{describe_state()}")
         info = read_bundle_info(BUNDLE)
-        expected = {"CFBundleIdentifier": IDENTIFIER, "CFBundleShortVersionString": self.version, "CFBundleExecutable": EXECUTABLE}
+        expected = get_expected_bundle_info(self.version)
         found = {key: info.get(key) for key in expected}
         self.assertEqual(found, expected, f"{BUNDLE}/Contents/Info.plist")
 

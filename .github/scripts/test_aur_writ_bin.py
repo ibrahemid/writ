@@ -8,7 +8,9 @@ The release workflow runs this on an Ubuntu runner with Docker:
 
 Each PKGBUILD is bumped with scripts/packaging_bump_aur.py, as the release does,
 and its source array is pointed at the local files, because the assets are not
-at their release URLs until the release is published. AUR_PKGBUILD and
+at their release URLs until the release is published. makepkg refuses a hyphen
+in pkgver, so a candidate such as 1.1.0-1 is built as pkgver 1.1.0rc1 from the
+candidate's own assets. AUR_PKGBUILD and
 AUR_LICENSE replace the repository's PKGBUILD and LICENSE; AUR_MINISIGN_PUBKEY
 replaces the key in the new PKGBUILD only; AUR_IMAGE names the Arch image.
 Without the six variables the tests are skipped. Run as a script, a skipped
@@ -46,6 +48,8 @@ OPT = "/opt/jotra"
 LEGACY_OPT = "/opt/writ"
 SOURCE_ARRAY = re.compile(r"^source=\([^)]*\)", re.MULTILINE)
 PUBKEY_LINE = re.compile(r"^_minisign_pubkey='[^']*'$", re.MULTILINE)
+FINAL_VERSION = re.compile(r"\d+\.\d+\.\d+", re.ASCII)
+CANDIDATE_VERSION = re.compile(r"(?P<final>\d+\.\d+\.\d+)-(?P<number>\d+)", re.ASCII)
 REQUIRED = ("AUR_APPIMAGE", "AUR_APPIMAGE_SIG", "AUR_VERSION")
 PREVIOUS_REQUIRED = ("AUR_PREVIOUS_PKGBUILD", "AUR_PREVIOUS_APPIMAGE", "AUR_PREVIOUS_APPIMAGE_SIG", "AUR_PREVIOUS_VERSION")
 
@@ -90,6 +94,15 @@ def sha256(path: pathlib.Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def get_pkgver(version: str) -> str:
+    if FINAL_VERSION.fullmatch(version):
+        return version
+    match = CANDIDATE_VERSION.fullmatch(version)
+    if match is None:
+        raise AurCheckError(f"{version!r} is neither a final version such as 1.1.0 nor a candidate such as 1.1.0-1")
+    return f"{match['final']}rc{match['number']}"
+
+
 def get_local_names(text: str) -> list[str]:
     names = [entry.split("::", 1)[0] for entry in bump.read_pkgbuild_array(text, "source")]
     if len(names) != 3:
@@ -98,7 +111,7 @@ def get_local_names(text: str) -> list[str]:
 
 
 def localize_pkgbuild(text: str, release: Release) -> tuple[str, list[str]]:
-    text = bump.rewrite_pkgbuild(text, release.version, sha256(release.appimage), sha256(release.license))
+    text = bump.rewrite_pkgbuild(text, get_pkgver(release.version), sha256(release.appimage), sha256(release.license))
     names = get_local_names(text)
     array = SOURCE_ARRAY.search(text)
     if array is None:
@@ -169,12 +182,12 @@ class Container:
 
 
 class ParseTests(unittest.TestCase):
-    def make_release(self, folder: pathlib.Path, pubkey: str = "") -> Release:
-        appimage = folder / "Jotra_9.9.9_amd64.AppImage"
+    def make_release(self, folder: pathlib.Path, pubkey: str = "", version: str = "9.9.9") -> Release:
+        appimage = folder / f"Jotra_{version}_amd64.AppImage"
         appimage.write_bytes(b"appimage")
-        signature = folder / "Jotra_9.9.9_amd64.AppImage.sig"
+        signature = folder / f"Jotra_{version}_amd64.AppImage.sig"
         signature.write_text("sig")
-        return Release("9.9.9", DEFAULT_PKGBUILD, appimage, signature, DEFAULT_LICENSE, pubkey)
+        return Release(version, DEFAULT_PKGBUILD, appimage, signature, DEFAULT_LICENSE, pubkey)
 
     def read_with_bash(self, pkgbuild: pathlib.Path) -> list[str]:
         script = 'source "$1"; printf "%s\\n" "$pkgver" "$_minisign_pubkey" "${source[@]}" "${sha256sums[@]}"'
@@ -202,6 +215,30 @@ class ParseTests(unittest.TestCase):
                     sha256(DEFAULT_LICENSE),
                 ],
             )
+
+    def test_a_candidate_builds_as_a_release_candidate_pkgver_from_its_own_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = pathlib.Path(folder)
+            release = self.make_release(root, "RWQtestkey", version="1.1.0-1")
+            stage_build(root / "build", release)
+            files = sorted(path.name for path in (root / "build").iterdir())
+            self.assertEqual(files, ["LICENSE-1.1.0rc1", "PKGBUILD", "jotra-1.1.0rc1.AppImage", "jotra-1.1.0rc1.AppImage.minisign"])
+            self.assertEqual((root / "build/jotra-1.1.0rc1.AppImage").read_bytes(), release.appimage.read_bytes())
+            self.assertEqual((root / "build/jotra-1.1.0rc1.AppImage.minisign").read_text(), release.signature.read_text())
+            fields = self.read_with_bash(root / "build/PKGBUILD")
+            self.assertEqual(fields[:3] + fields[5:6], ["1.1.0rc1", "RWQtestkey", "jotra-1.1.0rc1.AppImage", sha256(release.appimage)])
+
+    def test_the_pkgver_keeps_a_final_version_and_turns_a_candidate_number_into_rc(self) -> None:
+        cases = {"1.1.0": "1.1.0", "9.9.9": "9.9.9", "1.1.0-1": "1.1.0rc1", "1.0.0-2": "1.0.0rc2"}
+        for version, expected in cases.items():
+            with self.subTest(version=version):
+                self.assertEqual(get_pkgver(version), expected)
+                self.assertNotRegex(get_pkgver(version), r"[-:/\s]")
+
+    def test_a_version_without_a_numbered_candidate_has_no_pkgver(self) -> None:
+        for version in ("1.1.0-rc.1", "1.1.0-1.2", "1.1.0-", "1.1", "v1.1.0", "1.1.0+7"):
+            with self.subTest(version=version), self.assertRaises(AurCheckError):
+                get_pkgver(version)
 
     def test_the_key_stays_when_no_override_is_given(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
@@ -270,8 +307,9 @@ class UpgradeTests(unittest.TestCase):
             cls.container.run("useradd --create-home builder")
             cls.container.build_and_install(cls.work / "previous", "previous")
             installed = cls.container.output(f"pacman -Q {PACKAGE}")
-            if installed != f"{PACKAGE} {previous.version}-1":
-                raise AurCheckError(f"the previous build installed {installed!r}, expected {PACKAGE} {previous.version}-1")
+            expected = f"{PACKAGE} {get_pkgver(previous.version)}-1"
+            if installed != expected:
+                raise AurCheckError(f"the previous build installed {installed!r}, expected {expected}")
             cls.previous_command = cls.container.output("/usr/bin/writ --version")
             cls.container.build_and_install(cls.work / "current", "current")
         except BaseException:
@@ -288,7 +326,7 @@ class UpgradeTests(unittest.TestCase):
         self.assertIn(self.previous_version, self.previous_command, f"/usr/bin/writ --version before the update: {self.previous_command}")
 
     def test_the_package_is_the_new_version_with_every_file(self) -> None:
-        self.assertEqual(self.container.output(f"pacman -Q {PACKAGE}"), f"{PACKAGE} {self.version}-1")
+        self.assertEqual(self.container.output(f"pacman -Q {PACKAGE}"), f"{PACKAGE} {get_pkgver(self.version)}-1")
         files = self.container.run(f"pacman -Qk {PACKAGE}", check=False)
         self.assertEqual(files.returncode, 0, f"pacman -Qk {PACKAGE}: {files.stdout}{files.stderr}")
 

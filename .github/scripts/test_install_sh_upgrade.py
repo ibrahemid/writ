@@ -234,6 +234,22 @@ class ParseTests(unittest.TestCase):
             )
             self.assertEqual(missing.returncode, 22)
 
+    def test_the_script_requests_the_asset_named_by_a_final_or_a_candidate_tag(self) -> None:
+        for version in ("1.0.2", "1.1.0-1"):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as folder:
+                root = pathlib.Path(folder)
+                env = make_host(root)
+                uname = root / "tools/uname"
+                uname.write_text('#!/bin/sh\ncase "$1" in -m) echo x86_64 ;; *) echo Linux ;; esac\n')
+                uname.chmod(0o755)
+                (root / "fixtures").mkdir()
+                env = {**env, "FAKE_TAG": f"v{version}", "JOTRA_INSTALL_SKIP_SIGNATURE": "1"}
+                result = run_bounded(["sh", str(DEFAULT_SCRIPT)], timeout=COMMAND_TIMEOUT, env=env)
+                asset = asset_name("Jotra", version)
+                self.assertIn(f"jotra install: downloading {asset} (v{version})", result.stdout)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn(f"no fixture v{version}/{asset}", pathlib.Path(env["CURL_LOG"]).read_text().splitlines())
+
 
 class UpgradeTests(unittest.TestCase):
     previous: Release

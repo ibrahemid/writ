@@ -13,8 +13,15 @@ import pathlib
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+import release_assets  # noqa: E402
+from test_aur_writ_bin import get_pkgver  # noqa: E402
+from test_msi_upgrade_legacy import get_msi_product_version  # noqa: E402
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 RELEASE = REPO_ROOT / ".github/workflows/release.yml"
@@ -979,7 +986,7 @@ class UpgradeChecksWorkflowTests(unittest.TestCase):
         return [step for step in job_steps(self.jobs["build"]) if (step_uses(step) or "").startswith(f"{action}@")]
 
     def run_version_step(self, version: str) -> tuple[subprocess.CompletedProcess[str], str]:
-        script = step_script(self.named_step(self.jobs, "plan", "Next patch version"))
+        script = step_script(self.named_step(self.jobs, "plan", "Next patch candidate"))
         with tempfile.TemporaryDirectory(prefix="upgrade-version-") as scratch:
             work = pathlib.Path(scratch)
             (work / "src-tauri").mkdir()
@@ -997,18 +1004,25 @@ class UpgradeChecksWorkflowTests(unittest.TestCase):
             )
             return result, output.read_text()
 
-    def test_it_builds_the_next_patch_version(self) -> None:
+    def test_it_builds_the_first_candidate_of_the_next_patch_version(self) -> None:
         if not shutil.which("jq"):
             self.skipTest("jq is not installed")
-        for current, expected in (("1.0.1", "1.0.2"), ("2.9.19", "2.9.20")):
+        tag_pattern = re.search(r"TAG_PATTERN='([^']+)'", RELEASE.read_text()).group(1)
+        for current, expected in (("1.0.1", "1.0.2-1"), ("2.9.19", "2.9.20-1"), ("1.1.0-2", "1.1.1-1")):
             with self.subTest(version=current):
                 result, output = self.run_version_step(current)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(output, f"version={expected}\n")
-        result, output = self.run_version_step("1.0.2-rc.1")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("prerelease suffix", result.stderr)
-        self.assertEqual(output, "")
+                self.assertRegex(f"v{expected}", tag_pattern)
+                self.assertEqual(release_assets.require_version(expected), expected)
+                self.assertEqual(get_msi_product_version(expected), expected.replace("-", "."))
+                self.assertEqual(get_pkgver(expected), expected.replace("-", "rc"))
+        for current in ("1.0", "v1.0.1", "1.0.1+7"):
+            with self.subTest(version=current):
+                result, output = self.run_version_step(current)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("is not a release version", result.stderr)
+                self.assertEqual(output, "")
 
 
 class CiWorkflowTests(unittest.TestCase):

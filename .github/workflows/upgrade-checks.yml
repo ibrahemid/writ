@@ -38,10 +38,10 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
-# Builds unsigned bundles from the checked-out commit at the next patch version
-# and runs the release workflow's upgrade checks against them. The AppImage and
-# its checksums are signed with a key made for the run, which install.sh and the
-# PKGBUILD are pointed at.
+# Builds unsigned bundles from the checked-out commit as the next patch version's
+# first candidate (X.Y.Z-1) and runs the release workflow's upgrade checks
+# against them. The AppImage and its checksums are signed with a key made for
+# the run, which install.sh and the PKGBUILD are pointed at.
 jobs:
   plan:
     name: Pick the version to build
@@ -57,17 +57,17 @@ jobs:
           sparse-checkout: |
             src-tauri/tauri.conf.json
 
-      - name: Next patch version
+      - name: Next patch candidate
         id: version
         shell: bash
         run: |
           set -euo pipefail
           CURRENT="$(jq -r .version src-tauri/tauri.conf.json)"
-          if ! [[ "$CURRENT" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-            echo "tauri.conf.json version $CURRENT is not MAJOR.MINOR.PATCH; the MSI cannot carry a prerelease suffix" >&2
+          if ! [[ "$CURRENT" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "tauri.conf.json version $CURRENT is not a release version such as 1.0.1 or 1.0.1-1" >&2
             exit 1
           fi
-          NEXT="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
+          NEXT="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))-1"
           echo "building $NEXT over the checked-out $CURRENT"
           echo "version=$NEXT" >> "$GITHUB_OUTPUT"
 

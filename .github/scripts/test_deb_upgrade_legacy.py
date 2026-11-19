@@ -188,6 +188,12 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(fields["Conflicts"], LEGACY_PACKAGE)
         self.assertEqual(fields["Description"], "Text\nmore text")
 
+    def test_the_version_field_is_read_whole_for_a_final_and_a_candidate(self) -> None:
+        for version in ("1.1.0", "1.1.0-1"):
+            with self.subTest(version=version):
+                fields = parse_control_fields(f"Package: jotra\nVersion: {version}\nArchitecture: amd64\n")
+                self.assertEqual(fields["Version"], version)
+
     def test_desktop_keys_come_from_the_desktop_entry_group_only(self) -> None:
         text = "[Desktop Entry]\nExec=jotra-tauri %F\n# NoDisplay=false\n\n[Desktop Action new]\nExec=other\n"
         self.assertEqual(parse_desktop_entry(text), {"Exec": "jotra-tauri %F"})
