@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Generate src-tauri/wix/legacy-progids.wxs from the file associations in src-tauri/tauri.conf.json.
+"""Generate src-tauri/wix/legacy-progids.wxs from the file associations in src-tauri/tauri.conf.json
+and the main binary name in src-tauri/Cargo.toml.
 
 Usage:
     scripts/gen-legacy-progids.py            write the fragment
@@ -14,20 +15,23 @@ import json
 import pathlib
 import re
 import sys
+import tomllib
 from collections.abc import Sequence
 from dataclasses import dataclass
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 TAURI_CONF = ROOT / "src-tauri" / "tauri.conf.json"
+CARGO_MANIFEST = ROOT / "src-tauri" / "Cargo.toml"
 OUTPUT_PATH = ROOT / "src-tauri" / "wix" / "legacy-progids.wxs"
 
 LEGACY_PRODUCT_NAME = "Writ"
 COMPONENT_ID = "LegacyProgIds"
 COMPONENT_GUID = "E808E13F-A233-4FE4-929B-FB5AA08886C0"
-MAIN_BINARY_FILE_ID = "Path"
-OPEN_COMMAND = f'"[#{MAIN_BINARY_FILE_ID}]" "%1"'
+# ICE69 rejects a [#Path] reference here: the template keeps that file in features this component is not in.
+INSTALL_DIRECTORY_ID = "INSTALLDIR"
 
 EXTENSION_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]*")
+BINARY_NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 FORMATTED_SPECIAL = re.compile(r"[\[\]{}]")
 INDENT = "    "
 
@@ -60,6 +64,22 @@ def get_product_name(conf: dict[str, object]) -> str:
     if not isinstance(name, str) or not name.strip():
         raise GenerationError("tauri.conf.json has no productName")
     return name
+
+
+def get_main_binary_name(conf: dict[str, object], manifest: dict[str, object]) -> str:
+    name = conf.get("mainBinaryName")
+    source = "tauri.conf.json mainBinaryName"
+    if name is None:
+        package = manifest.get("package")
+        name = package.get("name") if isinstance(package, dict) else None
+        source = "Cargo.toml package.name"
+    if not isinstance(name, str) or not BINARY_NAME_PATTERN.fullmatch(name):
+        raise GenerationError(f"{source} is {name!r}, which cannot name the main binary in an open command")
+    return name
+
+
+def get_open_command(main_binary_name: str) -> str:
+    return f'"[{INSTALL_DIRECTORY_ID}]{main_binary_name}.exe" "%1"'
 
 
 def get_associations(conf: dict[str, object]) -> list[Association]:
@@ -99,12 +119,12 @@ def get_associations(conf: dict[str, object]) -> list[Association]:
     return associations
 
 
-def render_fragment(product_name: str, associations: Sequence[Association]) -> str:
+def render_fragment(product_name: str, main_binary_name: str, associations: Sequence[Association]) -> str:
     if not associations:
         raise GenerationError("no file associations to register")
 
     verb_text = escape_attribute(escape_formatted_literal(f"Open with {product_name}"))
-    command = escape_attribute(OPEN_COMMAND)
+    command = escape_attribute(get_open_command(main_binary_name))
     lines = [
         '<?xml version="1.0" encoding="utf-8"?>',
         '<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">',
@@ -144,14 +164,18 @@ def render_fragment(product_name: str, associations: Sequence[Association]) -> s
     return document
 
 
-def generate(conf_path: pathlib.Path) -> str:
+def generate(conf_path: pathlib.Path, manifest_path: pathlib.Path = CARGO_MANIFEST) -> str:
     try:
         conf = json.loads(conf_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise GenerationError(f"cannot read {conf_path}: {exc}") from exc
     if not isinstance(conf, dict):
         raise GenerationError(f"{conf_path} is not a JSON object")
-    return render_fragment(get_product_name(conf), get_associations(conf))
+    try:
+        manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise GenerationError(f"cannot read {manifest_path}: {exc}") from exc
+    return render_fragment(get_product_name(conf), get_main_binary_name(conf, manifest), get_associations(conf))
 
 
 def main(argv: Sequence[str] | None = None) -> int:

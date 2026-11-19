@@ -1,4 +1,4 @@
-"""Structural checks on release.yml: which jobs see which secrets and tokens.
+"""Structural checks on release.yml and upgrade-checks.yml: which jobs see which secrets and tokens.
 
 Run from the repository root:
     python3 -m unittest discover -s .github/scripts -t .github/scripts
@@ -6,20 +6,56 @@ Run from the repository root:
 
 from __future__ import annotations
 
+import fnmatch
+import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+import release_assets  # noqa: E402
+from test_aur_writ_bin import get_pkgver  # noqa: E402
+from test_msi_upgrade_legacy import get_msi_product_version  # noqa: E402
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 RELEASE = REPO_ROOT / ".github/workflows/release.yml"
 CI = REPO_ROOT / ".github/workflows/ci.yml"
+UPGRADE_CHECKS = REPO_ROOT / ".github/workflows/upgrade-checks.yml"
 
 SIGNING_JOBS = {"signing-config", "sign-macos", "sign-windows", "sign-updater"}
 PLAN_REF = "ref: refs/tags/${{ needs.plan.outputs.tag_name }}"
 CACHE_ACTIONS = ("Swatinem/rust-cache@", "actions/cache@", "actions/cache/restore@", "actions/cache/save@")
+UPGRADE_SCRIPTS = {
+    "deb-upgrade": "test_deb_upgrade_legacy.py",
+    "deb-desktop-upgrade": "test_deb_upgrade_desktop.py",
+    "install-sh-upgrade": "test_install_sh_upgrade.py",
+    "aur-upgrade": "test_aur_writ_bin.py",
+    "msi-upgrade": "test_msi_upgrade_legacy.py",
+    "macos-upgrade": "test_macos_upgrade_legacy.py",
+}
+NEW_UPGRADE_JOBS = set(UPGRADE_SCRIPTS) - {"deb-upgrade"}
+CHECK_DEADLINES = {
+    "deb-upgrade": 10,
+    "deb-desktop-upgrade": 15,
+    "install-sh-upgrade": 10,
+    "aur-upgrade": 20,
+    "msi-upgrade": 30,
+    "macos-upgrade": 30,
+}
+UPGRADE_CHECKS_DEADLINES = {"plan": 5, "build": 90, **CHECK_DEADLINES}
+INTEL_MACOS = "macos-15-intel"
+PREVIOUS_RELEASE_LINES = (
+    "GH_TOKEN: ${{ github.token }}",
+    "SOURCE_REPOSITORY_ID: '1278853784'",
+    "PREVIOUS_TAG: v1.0.1",
+    'SOURCE="$(gh api "repositories/$SOURCE_REPOSITORY_ID" --jq .full_name)"',
+)
 
 
 class WorkflowShapeError(LookupError):
@@ -76,6 +112,45 @@ def workflow_permissions(text: str) -> dict[str, str]:
     if scopes is None:
         raise WorkflowShapeError("the workflow sets no top-level permissions")
     return scopes
+
+
+def job_needs(job: str) -> list[str]:
+    lines = job.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r"^    needs:(.*)$", line)
+        if not match:
+            continue
+        inline = match.group(1).strip()
+        if inline.startswith("["):
+            return [name.strip() for name in inline.strip("[]").split(",") if name.strip()]
+        if inline:
+            return [inline]
+        names = []
+        for body in lines[index + 1 :]:
+            entry = re.match(r"^      - ([A-Za-z0-9_-]+)$", body)
+            if not entry:
+                break
+            names.append(entry.group(1))
+        return names
+    return []
+
+
+def job_condition(job: str) -> str:
+    lines = job.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r"^    if:(.*)$", line)
+        if not match:
+            continue
+        inline = match.group(1).strip()
+        if inline not in {">-", ">", "|"}:
+            return inline
+        body = []
+        for text in lines[index + 1 :]:
+            if not text.startswith("      "):
+                break
+            body.append(text.strip())
+        return " ".join(body)
+    return ""
 
 
 def job_permissions(job: str, default: dict[str, str]) -> dict[str, str]:
@@ -135,6 +210,25 @@ def sparse_paths(step: str) -> list[str]:
     return []
 
 
+def artifact_name(step: str) -> str:
+    match = re.search(r"(?m)^          name: (\S+)$", step)
+    if not match:
+        raise WorkflowShapeError(f"no artifact name in {step.splitlines()[0].strip()!r}")
+    return match.group(1)
+
+
+def workflow_triggers(text: str) -> str:
+    match = re.search(r"(?ms)^on:\n(.*?)^(?=\S)", text)
+    if not match:
+        raise WorkflowShapeError("the workflow has no on: block")
+    return match.group(1)
+
+
+def trigger_paths(triggers: str) -> list[str]:
+    match = re.search(r"(?m)^    paths:\n((?:      - .*\n)+)", triggers)
+    return [line.strip().removeprefix("- ") for line in match.group(1).splitlines()] if match else []
+
+
 class ReleaseWorkflowTests(unittest.TestCase):
     def setUp(self) -> None:
         self.text = RELEASE.read_text()
@@ -157,6 +251,11 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 "sign-updater",
                 "attest-sboms",
                 "deb-upgrade",
+                "deb-desktop-upgrade",
+                "install-sh-upgrade",
+                "aur-upgrade",
+                "msi-upgrade",
+                "macos-upgrade",
                 "publish",
             },
         )
@@ -317,7 +416,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
     def test_publish_checks_the_set_then_attests_every_asset(self) -> None:
         job = self.jobs["publish"]
-        needs = job_field(job, "needs") or ""
+        needs = job_needs(job)
         for upstream in ("sign-updater", "attest-sboms"):
             self.assertIn(upstream, needs)
         steps = job_steps(job)
@@ -393,7 +492,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
     def test_the_new_deb_installs_over_the_previous_release_before_publish(self) -> None:
         job = self.jobs["deb-upgrade"]
-        self.assertEqual(job_field(job, "needs"), "[plan, build]")
+        self.assertEqual(job_needs(job), ["plan", "build"])
         self.assertEqual(job_field(job, "runs-on"), "ubuntu-22.04")
         steps = job_steps(job)
         download = next(
@@ -410,8 +509,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('export DEB_UPGRADE_TO="build-linux/Jotra_${VERSION}_amd64.deb"', script)
         self.assertIn("python3 .github/scripts/test_deb_upgrade_legacy.py", script)
         publish = self.jobs["publish"]
-        self.assertIn("deb-upgrade", job_field(publish, "needs") or "")
-        self.assertIn("needs.deb-upgrade.result == 'success'", job_field(publish, "if") or "")
+        self.assertIn("deb-upgrade", job_needs(publish))
+        self.assertIn("needs.deb-upgrade.result == 'success'", job_condition(publish))
 
     def test_the_notarization_requirement_follows_the_repository_id(self) -> None:
         self.assertIn("REQUIRED: ${{ github.repository_id == '1278853784' }}", self.jobs["sign-macos"])
@@ -437,6 +536,120 @@ class ReleaseWorkflowTests(unittest.TestCase):
                             pattern.startswith("/") or "/" in pattern.rstrip("/"),
                             f"{pattern} also matches every file of that name below the root",
                         )
+
+    def test_every_upgrade_check_gates_publish(self) -> None:
+        publish = self.jobs["publish"]
+        condition = job_condition(publish)
+        self.assertTrue(condition.startswith("${{ !cancelled()"), condition)
+        for name in UPGRADE_SCRIPTS:
+            with self.subTest(job=name):
+                self.assertIn(name, job_needs(publish))
+                self.assertIn(f"needs.{name}.result == 'success'", condition)
+
+    def test_the_upgrade_checks_read_contents_only_and_hold_no_secret(self) -> None:
+        for name in UPGRADE_SCRIPTS:
+            job = self.jobs[name]
+            with self.subTest(job=name):
+                self.assertIsNone(job_field(job, "environment"))
+                self.assertEqual(secret_names(job), set())
+                self.assertNotIn("TAURI_SIGNING", job)
+                self.assertEqual(job_permissions(job, self.default), {"contents": "read"})
+        for name in NEW_UPGRADE_JOBS:
+            with self.subTest(job=name):
+                self.assertEqual(block_permissions(self.jobs[name].splitlines(), 4), {"contents": "read"})
+
+    def test_each_upgrade_check_reads_the_previous_release_by_repository_id(self) -> None:
+        for name in UPGRADE_SCRIPTS:
+            steps = [step for step in job_steps(self.jobs[name]) if "gh release download" in step]
+            with self.subTest(job=name):
+                self.assertEqual(len(steps), 1)
+                for line in PREVIOUS_RELEASE_LINES:
+                    self.assertIn(line, steps[0])
+                self.assertNotIn("github.repository", steps[0])
+
+    def test_each_upgrade_check_runs_its_script_after_its_downloads(self) -> None:
+        for name, script in UPGRADE_SCRIPTS.items():
+            steps = job_steps(self.jobs[name])
+            with self.subTest(job=name):
+                checks = [i for i, step in enumerate(steps) if f".github/scripts/{script}" in step]
+                self.assertEqual(len(checks), 1)
+                downloads = [
+                    i
+                    for i, step in enumerate(steps)
+                    if (step_uses(step) or "").startswith("actions/download-artifact@") or "gh release download" in step
+                ]
+                self.assertTrue(downloads)
+                self.assertLess(max(downloads), checks[0])
+
+    def test_the_deb_desktop_check_updates_the_built_deb(self) -> None:
+        job = self.jobs["deb-desktop-upgrade"]
+        self.assertEqual(job_needs(job), ["plan", "build"])
+        self.assertEqual(job_field(job, "runs-on"), "ubuntu-22.04")
+        [download] = self.steps_using("deb-desktop-upgrade", "actions/download-artifact")
+        self.assertEqual(artifact_name(download), "build-linux")
+        [check] = [step for step in job_steps(job) if "test_deb_upgrade_desktop.py" in step]
+        self.assertIn('export DEB_UPGRADE_TO="build-linux/Jotra_${VERSION}_amd64.deb"', step_script(check))
+
+    def test_the_macos_check_replaces_the_signed_app_for_both_owners(self) -> None:
+        job = self.jobs["macos-upgrade"]
+        self.assertEqual(job_needs(job), ["plan", "sign-macos"])
+        self.assertEqual(
+            job_condition(job), "${{ !cancelled() && needs.plan.result == 'success' && needs.sign-macos.result == 'success' }}"
+        )
+        self.assertEqual(job_field(job, "runs-on"), INTEL_MACOS)
+        self.assertIn("- owner: user\n            previous: '*_universal.app.tar.gz'", job)
+        self.assertIn("- owner: admin\n            previous: '*_universal.pkg'", job)
+        [download] = self.steps_using("macos-upgrade", "actions/download-artifact")
+        self.assertEqual(artifact_name(download), "signed-macos")
+        [check] = [step for step in job_steps(job) if "test_macos_upgrade_legacy.py" in step]
+        self.assertIn("MACOS_UPGRADE_OWNER: ${{ matrix.owner }}", check)
+        self.assertIn('export MACOS_UPGRADE_TO="signed-macos/Jotra_${VERSION}_universal.app.tar.gz"', step_script(check))
+
+    def test_the_msi_check_installs_the_msi_that_ships_into_both_folders(self) -> None:
+        job = self.jobs["msi-upgrade"]
+        self.assertEqual(job_needs(job), ["plan", "build", "signing-config", "sign-windows"])
+        self.assertEqual(job_field(job, "runs-on"), "windows-latest")
+        self.assertIn("install_dir: [default, custom]", job)
+        condition = job_condition(job)
+        self.assertTrue(condition.startswith("${{ !cancelled()"), condition)
+        self.assertIn(
+            "(needs.sign-windows.result == 'skipped' && needs.signing-config.outputs.windows != 'true')", condition
+        )
+        downloads = {artifact_name(step): step for step in self.steps_using("msi-upgrade", "actions/download-artifact")}
+        self.assertEqual(set(downloads), {"signed-windows", "build-windows"})
+        self.assertIn("if: needs.sign-windows.result == 'success'", downloads["signed-windows"])
+        self.assertIn("if: needs.sign-windows.result != 'success'", downloads["build-windows"])
+        [checkout] = self.steps_using("msi-upgrade", "actions/checkout")
+        self.assertIn("src-tauri/wix/legacy-progids.wxs", sparse_paths(checkout))
+        [check] = [step for step in job_steps(job) if "test_msi_upgrade_legacy.py" in step]
+        script = step_script(check)
+        self.assertIn("$env:MSI_UPGRADE_INSTALL_DIR = ", script)
+        self.assertIn("if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }", script)
+
+    def test_the_install_sh_and_aur_checks_install_the_signed_appimage(self) -> None:
+        for name, folder in (("install-sh-upgrade", "install-assets"), ("aur-upgrade", "aur-assets")):
+            job = self.jobs[name]
+            with self.subTest(job=name):
+                self.assertEqual(job_needs(job), ["plan", "build", "sign-updater"])
+                self.assertEqual(
+                    job_condition(job),
+                    "${{ !cancelled() && needs.plan.result == 'success' && needs.build.result == 'success'"
+                    " && needs.sign-updater.result == 'success' }}",
+                )
+                downloads = self.steps_using(name, "actions/download-artifact")
+                self.assertEqual(sorted(artifact_name(step) for step in downloads), ["build-linux", "signed-updater"])
+                for step in downloads:
+                    self.assertIn(f"path: {folder}", step)
+        install = job_steps(self.jobs["install-sh-upgrade"])
+        [previous] = [step for step in install if "gh release download" in step]
+        self.assertIn('"repos/$SOURCE/contents/install.sh?ref=$PREVIOUS_TAG"', previous)
+        minisign = next(i for i, step in enumerate(install) if "- name: Install minisign" in step)
+        tests = next(i for i, step in enumerate(install) if "test_install_sh*.py" in step)
+        self.assertLess(minisign, tests)
+        self.assertIn("MINISIGN: ${{ steps.minisign.outputs.path }}", install[tests])
+        self.assertIn("python3 -m unittest discover -v -s scripts -p 'test_install_sh*.py'", install[tests])
+        [aur] = [step for step in job_steps(self.jobs["aur-upgrade"]) if "gh release download" in step]
+        self.assertIn('"repos/$SOURCE/contents/packaging/aur/writ-bin/PKGBUILD?ref=$PREVIOUS_TAG"', aur)
 
 
 class DispatchedTagTests(unittest.TestCase):
@@ -573,6 +786,243 @@ class DispatchedTagTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(outputs, {"tag": "v0.6.0-1", "version": "0.6.0-1"})
         self.assertFalse((runner_temp / "release-tag-check.git").exists())
+
+
+class UpgradeChecksWorkflowTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.text = UPGRADE_CHECKS.read_text()
+        self.jobs = workflow_jobs(self.text)
+        self.default = workflow_permissions(self.text)
+        self.release = workflow_jobs(RELEASE.read_text())
+
+    def named_step(self, jobs: dict[str, str], job: str, name: str) -> str:
+        steps = [step for step in job_steps(jobs[job]) if step.splitlines()[0].strip() == f"- name: {name}"]
+        self.assertEqual(len(steps), 1, f"{job} has {len(steps)} steps named {name!r}")
+        return steps[0]
+
+    def test_it_runs_on_demand_and_for_pull_requests_that_touch_the_upgrade_path(self) -> None:
+        triggers = workflow_triggers(self.text)
+        self.assertEqual(re.findall(r"(?m)^  ([a-z_]+):", triggers), ["workflow_dispatch", "pull_request"])
+        paths = trigger_paths(triggers)
+        for required in (
+            ".github/workflows/release.yml",
+            ".github/workflows/upgrade-checks.yml",
+            "packaging/**",
+            "src-tauri/wix/**",
+            "install.sh",
+            "crates/writ-tauri/**",
+            "scripts/deb_legacy_entries.py",
+        ):
+            with self.subTest(path=required):
+                self.assertIn(required, paths)
+        for script in UPGRADE_SCRIPTS.values():
+            with self.subTest(script=script):
+                self.assertTrue(any(fnmatch.fnmatchcase(f".github/scripts/{script}", pattern) for pattern in paths))
+        for pattern in paths:
+            with self.subTest(pattern=pattern):
+                literal = re.split(r"[*?\[]", pattern, maxsplit=1)[0].rstrip("/")
+                if literal == pattern:
+                    self.assertTrue((REPO_ROOT / pattern).is_file(), f"{pattern} names no file")
+                elif pattern.endswith("/**"):
+                    self.assertTrue((REPO_ROOT / literal).is_dir(), f"{pattern} names no folder")
+                else:
+                    self.assertTrue(list(REPO_ROOT.glob(pattern)), f"{pattern} matches no file")
+
+    def test_the_token_only_reads_and_no_secret_or_environment_is_named(self) -> None:
+        self.assertEqual(self.default, {"contents": "read"})
+        for name, job in self.jobs.items():
+            with self.subTest(job=name):
+                self.assertEqual(job_permissions(job, self.default), {"contents": "read"})
+                self.assertIsNone(job_field(job, "environment"))
+        self.assertNotIn("secrets.", self.text)
+
+    def test_every_action_is_pinned_and_every_checkout_keeps_no_credentials(self) -> None:
+        uses = re.findall(r"uses: (\S+)", self.text)
+        self.assertTrue(uses)
+        for reference in uses:
+            with self.subTest(uses=reference):
+                self.assertRegex(reference, r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
+        for name, job in self.jobs.items():
+            for step in job_steps(job):
+                uses = step_uses(step) or ""
+                with self.subTest(job=name, step=step.splitlines()[0].strip()):
+                    self.assertFalse(uses.startswith(CACHE_ACTIONS), uses)
+                    if uses.startswith("actions/checkout@"):
+                        self.assertIn("persist-credentials: false", step)
+                        for pattern in sparse_paths(step):
+                            self.assertTrue(pattern.startswith("/") or "/" in pattern.rstrip("/"), pattern)
+
+    def test_it_runs_every_upgrade_check_of_the_release(self) -> None:
+        self.assertEqual(set(self.jobs), {"plan", "build"} | set(UPGRADE_SCRIPTS))
+        for name, script in UPGRADE_SCRIPTS.items():
+            with self.subTest(job=name):
+                self.assertIn(f".github/scripts/{script}", self.jobs[name])
+                self.assertIn("build", job_needs(self.jobs[name]))
+        install = self.jobs["install-sh-upgrade"]
+        self.assertIn("python3 -m unittest discover -v -s scripts -p 'test_install_sh*.py'", install)
+        self.assertIn("install_dir: [default, custom]", self.jobs["msi-upgrade"])
+        self.assertIn("- owner: admin\n            previous: '*_universal.pkg'", self.jobs["macos-upgrade"])
+
+    def test_each_check_runs_when_its_own_build_leg_left_bundles(self) -> None:
+        self.assertIn("    strategy:\n      fail-fast: false\n", self.jobs["build"])
+        legs = {
+            "upgrade-linux": "Linux (x64)",
+            "upgrade-windows": "Windows (x64)",
+            "upgrade-macos": "macOS (universal)",
+        }
+        for name in UPGRADE_SCRIPTS:
+            job = self.jobs[name]
+            with self.subTest(job=name):
+                self.assertEqual(job_condition(job), "${{ !cancelled() && needs.plan.result == 'success' }}")
+                steps = job_steps(job)
+                downloads = [
+                    step for step in steps if (step_uses(step) or "").startswith("actions/download-artifact@")
+                ]
+                self.assertEqual(downloads, steps[1:2])
+                self.assertTrue((step_uses(steps[0]) or "").startswith("actions/checkout@"))
+                download, listing = steps[1], steps[2]
+                artifact = artifact_name(download)
+                self.assertIn(artifact, legs)
+                folder = re.search(r"(?m)^          path: (\S+)$", download).group(1)
+                self.assertIn("        id: bundles\n        continue-on-error: true\n", download)
+                self.assertIn("          DOWNLOAD: ${{ steps.bundles.outcome }}\n", listing)
+                self.assertNotIn("        if:", listing)
+                script = step_script(listing)
+                self.assertIn('if [ "$DOWNLOAD" != success ]; then', script)
+                self.assertIn(f"The Build ({legs[artifact]}) job of this run uploaded no {artifact} artifact", script)
+                self.assertTrue(script.rstrip().endswith(f"ls -la {folder}"))
+
+    def test_every_job_and_every_release_upgrade_check_has_a_deadline(self) -> None:
+        self.assertEqual(set(CHECK_DEADLINES), set(UPGRADE_SCRIPTS))
+        for name, job in self.jobs.items():
+            with self.subTest(workflow="upgrade-checks.yml", job=name):
+                self.assertIn(name, UPGRADE_CHECKS_DEADLINES)
+                self.assertEqual(job_field(job, "timeout-minutes"), str(UPGRADE_CHECKS_DEADLINES[name]))
+        for name, minutes in CHECK_DEADLINES.items():
+            with self.subTest(workflow="release.yml", job=name):
+                self.assertEqual(job_field(self.release[name], "timeout-minutes"), str(minutes))
+                self.assertLessEqual(minutes, 30)
+
+    def test_the_macos_legs_run_on_the_intel_label_ci_uses_and_signing_keeps_its_runner(self) -> None:
+        self.assertIn(f"          - os: {INTEL_MACOS}\n", CI.read_text())
+        build = self.jobs["build"]
+        self.assertEqual(job_field(build, "runs-on"), "${{ matrix.runner }}")
+        for selector, runner in (("macos-latest", INTEL_MACOS), ("windows-latest", "windows-latest"), ("ubuntu-22.04", "ubuntu-22.04")):
+            with self.subTest(leg=selector):
+                self.assertIn(f"          - os: {selector}\n            runner: {runner}\n", build)
+        self.assertEqual(job_field(self.jobs["macos-upgrade"], "runs-on"), INTEL_MACOS)
+        self.assertEqual(job_field(self.release["macos-upgrade"], "runs-on"), INTEL_MACOS)
+        self.assertEqual(job_field(self.release["sign-macos"], "runs-on"), "macos-latest")
+        self.assertIn("          - os: macos-latest\n", self.release["build"])
+
+    def test_no_checkout_runs_after_a_download_it_would_delete(self) -> None:
+        for workflow, jobs in (("upgrade-checks.yml", self.jobs), ("release.yml", self.release)):
+            for name, job in jobs.items():
+                uses = [step_uses(step) or "" for step in job_steps(job)]
+                downloads = [i for i, action in enumerate(uses) if action.startswith("actions/download-artifact@")]
+                checkouts = [i for i, action in enumerate(uses) if action.startswith("actions/checkout@")]
+                if downloads and checkouts:
+                    with self.subTest(workflow=workflow, job=name):
+                        self.assertLess(max(checkouts), min(downloads))
+
+    def test_it_reads_the_same_previous_release_as_the_release_workflow(self) -> None:
+        for name in UPGRADE_SCRIPTS:
+            mine = [step for step in job_steps(self.jobs[name]) if "gh release download" in step]
+            release = [step for step in job_steps(self.release[name]) if "gh release download" in step]
+            with self.subTest(job=name):
+                self.assertEqual(mine, release)
+
+    def test_the_build_runs_the_release_build_steps_the_checks_read(self) -> None:
+        for name in (
+            "Install Rust toolchain",
+            "Install Linux dependencies",
+            "Install frontend dependencies",
+            "Build CLI sidecar",
+            "Build the legacy launcher",
+            "Seed AppRun with world-execute permission",
+            "Legacy ProgId fragment matches the file associations",
+            "Build Tauri app",
+            "Add the legacy entries to the deb",
+        ):
+            with self.subTest(step=name):
+                self.assertEqual(self.named_step(self.jobs, "build", name), self.named_step(self.release, "build", name))
+        names = [step.splitlines()[0].strip().removeprefix("- name: ") for step in job_steps(self.jobs["build"])]
+        order = [
+            "Set the version to build",
+            "Install frontend dependencies",
+            "Build the legacy launcher",
+            "Build Tauri app",
+            "Add the legacy entries to the deb",
+            "Stage the bundles",
+            "Sign the AppImage and its checksums with a key made for this run",
+            "Upload the bundles",
+        ]
+        self.assertEqual([name for name in names if name in order], order)
+        bump = step_script(self.named_step(self.jobs, "build", "Set the version to build"))
+        self.assertIn('"$PYTHON" .github/scripts/bump_version.py "$VERSION"', bump)
+        self.assertIn("cargo update --workspace", bump)
+        stage = step_script(self.named_step(self.jobs, "build", "Stage the bundles"))
+        self.assertIn("python3 .github/scripts/archive_app.py create", stage)
+        self.assertIn('"dist/upgrade-macos/Jotra_${VERSION}_universal.app.tar.gz"', stage)
+        for bundles in ("bundles: app", "bundles: msi", "bundles: deb,appimage"):
+            self.assertIn(f"            {bundles}\n", self.jobs["build"])
+
+    def test_the_run_key_signs_the_appimage_and_stays_in_the_build_job(self) -> None:
+        sign = self.named_step(self.jobs, "build", "Sign the AppImage and its checksums with a key made for this run")
+        self.assertIn("if: matrix.os == 'ubuntu-22.04'", sign)
+        script = step_script(sign)
+        self.assertIn('KEY_DIR="$RUNNER_TEMP/upgrade-key"', script)
+        self.assertIn('-G -W -p dist/upgrade-linux/minisign.pub -s "$KEY_DIR/upgrade.key"', script)
+        self.assertIn("release_signing.py sign-payloads", script)
+        self.assertLess(script.index("SHA256SUMS.txt.minisig"), script.index('rm -rf "$KEY_DIR"'))
+        [upload] = self.steps_using_build("actions/upload-artifact")
+        self.assertIn("path: dist/upgrade-${{ matrix.platform }}/", upload)
+        self.assertEqual(self.text.count("upgrade.key"), 3)
+        for name, variable in (("install-sh-upgrade", "INSTALL_SH_PUBKEY"), ("aur-upgrade", "AUR_MINISIGN_PUBKEY")):
+            with self.subTest(job=name):
+                self.assertIn(f'{variable}="$(sed -n 2p upgrade-linux/minisign.pub)"', self.jobs[name])
+
+    def steps_using_build(self, action: str) -> list[str]:
+        return [step for step in job_steps(self.jobs["build"]) if (step_uses(step) or "").startswith(f"{action}@")]
+
+    def run_version_step(self, version: str) -> tuple[subprocess.CompletedProcess[str], str]:
+        script = step_script(self.named_step(self.jobs, "plan", "Next patch candidate"))
+        with tempfile.TemporaryDirectory(prefix="upgrade-version-") as scratch:
+            work = pathlib.Path(scratch)
+            (work / "src-tauri").mkdir()
+            (work / "src-tauri/tauri.conf.json").write_text(json.dumps({"version": version}))
+            output = work / "github-output"
+            output.write_text("")
+            result = subprocess.run(
+                ["bash", "-c", script],
+                cwd=work,
+                env={**os.environ, "GITHUB_OUTPUT": str(output)},
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+            return result, output.read_text()
+
+    def test_it_builds_the_first_candidate_of_the_next_patch_version(self) -> None:
+        if not shutil.which("jq"):
+            self.skipTest("jq is not installed")
+        tag_pattern = re.search(r"TAG_PATTERN='([^']+)'", RELEASE.read_text()).group(1)
+        for current, expected in (("1.0.1", "1.0.2-1"), ("2.9.19", "2.9.20-1"), ("1.1.0-2", "1.1.1-1")):
+            with self.subTest(version=current):
+                result, output = self.run_version_step(current)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(output, f"version={expected}\n")
+                self.assertRegex(f"v{expected}", tag_pattern)
+                self.assertEqual(release_assets.require_version(expected), expected)
+                self.assertEqual(get_msi_product_version(expected), expected.replace("-", "."))
+                self.assertEqual(get_pkgver(expected), expected.replace("-", "rc"))
+        for current in ("1.0", "v1.0.1", "1.0.1+7"):
+            with self.subTest(version=current):
+                result, output = self.run_version_step(current)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("is not a release version", result.stderr)
+                self.assertEqual(output, "")
 
 
 class CiWorkflowTests(unittest.TestCase):

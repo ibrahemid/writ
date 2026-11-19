@@ -1,0 +1,734 @@
+name: Upgrade checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/scripts/test_*_upgrade_*.py
+      - .github/scripts/test_install_sh_upgrade.py
+      - .github/scripts/test_aur_writ_bin.py
+      - .github/scripts/archive_app.py
+      - .github/scripts/bump_version.py
+      - .github/scripts/release_signing.py
+      - .github/workflows/release.yml
+      - .github/workflows/upgrade-checks.yml
+      - packaging/**
+      - src-tauri/wix/**
+      - src-tauri/tauri.conf.json
+      - src-tauri/tauri.windows.conf.json
+      - src-tauri/src/bundle_rename.rs
+      - src-tauri/src/linux_rename.rs
+      - src-tauri/src/windows_rename.rs
+      - crates/writ-tauri/**
+      - install.sh
+      - scripts/deb_legacy_entries.py
+      - scripts/gen-legacy-progids.py
+      - scripts/install-minisign.sh
+      - scripts/packaging_bump_aur.py
+      - scripts/stage-cli-sidecar.sh
+      - scripts/test_install_sh*.py
+
+concurrency:
+  group: upgrade-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Builds unsigned bundles from the checked-out commit as the next patch version's
+# first candidate (X.Y.Z-1) and runs the release workflow's upgrade checks
+# against them. The AppImage and its checksums are signed with a key made for
+# the run, which install.sh and the PKGBUILD are pointed at.
+jobs:
+  plan:
+    name: Pick the version to build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src-tauri/tauri.conf.json
+
+      - name: Next patch candidate
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT="$(jq -r .version src-tauri/tauri.conf.json)"
+          if ! [[ "$CURRENT" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "tauri.conf.json version $CURRENT is not a release version such as 1.0.1 or 1.0.1-1" >&2
+            exit 1
+          fi
+          NEXT="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))-1"
+          echo "building $NEXT over the checked-out $CURRENT"
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.label }})
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        # os picks the release build's steps for the leg; runner is the machine it runs on.
+        include:
+          - os: macos-latest
+            runner: macos-15-intel
+            label: macOS (universal)
+            platform: macos
+            python: python3
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            tauri_args: --target universal-apple-darwin
+            bundles: app
+          - os: windows-latest
+            runner: windows-latest
+            label: Windows (x64)
+            platform: windows
+            python: python
+            rust_targets: x86_64-pc-windows-msvc
+            tauri_args: --target x86_64-pc-windows-msvc
+            bundles: msi
+          - os: ubuntu-22.04
+            runner: ubuntu-22.04
+            label: Linux (x64)
+            platform: linux
+            python: python3
+            rust_targets: x86_64-unknown-linux-gnu
+            tauri_args: --target x86_64-unknown-linux-gnu
+            bundles: deb,appimage
+
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        shell: bash
+        env:
+          RUSTUP_PERMIT_COPY_RENAME: 1
+          RUST_TARGETS: ${{ matrix.rust_targets }}
+        run: |
+          set -euo pipefail
+          rustup toolchain install --no-self-update
+          IFS=',' read -ra TRIPLES <<< "$RUST_TARGETS"
+          rustup target add "${TRIPLES[@]}"
+
+      - name: Set the version to build
+        shell: bash
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          PYTHON: ${{ matrix.python }}
+        run: |
+          set -euo pipefail
+          "$PYTHON" .github/scripts/bump_version.py "$VERSION"
+          cargo update --workspace
+          git diff --stat
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libasound2-dev \
+            squashfs-tools
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build CLI sidecar
+        shell: bash
+        env:
+          RUST_TARGETS: ${{ matrix.rust_targets }}
+          MATRIX_OS: ${{ matrix.os }}
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra TRIPLES <<< "$RUST_TARGETS"
+          for t in "${TRIPLES[@]}"; do
+            cargo build -p jotra-cli --release --locked --target "$t"
+          done
+          case "$MATRIX_OS" in
+            macos-latest)
+              scripts/stage-cli-sidecar.sh target/aarch64-apple-darwin/release/jotra \
+                aarch64-apple-darwin
+              scripts/stage-cli-sidecar.sh target/x86_64-apple-darwin/release/jotra \
+                x86_64-apple-darwin
+              mkdir -p target/universal-apple-darwin/release
+              lipo -create \
+                target/aarch64-apple-darwin/release/jotra \
+                target/x86_64-apple-darwin/release/jotra \
+                -output target/universal-apple-darwin/release/jotra
+              scripts/stage-cli-sidecar.sh target/universal-apple-darwin/release/jotra \
+                universal-apple-darwin
+              ;;
+            windows-latest)
+              scripts/stage-cli-sidecar.sh target/x86_64-pc-windows-msvc/release/jotra.exe \
+                x86_64-pc-windows-msvc
+              ;;
+            ubuntu-22.04)
+              scripts/stage-cli-sidecar.sh target/x86_64-unknown-linux-gnu/release/jotra \
+                x86_64-unknown-linux-gnu
+              ;;
+          esac
+
+      - name: Build the legacy launcher
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build -p writ-tauri --release --locked --target x86_64-pc-windows-msvc
+          mkdir -p src-tauri/binaries
+          cp target/x86_64-pc-windows-msvc/release/writ-tauri.exe src-tauri/binaries/writ-tauri.exe
+
+      - name: Seed AppRun with world-execute permission
+        if: matrix.os == 'ubuntu-22.04'
+        shell: bash
+        env:
+          APPRUN_URL: https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64
+          APPRUN_SHA256: f30140a43a0a59e46db21bdefdf749b9e9f2c6946e92afabbacf98b8ae73fb4f
+        run: |
+          set -euo pipefail
+          TOOLS_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/tauri"
+          mkdir -p "$TOOLS_DIR"
+          curl -fsSL --retry 3 -o "$TOOLS_DIR/AppRun-x86_64" "$APPRUN_URL"
+          echo "$APPRUN_SHA256  $TOOLS_DIR/AppRun-x86_64" | sha256sum -c -
+          chmod 0755 "$TOOLS_DIR/AppRun-x86_64"
+
+      - name: Legacy ProgId fragment matches the file associations
+        if: matrix.platform == 'windows'
+        shell: bash
+        run: python scripts/gen-legacy-progids.py --check
+
+      - name: Build Tauri app
+        shell: bash
+        env:
+          TAURI_ARGS: ${{ matrix.tauri_args }}
+          BUNDLES: ${{ matrix.bundles }}
+          APPLE_SIGNING_IDENTITY: "-"
+          TAURI_BUNDLER_DMG_IGNORE_CI: "true"
+        run: |
+          set -euo pipefail
+          read -ra TARGET_ARGS <<< "$TAURI_ARGS"
+          pnpm exec tauri build "${TARGET_ARGS[@]}" --bundles "$BUNDLES" --ci --config '{"bundle":{"createUpdaterArtifacts":false}}' -- --locked
+
+      - name: Add the legacy entries to the deb
+        if: matrix.os == 'ubuntu-22.04'
+        shell: bash
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 scripts/deb_legacy_entries.py "target/x86_64-unknown-linux-gnu/release/bundle/deb/Jotra_${VERSION}_amd64.deb"
+
+      - name: Stage the bundles
+        shell: bash
+        env:
+          MATRIX_OS: ${{ matrix.os }}
+          PLATFORM: ${{ matrix.platform }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          case "$MATRIX_OS" in
+            macos-latest)
+              mkdir -p dist/upgrade-macos
+              python3 .github/scripts/archive_app.py create \
+                target/universal-apple-darwin/release/bundle/macos/Jotra.app \
+                "dist/upgrade-macos/Jotra_${VERSION}_universal.app.tar.gz"
+              ;;
+            windows-latest)
+              mkdir -p dist/upgrade-windows
+              cp "target/x86_64-pc-windows-msvc/release/bundle/msi/Jotra_${VERSION}_x64_en-US.msi" dist/upgrade-windows/
+              ;;
+            ubuntu-22.04)
+              mkdir -p dist/upgrade-linux
+              cp "target/x86_64-unknown-linux-gnu/release/bundle/deb/Jotra_${VERSION}_amd64.deb" dist/upgrade-linux/
+              cp "target/x86_64-unknown-linux-gnu/release/bundle/appimage/Jotra_${VERSION}_amd64.AppImage" dist/upgrade-linux/
+              ;;
+          esac
+          ls -la "dist/upgrade-$PLATFORM"
+
+      - name: Sign the AppImage and its checksums with a key made for this run
+        if: matrix.os == 'ubuntu-22.04'
+        shell: bash
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          MINISIGN="$(bash scripts/install-minisign.sh "$RUNNER_TEMP/minisign")"
+          export MINISIGN
+          KEY_DIR="$RUNNER_TEMP/upgrade-key"
+          mkdir -p "$KEY_DIR"
+          "$MINISIGN" -G -W -p dist/upgrade-linux/minisign.pub -s "$KEY_DIR/upgrade.key"
+          TAURI_SIGNING_PRIVATE_KEY="$(base64 -w0 "$KEY_DIR/upgrade.key")"
+          export TAURI_SIGNING_PRIVATE_KEY
+          export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+          APPIMAGE="Jotra_${VERSION}_amd64.AppImage"
+          python3 .github/scripts/release_signing.py sign-payloads --version "$VERSION" "dist/upgrade-linux/$APPIMAGE"
+          (cd dist/upgrade-linux && sha256sum "$APPIMAGE" > SHA256SUMS.txt)
+          "$MINISIGN" -S -s "$KEY_DIR/upgrade.key" -m dist/upgrade-linux/SHA256SUMS.txt \
+            -x dist/upgrade-linux/SHA256SUMS.txt.minisig \
+            -t "timestamp:$(date +%s)"$'\t'"file:SHA256SUMS.txt"$'\t'"version:$VERSION" \
+            -c "signature from tauri secret key" < /dev/null
+          rm -rf "$KEY_DIR"
+          cat dist/upgrade-linux/minisign.pub dist/upgrade-linux/SHA256SUMS.txt
+          ls -la dist/upgrade-linux
+
+      - name: Upload the bundles
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: upgrade-${{ matrix.platform }}
+          path: dist/upgrade-${{ matrix.platform }}/
+          if-no-files-found: error
+          retention-days: 7
+
+  deb-upgrade:
+    name: Upgrade the deb over the previous release
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .github/scripts
+
+      - name: Download the Linux build
+        id: bundles
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: upgrade-linux
+          path: upgrade-linux
+
+      - name: List the Linux bundles
+        shell: bash
+        env:
+          DOWNLOAD: ${{ steps.bundles.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$DOWNLOAD" != success ]; then
+            echo "::error title=No Linux bundles::The Build (Linux (x64)) job of this run uploaded no upgrade-linux artifact, so there is nothing to install. Its log holds the cause."
+            exit 1
+          fi
+          ls -la upgrade-linux
+
+      - name: Download the deb of the previous release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY_ID: '1278853784'
+          PREVIOUS_TAG: v1.0.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE="$(gh api "repositories/$SOURCE_REPOSITORY_ID" --jq .full_name)"
+          mkdir -p previous-deb
+          gh release download "$PREVIOUS_TAG" --repo "$SOURCE" --pattern '*_amd64.deb' --dir previous-deb
+          ls -la previous-deb
+
+      - name: Install the previous deb, then the new one over it
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREVIOUS=(previous-deb/*_amd64.deb)
+          if [ "${#PREVIOUS[@]}" -ne 1 ] || [ ! -f "${PREVIOUS[0]}" ]; then
+            echo "expected one previous deb, found: ${PREVIOUS[*]}" >&2
+            exit 1
+          fi
+          export DEB_UPGRADE_FROM="${PREVIOUS[0]}"
+          export DEB_UPGRADE_TO="upgrade-linux/Jotra_${VERSION}_amd64.deb"
+          python3 .github/scripts/test_deb_upgrade_legacy.py
+
+  deb-desktop-upgrade:
+    name: Keep the desktop integration through a deb update
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .github/scripts
+
+      - name: Download the Linux build
+        id: bundles
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: upgrade-linux
+          path: upgrade-linux
+
+      - name: List the Linux bundles
+        shell: bash
+        env:
+          DOWNLOAD: ${{ steps.bundles.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$DOWNLOAD" != success ]; then
+            echo "::error title=No Linux bundles::The Build (Linux (x64)) job of this run uploaded no upgrade-linux artifact, so there is nothing to install. Its log holds the cause."
+            exit 1
+          fi
+          ls -la upgrade-linux
+
+      - name: Download the deb of the previous release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY_ID: '1278853784'
+          PREVIOUS_TAG: v1.0.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE="$(gh api "repositories/$SOURCE_REPOSITORY_ID" --jq .full_name)"
+          mkdir -p previous-deb
+          gh release download "$PREVIOUS_TAG" --repo "$SOURCE" --pattern '*_amd64.deb' --dir previous-deb
+          ls -la previous-deb
+
+      - name: Update the deb and read the handler and login item
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREVIOUS=(previous-deb/*_amd64.deb)
+          if [ "${#PREVIOUS[@]}" -ne 1 ] || [ ! -f "${PREVIOUS[0]}" ]; then
+            echo "expected one previous deb, found: ${PREVIOUS[*]}" >&2
+            exit 1
+          fi
+          export DEB_UPGRADE_FROM="${PREVIOUS[0]}"
+          export DEB_UPGRADE_TO="upgrade-linux/Jotra_${VERSION}_amd64.deb"
+          python3 .github/scripts/test_deb_upgrade_desktop.py
+
+  install-sh-upgrade:
+    name: Run install.sh over the previous release's install
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .github/scripts
+            /install.sh
+            scripts/install-minisign.sh
+            scripts/test_install_sh.py
+            scripts/test_install_sh_legacy.py
+
+      - name: Download the Linux build
+        id: bundles
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: upgrade-linux
+          path: upgrade-linux
+
+      - name: List the Linux bundles
+        shell: bash
+        env:
+          DOWNLOAD: ${{ steps.bundles.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$DOWNLOAD" != success ]; then
+            echo "::error title=No Linux bundles::The Build (Linux (x64)) job of this run uploaded no upgrade-linux artifact, so there is nothing to install. Its log holds the cause."
+            exit 1
+          fi
+          ls -la upgrade-linux
+
+      - name: Download the previous release's AppImage and install.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY_ID: '1278853784'
+          PREVIOUS_TAG: v1.0.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE="$(gh api "repositories/$SOURCE_REPOSITORY_ID" --jq .full_name)"
+          mkdir -p previous-install
+          gh release download "$PREVIOUS_TAG" --repo "$SOURCE" --dir previous-install \
+            --pattern '*_amd64.AppImage' --pattern '*_amd64.AppImage.sig' \
+            --pattern 'SHA256SUMS.txt' --pattern 'SHA256SUMS.txt.minisig'
+          gh api -H "Accept: application/vnd.github.raw" "repos/$SOURCE/contents/install.sh?ref=$PREVIOUS_TAG" \
+            > previous-install.sh
+          ls -la previous-install
+
+      - name: Install the previous release with its install.sh, then this one
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          INSTALL_SH_PREVIOUS_SCRIPT: previous-install.sh
+          INSTALL_SH_PREVIOUS_ASSETS: previous-install
+          INSTALL_SH_PREVIOUS_VERSION: '1.0.1'
+          INSTALL_SH_ASSETS: upgrade-linux
+        shell: bash
+        run: |
+          set -euo pipefail
+          INSTALL_SH_PUBKEY="$(sed -n 2p upgrade-linux/minisign.pub)"
+          export INSTALL_SH_PUBKEY
+          export INSTALL_SH_VERSION="$VERSION"
+          python3 .github/scripts/test_install_sh_upgrade.py
+
+      - name: Install minisign
+        id: minisign
+        shell: bash
+        run: |
+          set -euo pipefail
+          MINISIGN="$(bash scripts/install-minisign.sh "$RUNNER_TEMP/minisign")"
+          echo "path=$MINISIGN" >> "$GITHUB_OUTPUT"
+
+      - name: Run the install.sh tests for both layouts
+        env:
+          MINISIGN: ${{ steps.minisign.outputs.path }}
+        run: python3 -m unittest discover -v -s scripts -p 'test_install_sh*.py'
+
+  aur-upgrade:
+    name: Build and install writ-bin over the previous release
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .github/scripts
+            /LICENSE
+            packaging/aur/writ-bin/PKGBUILD
+            scripts/packaging_bump_aur.py
+
+      - name: Download the Linux build
+        id: bundles
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: upgrade-linux
+          path: upgrade-linux
+
+      - name: List the Linux bundles
+        shell: bash
+        env:
+          DOWNLOAD: ${{ steps.bundles.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$DOWNLOAD" != success ]; then
+            echo "::error title=No Linux bundles::The Build (Linux (x64)) job of this run uploaded no upgrade-linux artifact, so there is nothing to install. Its log holds the cause."
+            exit 1
+          fi
+          ls -la upgrade-linux
+
+      - name: Download the previous release's AppImage and PKGBUILD
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY_ID: '1278853784'
+          PREVIOUS_TAG: v1.0.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE="$(gh api "repositories/$SOURCE_REPOSITORY_ID" --jq .full_name)"
+          mkdir -p previous-aur
+          gh release download "$PREVIOUS_TAG" --repo "$SOURCE" --dir previous-aur \
+            --pattern '*_amd64.AppImage' --pattern '*_amd64.AppImage.sig'
+          gh api -H "Accept: application/vnd.github.raw" \
+            "repos/$SOURCE/contents/packaging/aur/writ-bin/PKGBUILD?ref=$PREVIOUS_TAG" > previous-aur/PKGBUILD
+          ls -la previous-aur
+
+      - name: Install the previous writ-bin in Arch, then this one over it
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREVIOUS=(previous-aur/*_amd64.AppImage)
+          if [ "${#PREVIOUS[@]}" -ne 1 ] || [ ! -f "${PREVIOUS[0]}" ]; then
+            echo "expected one previous AppImage, found: ${PREVIOUS[*]}" >&2
+            exit 1
+          fi
+          export AUR_PREVIOUS_PKGBUILD=previous-aur/PKGBUILD
+          export AUR_PREVIOUS_APPIMAGE="${PREVIOUS[0]}"
+          export AUR_PREVIOUS_APPIMAGE_SIG="${PREVIOUS[0]}.sig"
+          export AUR_PREVIOUS_VERSION=1.0.1
+          export AUR_APPIMAGE="upgrade-linux/Jotra_${VERSION}_amd64.AppImage"
+          export AUR_APPIMAGE_SIG="upgrade-linux/Jotra_${VERSION}_amd64.AppImage.sig"
+          export AUR_VERSION="$VERSION"
+          AUR_MINISIGN_PUBKEY="$(sed -n 2p upgrade-linux/minisign.pub)"
+          export AUR_MINISIGN_PUBKEY
+          python3 .github/scripts/test_aur_writ_bin.py
+
+  msi-upgrade:
+    name: Upgrade the MSI over the previous release (${{ matrix.install_dir }} folder)
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        install_dir: [default, custom]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .github/scripts
+            src-tauri/wix/legacy-progids.wxs
+
+      - name: Download the Windows build
+        id: bundles
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: upgrade-windows
+          path: windows-msi
+
+      - name: List the Windows bundles
+        shell: bash
+        env:
+          DOWNLOAD: ${{ steps.bundles.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$DOWNLOAD" != success ]; then
+            echo "::error title=No Windows bundles::The Build (Windows (x64)) job of this run uploaded no upgrade-windows artifact, so there is nothing to install. Its log holds the cause."
+            exit 1
+          fi
+          ls -la windows-msi
+
+      - name: Download the MSI of the previous release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY_ID: '1278853784'
+          PREVIOUS_TAG: v1.0.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE="$(gh api "repositories/$SOURCE_REPOSITORY_ID" --jq .full_name)"
+          mkdir -p previous-msi
+          gh release download "$PREVIOUS_TAG" --repo "$SOURCE" --pattern '*_x64_en-US.msi' --dir previous-msi
+          ls -la previous-msi
+
+      - name: Install the previous MSI, then the new one over it
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          INSTALL_DIR: ${{ matrix.install_dir }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $previous = @(Get-ChildItem -Path previous-msi -Filter '*_x64_en-US.msi')
+          if ($previous.Count -ne 1) { throw "expected one previous MSI, found: $($previous.Name -join ', ')" }
+          $env:MSI_UPGRADE_FROM = $previous[0].FullName
+          $env:MSI_UPGRADE_TO = (Resolve-Path "windows-msi/Jotra_${env:VERSION}_x64_en-US.msi").Path
+          $env:MSI_UPGRADE_VERSION = $env:VERSION
+          $env:MSI_UPGRADE_LOG_DIR = Join-Path $env:RUNNER_TEMP 'msi-logs'
+          if ($env:INSTALL_DIR -eq 'custom') { $env:MSI_UPGRADE_INSTALL_DIR = 'C:\Writ Custom' }
+          python .github/scripts/test_msi_upgrade_legacy.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  macos-upgrade:
+    name: Update the macOS app over the previous release (${{ matrix.owner }}-owned)
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - owner: user
+            previous: '*_universal.app.tar.gz'
+          - owner: admin
+            previous: '*_universal.pkg'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .github/scripts
+
+      - name: Download the macOS build
+        id: bundles
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: upgrade-macos
+          path: upgrade-macos
+
+      - name: List the macOS bundles
+        shell: bash
+        env:
+          DOWNLOAD: ${{ steps.bundles.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$DOWNLOAD" != success ]; then
+            echo "::error title=No macOS bundles::The Build (macOS (universal)) job of this run uploaded no upgrade-macos artifact, so there is nothing to install. Its log holds the cause."
+            exit 1
+          fi
+          ls -la upgrade-macos
+
+      - name: Download the previous release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY_ID: '1278853784'
+          PREVIOUS_TAG: v1.0.1
+          PATTERN: ${{ matrix.previous }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE="$(gh api "repositories/$SOURCE_REPOSITORY_ID" --jq .full_name)"
+          mkdir -p previous-macos
+          gh release download "$PREVIOUS_TAG" --repo "$SOURCE" --pattern "$PATTERN" --dir previous-macos
+          ls -la previous-macos
+
+      - name: Install the previous app, replace it as the updater does, then launch
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          MACOS_UPGRADE_OWNER: ${{ matrix.owner }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREVIOUS=(previous-macos/*)
+          if [ "${#PREVIOUS[@]}" -ne 1 ] || [ ! -f "${PREVIOUS[0]}" ]; then
+            echo "expected one previous macOS asset, found: ${PREVIOUS[*]}" >&2
+            exit 1
+          fi
+          export MACOS_UPGRADE_FROM="${PREVIOUS[0]}"
+          export MACOS_UPGRADE_TO="upgrade-macos/Jotra_${VERSION}_universal.app.tar.gz"
+          export MACOS_UPGRADE_VERSION="$VERSION"
+          python3 .github/scripts/test_macos_upgrade_legacy.py

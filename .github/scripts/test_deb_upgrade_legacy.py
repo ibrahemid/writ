@@ -21,6 +21,8 @@ import sys
 import tarfile
 import unittest
 
+from check_process import ImmediateTextResult, run_bounded
+
 LEGACY_PACKAGE = "writ"
 PACKAGE = "jotra"
 LEGACY_COMMAND_PATH = "usr/bin/writ"
@@ -31,6 +33,8 @@ LEGACY_DESKTOP_PATH = "usr/share/applications/Writ.desktop"
 DESKTOP_PATH = "usr/share/applications/Jotra.desktop"
 RELATIONSHIP_FIELDS = ("Conflicts", "Replaces", "Provides")
 FROM_VARIABLE = "DEB_UPGRADE_FROM"
+COMMAND_TIMEOUT = 120.0
+INSTALL_TIMEOUT = 300.0
 TO_VARIABLE = "DEB_UPGRADE_TO"
 GONE_STATUSES = {"not-installed", "config-files"}
 
@@ -55,8 +59,8 @@ def get_deb_path(variable: str) -> pathlib.Path | None:
     return path
 
 
-def run_command(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, capture_output=True, text=True, check=False)
+def run_command(*args: str, timeout: float = COMMAND_TIMEOUT) -> subprocess.CompletedProcess[str]:
+    return run_bounded(args, timeout=timeout)
 
 
 def require_output(result: subprocess.CompletedProcess[str]) -> str:
@@ -184,6 +188,12 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(fields["Conflicts"], LEGACY_PACKAGE)
         self.assertEqual(fields["Description"], "Text\nmore text")
 
+    def test_the_version_field_is_read_whole_for_a_final_and_a_candidate(self) -> None:
+        for version in ("1.1.0", "1.1.0-1"):
+            with self.subTest(version=version):
+                fields = parse_control_fields(f"Package: jotra\nVersion: {version}\nArchitecture: amd64\n")
+                self.assertEqual(fields["Version"], version)
+
     def test_desktop_keys_come_from_the_desktop_entry_group_only(self) -> None:
         text = "[Desktop Entry]\nExec=jotra-tauri %F\n# NoDisplay=false\n\n[Desktop Action new]\nExec=other\n"
         self.assertEqual(parse_desktop_entry(text), {"Exec": "jotra-tauri %F"})
@@ -246,12 +256,12 @@ class UpgradeTests(unittest.TestCase):
         if previous_package != LEGACY_PACKAGE:
             raise DebCheckError(f"{previous.name} is package {previous_package}, not {LEGACY_PACKAGE}")
         cls.version = read_control_fields(current)["Version"]
-        require_output(run_command("sudo", "apt-get", "update"))
-        require_output(run_command("sudo", "apt-get", "install", "--yes", str(previous)))
+        require_output(run_command("sudo", "apt-get", "update", timeout=INSTALL_TIMEOUT))
+        require_output(run_command("sudo", "apt-get", "install", "--yes", str(previous), timeout=INSTALL_TIMEOUT))
         status = get_package_status(LEGACY_PACKAGE)
         if status != "installed":
             raise DebCheckError(f"{previous.name} left {LEGACY_PACKAGE} {status}")
-        cls.upgrade = run_command("sudo", "dpkg", "--install", str(current))
+        cls.upgrade = run_command("sudo", "dpkg", "--install", str(current), timeout=INSTALL_TIMEOUT)
 
     def test_dpkg_installs_the_new_deb_over_the_legacy_package(self) -> None:
         self.assertEqual(self.upgrade.returncode, 0, f"{self.upgrade.stdout}\n{self.upgrade.stderr}")
@@ -281,7 +291,7 @@ class UpgradeTests(unittest.TestCase):
 
 def main() -> int:
     suite = unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
-    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    result = unittest.TextTestRunner(verbosity=2, resultclass=ImmediateTextResult).run(suite)
     for test, reason in result.skipped:
         print(f"skipped {test}: {reason}", file=sys.stderr)
     return 0 if result.wasSuccessful() and not result.skipped else 1
