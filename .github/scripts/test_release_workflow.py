@@ -861,14 +861,29 @@ class UpgradeChecksWorkflowTests(unittest.TestCase):
                 downloads = [
                     step for step in steps if (step_uses(step) or "").startswith("actions/download-artifact@")
                 ]
-                self.assertEqual(downloads, steps[:1])
-                download, stop = steps[0], steps[1]
+                self.assertEqual(downloads, steps[1:2])
+                self.assertTrue((step_uses(steps[0]) or "").startswith("actions/checkout@"))
+                download, listing = steps[1], steps[2]
                 artifact = artifact_name(download)
                 self.assertIn(artifact, legs)
+                folder = re.search(r"(?m)^          path: (\S+)$", download).group(1)
                 self.assertIn("        id: bundles\n        continue-on-error: true\n", download)
-                self.assertIn("        if: steps.bundles.outcome != 'success'\n", stop)
-                self.assertIn(f"The Build ({legs[artifact]}) job of this run uploaded no {artifact} artifact", stop)
-                self.assertTrue(step_script(stop).rstrip().endswith("exit 1"))
+                self.assertIn("          DOWNLOAD: ${{ steps.bundles.outcome }}\n", listing)
+                self.assertNotIn("        if:", listing)
+                script = step_script(listing)
+                self.assertIn('if [ "$DOWNLOAD" != success ]; then', script)
+                self.assertIn(f"The Build ({legs[artifact]}) job of this run uploaded no {artifact} artifact", script)
+                self.assertTrue(script.rstrip().endswith(f"ls -la {folder}"))
+
+    def test_no_checkout_runs_after_a_download_it_would_delete(self) -> None:
+        for workflow, jobs in (("upgrade-checks.yml", self.jobs), ("release.yml", self.release)):
+            for name, job in jobs.items():
+                uses = [step_uses(step) or "" for step in job_steps(job)]
+                downloads = [i for i, action in enumerate(uses) if action.startswith("actions/download-artifact@")]
+                checkouts = [i for i, action in enumerate(uses) if action.startswith("actions/checkout@")]
+                if downloads and checkouts:
+                    with self.subTest(workflow=workflow, job=name):
+                        self.assertLess(max(checkouts), min(downloads))
 
     def test_it_reads_the_same_previous_release_as_the_release_workflow(self) -> None:
         for name in UPGRADE_SCRIPTS:

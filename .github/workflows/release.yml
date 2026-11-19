@@ -1244,6 +1244,7 @@ jobs:
           SOURCE="$(gh api "repositories/$SOURCE_REPOSITORY_ID" --jq .full_name)"
           mkdir -p previous-deb
           gh release download "$PREVIOUS_TAG" --repo "$SOURCE" --pattern '*_amd64.deb' --dir previous-deb
+          ls -la previous-deb
 
       - name: Install the previous deb, then the new one over it
         env:
@@ -1292,6 +1293,7 @@ jobs:
           SOURCE="$(gh api "repositories/$SOURCE_REPOSITORY_ID" --jq .full_name)"
           mkdir -p previous-deb
           gh release download "$PREVIOUS_TAG" --repo "$SOURCE" --pattern '*_amd64.deb' --dir previous-deb
+          ls -la previous-deb
 
       - name: Update the deb and read the handler and login item
         env:
@@ -1502,6 +1504,7 @@ jobs:
           SOURCE="$(gh api "repositories/$SOURCE_REPOSITORY_ID" --jq .full_name)"
           mkdir -p previous-msi
           gh release download "$PREVIOUS_TAG" --repo "$SOURCE" --pattern '*_x64_en-US.msi' --dir previous-msi
+          ls -la previous-msi
 
       - name: Install the previous MSI, then the new one over it
         env:
@@ -1562,6 +1565,7 @@ jobs:
           SOURCE="$(gh api "repositories/$SOURCE_REPOSITORY_ID" --jq .full_name)"
           mkdir -p previous-macos
           gh release download "$PREVIOUS_TAG" --repo "$SOURCE" --pattern "$PATTERN" --dir previous-macos
+          ls -la previous-macos
 
       - name: Install the previous app, replace it as the updater does, then launch
         env:
