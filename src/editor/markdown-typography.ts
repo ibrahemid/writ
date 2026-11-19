@@ -81,6 +81,24 @@ const htmlLine = Decoration.line({ class: "cm-md-html" });
 const mathLine = Decoration.line({ class: "cm-md-math-source" });
 const mathSourceMark = Decoration.mark({ class: "cm-md-math-source" });
 
+// The line classes cm-markdown-typography.css sizes away from a prose line.
+// CodeMirror samples its line height from short lines of bare text
+// (DocView.measureTextSize), so none of these lines may offer one: a heading
+// keeps its hung marker, a block line carries the mark below.
+export const NON_PROSE_HEIGHT_LINE_CLASSES: readonly string[] = [
+  "cm-line-md-h1",
+  "cm-line-md-h2",
+  "cm-line-md-h3",
+  "cm-line-md-h4",
+  "cm-line-md-h5",
+  "cm-line-md-h6",
+  "cm-md-codeblock",
+  "cm-md-table",
+  "cm-md-html",
+  "cm-md-math-source",
+];
+const blockLineTextMark = Decoration.mark({ class: "cm-md-block-text" });
+
 const markDecByNode: Record<string, Decoration> = {
   StrongEmphasis: Decoration.mark({ class: "cm-md-strong" }),
   Emphasis:       Decoration.mark({ class: "cm-md-em" }),
@@ -415,6 +433,11 @@ export function buildMarkdownDecorations(
     specs.push({ from, to, decoration: dec });
   }
 
+  function addBlockLine(line: { from: number; to: number }, decoration: Decoration) {
+    specs.push({ from: line.from, to: line.from, decoration });
+    addMark(line.from, line.to, blockLineTextMark);
+  }
+
   function addressRunEnd(url: SyntaxNodeFull): number {
     try {
       return addressEndAfter(url, docLineAt(url.from).to);
@@ -479,7 +502,7 @@ export function buildMarkdownDecorations(
         let pos = from;
         for (;;) {
           const line = docLineAt(pos);
-          specs.push({ from: line.from, to: line.from, decoration: mathLine });
+          addBlockLine(line, mathLine);
           if (line.to >= to) break;
           pos = line.to + 1;
         }
@@ -514,11 +537,11 @@ export function buildMarkdownDecorations(
         // onto the content lines, which are the whole block once the fences
         // are gone.
         const collapsed = collapsedFenceLines(nodeRef.node);
-        const lines: Array<{ from: number }> = [];
+        const lines: Array<{ from: number; to: number }> = [];
         let pos = from;
         for (;;) {
           const line = docLineAt(pos);
-          if (!collapsed.has(line.from)) lines.push({ from: line.from });
+          if (!collapsed.has(line.from)) lines.push({ from: line.from, to: line.to });
           if (line.to >= to) break;
           pos = line.to + 1;
         }
@@ -532,7 +555,7 @@ export function buildMarkdownDecorations(
               : isLast
                 ? codeBlockLastLine
                 : codeBlockLine;
-          specs.push({ from: line.from, to: line.from, decoration });
+          addBlockLine(line, decoration);
         });
       } catch {
         // skip un-parseable positions
@@ -573,7 +596,7 @@ export function buildMarkdownDecorations(
         let pos = from;
         for (;;) {
           const line = docLineAt(pos);
-          specs.push({ from: line.from, to: line.from, decoration: lineClass });
+          addBlockLine(line, lineClass);
           if (line.to >= to) break;
           pos = line.to + 1;
         }

@@ -71,7 +71,7 @@ export function overBudget(
 export function formatValue(value: number | null | undefined, unit: "ms" | "MiB"): string;
 
 export const FIND_RATE: Readonly<{ scenarios: readonly string[]; runs: number; budgetMsPerMiB: number }>;
-export const TAB_SWITCH: Readonly<{ scenarios: readonly string[]; other: CorpusSpec }>;
+export const TAB_SWITCH: Readonly<{ scenarios: readonly string[]; other: CorpusSpec; topDriftPx: number }>;
 export const PAIRED_TYPING: Readonly<{ scenario: string; rounds: number; characters: number; bandScale: number }>;
 export const WHOLE_DOCUMENT: Readonly<{ kinds: readonly string[]; minChars: number; share: number }>;
 
@@ -133,9 +133,14 @@ export interface EditorSnapshot {
   head: number;
   anchor: number;
   topLine: number;
+  /** Where the line the top of the view is measured from starts. */
+  topAnchor: number;
+  /** How far in px the top of the view sits below that line's top; null when the line is gone. */
+  topOffset: number | null;
   /** The document's length in UTF-16 code units. */
   length: number;
 }
+export function tabSwitchTopDrift(before: EditorSnapshot | null, after: EditorSnapshot | null): number | null;
 export function tabSwitchProblems(trip: {
   before: EditorSnapshot | null;
   after: EditorSnapshot | null;
