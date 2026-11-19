@@ -23,6 +23,7 @@ import {
   pairedTyping,
   percentile,
   tabSwitchProblems,
+  tabSwitchTopDrift,
   wholeDocumentCalls,
   wholeDocumentProblems,
   type CpuProfile,
@@ -330,7 +331,15 @@ describe("editor perf gate paired typing", () => {
 });
 
 describe("editor perf gate tab switch", () => {
-  const kept: EditorSnapshot = { undoDepth: 1, anchor: 2_621_443, head: 2_621_452, topLine: 18_012, length: 5_138_022 };
+  const kept: EditorSnapshot = {
+    undoDepth: 1,
+    anchor: 2_621_443,
+    head: 2_621_452,
+    topLine: 18_012,
+    topAnchor: 2_620_800,
+    topOffset: 25.0625,
+    length: 5_138_022,
+  };
   const checked = { set_buffer_view_position: 1, note_file_unchanged: 1 };
 
   it("passes a switch back that kept the editor, asked once whether the file changed and read nothing", () => {
@@ -339,14 +348,58 @@ describe("editor perf gate tab switch", () => {
   });
 
   it("names a read of the file, a lost undo, a moved selection and a moved view", () => {
-    const after = { undoDepth: 0, anchor: 0, head: 0, topLine: 1, length: kept.length };
+    const after = { ...kept, undoDepth: 0, anchor: 0, head: 0, topLine: 1, topOffset: -1_411_070.4375 };
     const ipcCalls = { ...checked, read_buffer_content: 1, note_disk_state: 1 };
     expect(tabSwitchProblems({ before: kept, after, ipcCalls, bigCalls: [] })).toEqual([
       "switching back read the file again (1 read_buffer_content)",
       "switching back hashed the file again (1 note_disk_state)",
       "the undo depth went from 1 to 0",
       "the selection went from 2621443-2621452 to 0-0",
-      "the top visible line went from 18012 to 1",
+      "the top of the view moved -1411095.50 px in the document, over 2 px (top line 18012 to 1)",
+    ]);
+  });
+
+  it("measures the view's move in px from the line that was at the top, whatever line is at the top after", () => {
+    const after = { ...kept, topLine: kept.topLine + 1, topOffset: 25.734375 };
+    expect(tabSwitchTopDrift(kept, after)).toBe(0.671875);
+    expect(tabSwitchProblems({ before: kept, after, ipcCalls: checked })).toEqual([]);
+    expect(TAB_SWITCH.topDriftPx).toBe(2);
+    for (const topOffset of [23.0625, 27.0625]) {
+      const atLimit = { ...kept, topOffset };
+      expect(Math.abs(tabSwitchTopDrift(kept, atLimit) ?? Infinity)).toBe(2);
+      expect(tabSwitchProblems({ before: kept, after: atLimit, ipcCalls: checked })).toEqual([]);
+    }
+  });
+
+  it("fails a view that moved more than the drift allowed, either way", () => {
+    expect(tabSwitchProblems({ before: kept, after: { ...kept, topOffset: 27.3125 }, ipcCalls: checked })).toEqual([
+      "the top of the view moved 2.25 px in the document, over 2 px (top line 18012 to 18012)",
+    ]);
+    expect(tabSwitchProblems({ before: kept, after: { ...kept, topOffset: 22.8125 }, ipcCalls: checked })).toEqual([
+      "the top of the view moved -2.25 px in the document, over 2 px (top line 18012 to 18012)",
+    ]);
+    const oneLine = { ...kept, topLine: kept.topLine + 1, topOffset: 25.0625 + 25.59375 };
+    expect(tabSwitchProblems({ before: kept, after: oneLine, ipcCalls: checked })).toEqual([
+      "the top of the view moved 25.59 px in the document, over 2 px (top line 18012 to 18013)",
+    ]);
+    const jumped = { ...kept, topLine: 25_118, topOffset: 182_210.5625 };
+    expect(tabSwitchProblems({ before: kept, after: jumped, ipcCalls: checked })).toEqual([
+      "the top of the view moved 182185.50 px in the document, over 2 px (top line 18012 to 25118)",
+    ]);
+  });
+
+  it("fails a switch whose top was not measured from the same line, or from a line that is gone", () => {
+    const elsewhere = { ...kept, topAnchor: kept.topAnchor + 40 };
+    expect(tabSwitchTopDrift(kept, elsewhere)).toBeNull();
+    expect(tabSwitchProblems({ before: kept, after: elsewhere, ipcCalls: checked })).toEqual([
+      "the top of the view was not measured from line 18012 after the switch",
+    ]);
+    expect(tabSwitchTopDrift(kept, { ...kept, topOffset: null })).toBeNull();
+    const unmeasured = { ...kept, topOffset: Number.NaN };
+    expect(tabSwitchTopDrift(kept, unmeasured)).toBeNull();
+    expect(tabSwitchTopDrift(unmeasured, kept)).toBeNull();
+    expect(tabSwitchProblems({ before: kept, after: unmeasured, ipcCalls: checked })).toEqual([
+      "the top of the view was not measured from line 18012 after the switch",
     ]);
   });
 
@@ -392,6 +445,7 @@ describe("editor perf gate section 6 checks", () => {
     expect(ids(rows["Find rate"][0])).toEqual(FIND_RATE.scenarios);
     expect(rows["Find rate"][1]).toBe(`${FIND_RATE.budgetMsPerMiB} ms per MiB, the slower word's median of ${FIND_RATE.runs} runs`);
     expect(ids(rows["Tab switch back"][0])).toEqual(TAB_SWITCH.scenarios);
+    expect(rows["Tab switch back"][1]).toContain(`within ${TAB_SWITCH.topDriftPx} px`);
     expect(ids(rows["Paired typing"][0])).toEqual([PAIRED_TYPING.scenario]);
     expect(rows["Paired typing"][0]).toContain(`${PAIRED_TYPING.rounds} rounds`);
     expect(rows["Paired typing"][1]).toContain(`${PAIRED_TYPING.bandScale} times the noise`);
