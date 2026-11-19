@@ -9,9 +9,9 @@ import {
 // Each reason reads as the second half of "Could not open <name>: ".
 
 describe("tooLargeReason", () => {
-  it("states the file's size and the size Writ opens up to", () => {
-    expect(tooLargeReason(600_000_000)).toBe("it is 600 MB, and Writ opens files up to 524 MB.");
-    expect(tooLargeReason(524_500_000)).toBe("it is 525 MB, and Writ opens files up to 524 MB.");
+  it("states the file's size and the size Jotra opens up to", () => {
+    expect(tooLargeReason(600_000_000)).toBe("it is 600 MB, and Jotra opens files up to 524 MB.");
+    expect(tooLargeReason(524_500_000)).toBe("it is 525 MB, and Jotra opens files up to 524 MB.");
   });
 
   it("never states a size that reads the same as the limit it is over", () => {
@@ -30,7 +30,7 @@ describe("tooLargeReason", () => {
 describe("openFailureReason", () => {
   it("says how to open a file the open was not allowed to read", () => {
     const error =
-      "ERR_OPEN_NOT_AUTHORIZED: Writ cannot open that file from here. Use File > Open File, or drop it onto the window.";
+      "ERR_OPEN_NOT_AUTHORIZED: Jotra cannot open that file from here. Use File > Open File, or drop it onto the window.";
     expect(openFailureReason(error)).toBe(
       "open it with File > Open File, or drop it onto the window.",
     );
@@ -48,6 +48,6 @@ describe("openFailureReason", () => {
 
   it("words a read code, and anything without a code as a read that failed", () => {
     expect(openFailureReason("ERR_READ_FILE_MISSING: gone")).toBe("it is no longer there.");
-    expect(openFailureReason("database is locked")).toBe("Writ could not read it.");
+    expect(openFailureReason("database is locked")).toBe("Jotra could not read it.");
   });
 });

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
-// Radii come from --writ-r-*, timing from var(--writ-motion). The allowlist was
+// Radii come from --jotra-r-*, timing from var(--jotra-motion). The allowlist was
 // what the retokenisation had not reached yet; every unit removed its own files
 // and the last one emptied it. It stays empty.
 
@@ -71,7 +71,7 @@ function componentSheets(dir: string, files: string[] = []): string[] {
 }
 
 describe("no raw radius or easing outside the allowlist", () => {
-  it("durations resolve through var(--writ-motion*)", () => {
+  it("durations resolve through var(--jotra-motion*)", () => {
     const offenders: string[] = [];
     for (const file of componentSheets(resolve(SRC, "components"))) {
       const matches = withoutComments(readFileSync(file, "utf8")).match(RAW_DURATION);
@@ -94,12 +94,12 @@ describe("no raw radius or easing outside the allowlist", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("border-radius resolves through a --writ-r-* token", () => {
+  it("border-radius resolves through a --jotra-r-* token", () => {
     const offenders = offendersFor(RAW_RADIUS);
     expect(offenders, `raw radii found:\n${offenders.join("\n")}`).toEqual([]);
   });
 
-  it("transitions resolve through var(--writ-motion)", () => {
+  it("transitions resolve through var(--jotra-motion)", () => {
     const offenders = offendersFor(BARE_EASING);
     expect(offenders, `bare timing functions found:\n${offenders.join("\n")}`).toEqual([]);
   });

@@ -83,8 +83,8 @@ describe("clampTabSize", () => {
 describe("readingWidthFor", () => {
   const MEASURE = "640px";
 
-  beforeEach(() => document.documentElement.style.setProperty("--writ-prose-measure", MEASURE));
-  afterEach(() => document.documentElement.style.removeProperty("--writ-prose-measure"));
+  beforeEach(() => document.documentElement.style.setProperty("--jotra-prose-measure", MEASURE));
+  afterEach(() => document.documentElement.style.removeProperty("--jotra-prose-measure"));
 
   function measureOf(enabled: boolean, code: boolean): string {
     const parent = document.body.appendChild(document.createElement("div"));

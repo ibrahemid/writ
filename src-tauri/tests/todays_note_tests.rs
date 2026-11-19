@@ -3,26 +3,26 @@
 use std::sync::Mutex as StdMutex;
 
 use chrono::{DateTime, Local, TimeZone, Utc};
-use writ_core::buffer::document::BufferDocument;
-use writ_core::config::FileExtension;
-use writ_core::file_ops::FileOpenMode;
-use writ_core::startup::dated_note_name;
-use writ_storage::notes_index;
-use writ_tauri_lib::commands::notes::todays_note_inner;
-use writ_tauri_lib::state::AppState;
+use jotra_core::buffer::document::BufferDocument;
+use jotra_core::config::FileExtension;
+use jotra_core::file_ops::FileOpenMode;
+use jotra_core::startup::dated_note_name;
+use jotra_storage::notes_index;
+use jotra_tauri_lib::commands::notes::todays_note_inner;
+use jotra_tauri_lib::state::AppState;
 
-// `AppState::initialize` reads `WRIT_DATA_DIR` and `WRIT_NOTES_DIR`, and the
+// `AppState::initialize` reads `JOTRA_DATA_DIR` and `JOTRA_NOTES_DIR`, and the
 // locale test writes `LC_ALL` and `LANG`, so every test here takes its turn.
 static ENV_LOCK: StdMutex<()> = StdMutex::new(());
 
 /// Starts the app against a data folder and a notes folder of its own.
 fn launch(data_dir: &std::path::Path, notes_dir: &std::path::Path) -> AppState {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("WRIT_DATA_DIR", data_dir);
-    std::env::set_var("WRIT_NOTES_DIR", notes_dir);
+    std::env::set_var("JOTRA_DATA_DIR", data_dir);
+    std::env::set_var("JOTRA_NOTES_DIR", notes_dir);
     let state = AppState::initialize().expect("app state");
-    std::env::remove_var("WRIT_DATA_DIR");
-    std::env::remove_var("WRIT_NOTES_DIR");
+    std::env::remove_var("JOTRA_DATA_DIR");
+    std::env::remove_var("JOTRA_NOTES_DIR");
     state
 }
 
@@ -73,7 +73,7 @@ fn notes_folder_entries(state: &AppState) -> Vec<String> {
 }
 
 /// The file a note was opened from.
-fn opened_path(note: &writ_core::buffer::document::BufferDocument) -> std::path::PathBuf {
+fn opened_path(note: &jotra_core::buffer::document::BufferDocument) -> std::path::PathBuf {
     std::path::PathBuf::from(note.source_path.clone().expect("a file"))
 }
 
@@ -162,7 +162,7 @@ fn a_note_that_is_already_there_is_opened_and_keeps_every_word() {
 
     let path = state.notes_root().join(dated_name(now));
     let written = "# Standup\n\n- shipped the index\n";
-    std::fs::write(&path, written).expect("a note written before Writ asked");
+    std::fs::write(&path, written).expect("a note written before Jotra asked");
 
     let note = todays_tab(&state, now);
 
@@ -297,7 +297,7 @@ fn a_folder_wearing_the_other_formats_name_blocks_nothing() {
     );
 }
 
-// A day's file over the size Writ opens without asking is the same question
+// A day's file over the size Jotra opens without asking is the same question
 // File > Open File asks: its path and size, and nothing read or registered.
 #[test]
 fn a_day_whose_file_is_over_fifty_mib_answers_the_question() {
@@ -312,7 +312,7 @@ fn a_day_whose_file_is_over_fifty_mib_answers_the_question() {
     let mut file = std::fs::File::create(&path).expect("today's file");
     file.write_all(&b"a line of the day\n".repeat(512))
         .expect("text head");
-    let size = writ_core::file_ops::THRESHOLD_LARGE_BYTES + 1;
+    let size = jotra_core::file_ops::THRESHOLD_LARGE_BYTES + 1;
     file.set_len(size).expect("extend");
 
     let today = todays_note_inner(&state, now).expect("an answer");
@@ -326,7 +326,7 @@ fn a_day_whose_file_is_over_fifty_mib_answers_the_question() {
     );
 }
 
-// A day's file over the size Writ opens at all is refused as data, with the
+// A day's file over the size Jotra opens at all is refused as data, with the
 // code the frontend words.
 #[test]
 fn a_day_whose_file_is_over_five_hundred_mib_is_refused() {
@@ -338,7 +338,7 @@ fn a_day_whose_file_is_over_five_hundred_mib_is_refused() {
     let path = state.notes_root().join(dated_name(now));
     std::fs::File::create(&path)
         .expect("today's file")
-        .set_len(writ_core::file_ops::THRESHOLD_MAX_BYTES + 1)
+        .set_len(jotra_core::file_ops::THRESHOLD_MAX_BYTES + 1)
         .expect("extend");
 
     let today = todays_note_inner(&state, now).expect("an answer");
@@ -346,7 +346,7 @@ fn a_day_whose_file_is_over_five_hundred_mib_is_refused() {
     let FileOpenMode::Refused { reason } = &today.opened.mode else {
         panic!("expected a refusal, got {:?}", today.opened.mode);
     };
-    assert!(reason.starts_with(writ_core::file_ops::ERR_OPEN_TOO_LARGE));
+    assert!(reason.starts_with(jotra_core::file_ops::ERR_OPEN_TOO_LARGE));
     assert!(today.opened.doc.is_none());
 }
 
@@ -380,9 +380,9 @@ fn a_day_whose_large_file_is_open_answers_its_tab() {
     let mut file = std::fs::File::create(&path).expect("today's file");
     file.write_all(&b"a line of the day\n".repeat(512))
         .expect("text head");
-    file.set_len(writ_core::file_ops::THRESHOLD_LARGE_BYTES + 1)
+    file.set_len(jotra_core::file_ops::THRESHOLD_LARGE_BYTES + 1)
         .expect("extend");
-    let shown = writ_tauri_lib::commands::file::open_file_confirmed_from_path(
+    let shown = jotra_tauri_lib::commands::file::open_file_confirmed_from_path(
         &state,
         &path.to_string_lossy(),
     )

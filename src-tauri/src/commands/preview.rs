@@ -19,24 +19,24 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime, State};
 
-use tracing::{info, warn};
-use writ_core::buffer::BufferStatus;
-use writ_core::hash::Sha256Digest;
-use writ_core::notes::materialise::{DownloadOutcome, DOWNLOAD_TIMEOUT};
-use writ_core::preview::protocol::SNIFF_BYTES;
-use writ_core::preview::remote_image::{
+use jotra_core::buffer::BufferStatus;
+use jotra_core::hash::Sha256Digest;
+use jotra_core::notes::materialise::{DownloadOutcome, DOWNLOAD_TIMEOUT};
+use jotra_core::preview::protocol::SNIFF_BYTES;
+use jotra_core::preview::remote_image::{
     remote_image_key, remote_image_route, remote_image_url, HeldImage, RemoteImageLoad,
     RemoteImageRefusal,
 };
-use writ_core::preview::{
+use jotra_core::preview::{
     check_inline_image_head, check_inline_image_stat, inline_image_route, render_contained,
     resolve_inline_image, AssetReference, AssetScope, ContentTypeId, InlineImageRefusal,
     RenderError, RenderRequest, RendererCapabilities, ThemePolarity,
 };
+use tracing::{info, warn};
 
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::errors::StorageResult;
-use writ_storage::layout_state::LayoutStateRecord;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::errors::StorageResult;
+use jotra_storage::layout_state::LayoutStateRecord;
 
 use crate::commands::materialise::{materialise_with, read_and_verify_with};
 use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};
@@ -83,8 +83,8 @@ pub fn preview_close(state: State<'_, AppState>, buffer_id: String) {
 /// The base a preview URL is built from, decided by the host, not guessed by
 /// the frontend. On Windows WebView2 serves a custom scheme as
 /// `http://<scheme>.<host>`, so the preview iframe, its runtimes and its
-/// images must request `http://writ-preview.…`; everywhere else the native
-/// `writ-preview://` form works (TS-03/DS-03).
+/// images must request `http://jotra-preview.…`; everywhere else the native
+/// `jotra-preview://` form works (TS-03/DS-03).
 #[tauri::command]
 pub fn preview_url_prefix() -> &'static str {
     preview_url_prefix_for(cfg!(target_os = "windows"))
@@ -94,15 +94,15 @@ pub fn preview_url_prefix() -> &'static str {
 /// without a Windows host.
 fn preview_url_prefix_for(is_windows: bool) -> &'static str {
     if is_windows {
-        "http://writ-preview."
+        "http://jotra-preview."
     } else {
-        "writ-preview://"
+        "jotra-preview://"
     }
 }
 
 /// Whether this file's own scripts may run in its preview. Off for every
 /// document until the user opts the file in (decision RC-D1/TS-D1), and off
-/// again once Writ holds bytes of the file the opt-in does not cover
+/// again once Jotra holds bytes of the file the opt-in does not cover
 /// (ADR-043).
 #[tauri::command]
 pub fn preview_get_scripts(state: State<'_, AppState>, buffer_id: String) -> Result<bool, String> {
@@ -110,7 +110,7 @@ pub fn preview_get_scripts(state: State<'_, AppState>, buffer_id: String) -> Res
 }
 
 /// [`preview_get_scripts`] without Tauri: what the next render of the file
-/// decides, from its row and the digest of the bytes Writ last read from the
+/// decides, from its row and the digest of the bytes Jotra last read from the
 /// file or wrote to it. No file is read, so the status bar never waits on one
 /// that does not answer. An id the store does not hold answers off.
 pub fn preview_get_scripts_inner(state: &AppState, buffer_id: &str) -> Result<bool, String> {
@@ -131,7 +131,7 @@ pub fn preview_set_scripts(
     preview_set_scripts_inner(&state, &buffer_id, enabled)
 }
 
-/// [`preview_set_scripts`] without Tauri. An opt-in covers the bytes Writ
+/// [`preview_set_scripts`] without Tauri. An opt-in covers the bytes Jotra
 /// holds for the file, the ones the document on screen was built from, so no
 /// file is read. An id the store does not hold is refused, so the caller
 /// never reports a choice that was not recorded.
@@ -143,7 +143,7 @@ pub fn preview_set_scripts_inner(
     let store = state.store.lock().map_err(|e| e.to_string())?;
     if enabled {
         return store
-            .enable_preview_scripts(buffer_id, bytes_writ_holds(state, buffer_id))
+            .enable_preview_scripts(buffer_id, bytes_jotra_holds(state, buffer_id))
             .map_err(|e| e.to_string());
     }
     store
@@ -153,25 +153,25 @@ pub fn preview_set_scripts_inner(
     Ok(())
 }
 
-/// The digest of the bytes Writ last read from `buffer_id`'s file or wrote to
+/// The digest of the bytes Jotra last read from `buffer_id`'s file or wrote to
 /// it.
 ///
 /// Asked with the store held: the save and the editor's read move this record
 /// while they hold the store, so the record and the row read together describe
 /// the same moment.
-fn bytes_writ_holds(state: &AppState, buffer_id: &str) -> Option<Sha256Digest> {
+fn bytes_jotra_holds(state: &AppState, buffer_id: &str) -> Option<Sha256Digest> {
     state.disk_state(buffer_id).map(|disk| disk.hash)
 }
 
 /// Whether `buffer_id`'s own scripts may run now, checked against the bytes
-/// Writ holds for its file, with `store` the guard the caller holds. When they
+/// Jotra holds for its file, with `store` the guard the caller holds. When they
 /// may not, the document already rendered from the file is served with them
 /// off from now on.
 ///
 /// The render cache's lock is taken under the store's. Nothing holds that lock
 /// while it takes another, so the order cannot turn round.
 fn scripts_may_run(state: &AppState, store: &BufferStore, buffer_id: &str) -> StorageResult<bool> {
-    let verdict = store.check_preview_scripts(buffer_id, bytes_writ_holds(state, buffer_id));
+    let verdict = store.check_preview_scripts(buffer_id, bytes_jotra_holds(state, buffer_id));
     if !matches!(verdict, Ok(true)) {
         state.preview_render_cache.turn_scripts_off(buffer_id);
     }
@@ -186,7 +186,7 @@ fn scripts_may_run(state: &AppState, store: &BufferStore, buffer_id: &str) -> St
 /// change hold it while they do, and the bus runs its subscribers on the
 /// emitting thread, so the lapse is made here rather than in a subscriber. No
 /// file is read, and the render cache's lock is a leaf. A row that cannot be
-/// read or written is logged; the next check compares the bytes Writ holds
+/// read or written is logged; the next check compares the bytes Jotra holds
 /// with the recorded digest and turns the scripts off then.
 pub fn lapse_scripts_opt_in(store: &BufferStore, cache: &RenderCache, buffer_id: &str) -> bool {
     cache.turn_scripts_off(buffer_id);
@@ -591,7 +591,7 @@ pub async fn preview_inline_image<R: Runtime>(
             state,
             &buffer_id,
             &reference,
-            &writ_storage::notes_index::is_dataless,
+            &jotra_storage::notes_index::is_dataless,
         )
     })
     .await
@@ -615,7 +615,7 @@ pub async fn preview_inline_image_download<R: Runtime>(
             state,
             &buffer_id,
             &reference,
-            &writ_storage::notes_index::is_dataless,
+            &jotra_storage::notes_index::is_dataless,
             &download_from_provider,
         )
     })
@@ -788,7 +788,7 @@ fn download_from_provider(path: &std::path::Path) -> DownloadOutcome {
         path.to_path_buf(),
         Arc::new(AtomicBool::new(false)),
         DOWNLOAD_TIMEOUT,
-        |file| read_and_verify_with(file, writ_storage::notes_index::is_dataless),
+        |file| read_and_verify_with(file, jotra_storage::notes_index::is_dataless),
         |ended| outcome = Some(ended),
     );
     outcome.unwrap_or_else(|| DownloadOutcome::Failed("the download did not report".to_string()))
@@ -885,12 +885,12 @@ mod tests {
 
     #[test]
     fn windows_preview_urls_use_the_http_workaround_form() {
-        assert_eq!(preview_url_prefix_for(true), "http://writ-preview.");
+        assert_eq!(preview_url_prefix_for(true), "http://jotra-preview.");
     }
 
     #[test]
     fn other_platforms_use_the_native_scheme() {
-        assert_eq!(preview_url_prefix_for(false), "writ-preview://");
+        assert_eq!(preview_url_prefix_for(false), "jotra-preview://");
     }
 
     #[test]

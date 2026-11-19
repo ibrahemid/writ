@@ -44,15 +44,15 @@ async function hint(kind: "win" | "linux-close"): Promise<string | null | undefi
 
 describe("the caption's hide button", () => {
   for (const kind of ["win", "linux-close"] as const) {
-    it(`says on ${kind} that Writ keeps running and which chord brings it back`, async () => {
+    it(`says on ${kind} that Jotra keeps running and which chord brings it back`, async () => {
       expect(await hint(kind)).toBe(
-        `Writ keeps running. ${formatKeybinding("CmdOrCtrl+Shift+Space")} brings it back.`,
+        `Jotra keeps running. ${formatKeybinding("CmdOrCtrl+Shift+Space")} brings it back.`,
       );
     });
   }
 
   it("names no chord another app holds", async () => {
     h.taken = true;
-    expect(await hint("win")).toBe("Writ keeps running in the background.");
+    expect(await hint("win")).toBe("Jotra keeps running in the background.");
   });
 });

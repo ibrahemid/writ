@@ -3,12 +3,12 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
   width: 100%;
   height: 100%;
-  padding: var(--writ-space-4);
-  background: var(--writ-bg-canvas);
-  color: var(--writ-fg);
+  padding: var(--jotra-space-4);
+  background: var(--jotra-bg-canvas);
+  color: var(--jotra-fg);
 }
 
 .note-read-failure-line {
@@ -23,5 +23,5 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
 }

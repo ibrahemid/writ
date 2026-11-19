@@ -1,4 +1,4 @@
-//! A launch whose config.toml holds a value Writ cannot read starts on the
+//! A launch whose config.toml holds a value Jotra cannot read starts on the
 //! rest of the file, names the value, and writes nothing until the file reads
 //! in full again (ADR-048), apart from a moved folder's path. Command usage a
 //! file written before ADR-048 carries moves into the database once.
@@ -6,39 +6,41 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex as StdMutex;
 
+use jotra_core::config::JotraConfig;
+use jotra_tauri_lib::commands::command_usage::{
+    clear_command_usage_inner, get_command_usage_inner,
+};
+use jotra_tauri_lib::commands::config::{config_diagnostics, update_config_inner};
+use jotra_tauri_lib::commands::notes::move_notes_folder_to;
+use jotra_tauri_lib::state::AppState;
 use tempfile::TempDir;
-use writ_core::config::WritConfig;
-use writ_tauri_lib::commands::command_usage::{clear_command_usage_inner, get_command_usage_inner};
-use writ_tauri_lib::commands::config::{config_diagnostics, update_config_inner};
-use writ_tauri_lib::commands::notes::move_notes_folder_to;
-use writ_tauri_lib::state::AppState;
 
-// `AppState::initialize` reads `WRIT_DATA_DIR` and `WRIT_NOTES_DIR`; the tests
+// `AppState::initialize` reads `JOTRA_DATA_DIR` and `JOTRA_NOTES_DIR`; the tests
 // in this file all set them, so they take turns.
 static ENV_LOCK: StdMutex<()> = StdMutex::new(());
 
 fn launch(data_dir: &std::path::Path, notes_dir: &std::path::Path) -> AppState {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("WRIT_DATA_DIR", data_dir);
-    std::env::set_var("WRIT_NOTES_DIR", notes_dir);
+    std::env::set_var("JOTRA_DATA_DIR", data_dir);
+    std::env::set_var("JOTRA_NOTES_DIR", notes_dir);
     let state = AppState::initialize();
-    std::env::remove_var("WRIT_DATA_DIR");
-    std::env::remove_var("WRIT_NOTES_DIR");
+    std::env::remove_var("JOTRA_DATA_DIR");
+    std::env::remove_var("JOTRA_NOTES_DIR");
     state.expect("a bad value in config.toml must not stop the launch")
 }
 
 /// A launch whose notes folder comes from config.toml, as on a person's
-/// machine: `WRIT_NOTES_DIR` would win over the file.
+/// machine: `JOTRA_NOTES_DIR` would win over the file.
 fn launch_on_configured_root(data_dir: &Path) -> AppState {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("WRIT_DATA_DIR", data_dir);
-    std::env::remove_var("WRIT_NOTES_DIR");
+    std::env::set_var("JOTRA_DATA_DIR", data_dir);
+    std::env::remove_var("JOTRA_NOTES_DIR");
     let state = AppState::initialize();
-    std::env::remove_var("WRIT_DATA_DIR");
+    std::env::remove_var("JOTRA_DATA_DIR");
     state.expect("a bad value in config.toml must not stop the launch")
 }
 
-/// A config holding one value Writ cannot read, with the notes folder at
+/// A config holding one value Jotra cannot read, with the notes folder at
 /// `root`. A literal string, so a Windows path needs no escaping.
 fn held_with_root(root: &Path) -> String {
     format!(
@@ -50,7 +52,7 @@ fn held_with_root(root: &Path) -> String {
 /// Everything in [`held_with_root`] before the folder's path.
 const HELD_BEFORE_ROOT: &str = "# mine\n[editor]\nfont_size = \"16\"\n\n[notes]\nroot = ";
 
-fn live(state: &AppState) -> WritConfig {
+fn live(state: &AppState) -> JotraConfig {
     state.config.lock().expect("config lock").clone()
 }
 
@@ -98,7 +100,7 @@ fn nothing_is_written_until_the_file_reads_in_full() {
     let mut changed = live(&state);
     changed.sidebar.width = 260;
     update_config_inner(&state, changed).expect("write");
-    let on_disk = WritConfig::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let on_disk = JotraConfig::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(on_disk.sidebar.width, 260);
     assert_eq!(on_disk.editor.tab_size, 4);
 }
@@ -150,7 +152,7 @@ fn a_folder_moved_while_values_are_unread_reaches_the_file_and_the_next_launch()
         on_disk.starts_with(HELD_BEFORE_ROOT),
         "the value to fix and the comment keep their bytes: {on_disk}"
     );
-    let read = WritConfig::parse_lenient(&on_disk);
+    let read = JotraConfig::parse_lenient(&on_disk);
     assert_eq!(
         read.config.notes.root.as_deref(),
         Some(outcome.new_root.as_str())
@@ -189,7 +191,7 @@ fn fixing_the_value_after_a_move_keeps_the_folder_the_files_went_to() {
     let mut changed = live(&state);
     changed.sidebar.width = 260;
     update_config_inner(&state, changed).expect("write");
-    let on_disk = WritConfig::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let on_disk = JotraConfig::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(
         on_disk.notes.root.as_deref(),
         Some(outcome.new_root.as_str())

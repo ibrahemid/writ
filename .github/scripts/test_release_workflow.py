@@ -147,7 +147,18 @@ class ReleaseWorkflowTests(unittest.TestCase):
     def test_the_parser_sees_every_job(self) -> None:
         self.assertEqual(
             set(self.jobs),
-            {"plan", "build", "sbom", "signing-config", "sign-macos", "sign-windows", "sign-updater", "attest-sboms", "publish"},
+            {
+                "plan",
+                "build",
+                "sbom",
+                "signing-config",
+                "sign-macos",
+                "sign-windows",
+                "sign-updater",
+                "attest-sboms",
+                "deb-upgrade",
+                "publish",
+            },
         )
         for name, job in self.jobs.items():
             with self.subTest(job=name):
@@ -272,6 +283,38 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("(needs.sign-windows.result == 'skipped' && needs.signing-config.outputs.windows != 'true')", gate)
         self.assertIn("!cancelled()", gate)
 
+    def test_the_legacy_launcher_is_built_carried_and_signed_before_each_msi(self) -> None:
+        launcher = "src-tauri/binaries/writ-tauri.exe"
+        fragment = (REPO_ROOT / "src-tauri/wix/legacy-install.wxs").read_text()
+        self.assertIn(r'Source="$(sys.SOURCEFILEDIR)..\binaries\writ-tauri.exe"', fragment)
+
+        build = job_steps(self.jobs["build"])
+        [built] = [step for step in build if "cargo build -p writ-tauri" in step]
+        self.assertIn("if: matrix.os == 'windows-latest'", built)
+        script = step_script(built)
+        self.assertIn("cargo build -p writ-tauri --release --locked --target x86_64-pc-windows-msvc", script)
+        self.assertIn(f"cp target/x86_64-pc-windows-msvc/release/writ-tauri.exe {launcher}", script)
+        [bundled] = [step for step in build if "pnpm exec tauri build" in step]
+        [staged] = [step for step in build if step.splitlines()[0].strip() == "- name: Stage the build for signing"]
+        self.assertLess(build.index(built), build.index(bundled))
+        self.assertIn(f"cp {launcher} dist/build-windows-binaries/", step_script(staged))
+
+        sign = job_steps(self.jobs["sign-windows"])
+        [restored] = [step for step in sign if "build-windows-binaries/jotra-tauri.exe" in step]
+        self.assertIn("cp build-windows-binaries/writ-tauri.exe src-tauri/binaries/", step_script(restored))
+        [config] = [step for step in sign if "--out-dir \"$RUNNER_TEMP/windows-signing\"" in step]
+        [signed] = [step for step in sign if "windows_signing.py sign " in step]
+        [rebundled] = [step for step in sign if "pnpm exec tauri bundle" in step]
+        signing = step_script(signed)
+        self.assertIn(f'$launcher = "{launcher}"', signing)
+        self.assertIn("windows-signing/tauri.windows-signing.conf.json\" $launcher", signing)
+        self.assertIn("Get-AuthenticodeSignature -FilePath $launcher", signing)
+        for secret in ("AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET"):
+            self.assertIn(f"{secret}: ${{{{ secrets.{secret} }}}}", signed)
+        self.assertNotRegex(signed, r"(?m)^        if:")
+        order = [sign.index(step) for step in (restored, config, signed, rebundled)]
+        self.assertEqual(order, sorted(order))
+
     def test_publish_checks_the_set_then_attests_every_asset(self) -> None:
         job = self.jobs["publish"]
         needs = job_field(job, "needs") or ""
@@ -335,9 +378,46 @@ class ReleaseWorkflowTests(unittest.TestCase):
             "Build Tauri app",
             "Split off the Linux debug symbols and bundle again",
             "Require every AppImage file to be readable and runnable by any user",
+            "Add the legacy entries to the deb",
             "Stage the build for signing",
         ]
         self.assertEqual([name for name in names if name in order], order)
+
+    def test_the_deb_gets_its_legacy_entries_before_it_is_staged(self) -> None:
+        [step] = [step for step in job_steps(self.jobs["build"]) if "deb_legacy_entries.py" in step]
+        self.assertIn("if: matrix.os == 'ubuntu-22.04'", step)
+        self.assertIn(
+            'python3 scripts/deb_legacy_entries.py "target/x86_64-unknown-linux-gnu/release/bundle/deb/Jotra_${VERSION}_amd64.deb"',
+            step_script(step),
+        )
+
+    def test_the_new_deb_installs_over_the_previous_release_before_publish(self) -> None:
+        job = self.jobs["deb-upgrade"]
+        self.assertEqual(job_field(job, "needs"), "[plan, build]")
+        self.assertEqual(job_field(job, "runs-on"), "ubuntu-22.04")
+        steps = job_steps(job)
+        download = next(
+            i
+            for i, step in enumerate(steps)
+            if (step_uses(step) or "").startswith("actions/download-artifact@") and "name: build-linux" in step
+        )
+        previous = next(i for i, step in enumerate(steps) if "gh release download" in step)
+        check = next(i for i, step in enumerate(steps) if "test_deb_upgrade_legacy.py" in step)
+        self.assertLess(download, check)
+        self.assertLess(previous, check)
+        self.assertIn("PREVIOUS_TAG: v1.0.1", steps[previous])
+        script = step_script(steps[check])
+        self.assertIn('export DEB_UPGRADE_TO="build-linux/Jotra_${VERSION}_amd64.deb"', script)
+        self.assertIn("python3 .github/scripts/test_deb_upgrade_legacy.py", script)
+        publish = self.jobs["publish"]
+        self.assertIn("deb-upgrade", job_field(publish, "needs") or "")
+        self.assertIn("needs.deb-upgrade.result == 'success'", job_field(publish, "if") or "")
+
+    def test_the_notarization_requirement_follows_the_repository_id(self) -> None:
+        self.assertIn("REQUIRED: ${{ github.repository_id == '1278853784' }}", self.jobs["sign-macos"])
+        self.assertNotRegex(self.text, r"github\.repository\s*[!=]=")
+        [previous] = [step for step in job_steps(self.jobs["deb-upgrade"]) if "gh release download" in step]
+        self.assertIn("SOURCE_REPOSITORY_ID: '1278853784'", previous)
 
     def test_runs_for_one_tag_queue_instead_of_racing(self) -> None:
         block = re.search(r"(?m)^concurrency:\n((?:  .*\n)+)", self.text)
@@ -369,7 +449,7 @@ class DispatchedTagTests(unittest.TestCase):
         cls.script = step_script(step)
 
     def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory(prefix="writ-release-tag-test-")
+        tmp = tempfile.TemporaryDirectory(prefix="jotra-release-tag-test-")
         self.addCleanup(tmp.cleanup)
         self.root = pathlib.Path(tmp.name)
         self.env = {
@@ -387,7 +467,7 @@ class DispatchedTagTests(unittest.TestCase):
         self.commit(work, "first")
         self.git("-C", str(work), "tag", "v0.5.0")
         self.commit(work, "second")
-        self.git("-C", str(work), "tag", "--annotate", "--message", "Writ 0.5.1", "v0.5.1")
+        self.git("-C", str(work), "tag", "--annotate", "--message", "Jotra 0.5.1", "v0.5.1")
         self.git("-C", str(work), "branch", "v9.9.9")
         self.git("-C", str(work), "branch", "v0.6.0-1")
         self.git("-C", str(work), "tag", "v0.7.0", "HEAD^{tree}")

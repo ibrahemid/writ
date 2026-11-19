@@ -3,21 +3,21 @@
 
 use std::sync::{Arc, Barrier, Mutex as StdMutex};
 
+use jotra_core::config::JotraConfig;
+use jotra_tauri_lib::commands::first_run::dismiss_first_run_hint_inner;
+use jotra_tauri_lib::commands::spelling::add_ignored_word_to_state;
+use jotra_tauri_lib::state::AppState;
 use tempfile::TempDir;
-use writ_core::config::WritConfig;
-use writ_tauri_lib::commands::first_run::dismiss_first_run_hint_inner;
-use writ_tauri_lib::commands::spelling::add_ignored_word_to_state;
-use writ_tauri_lib::state::AppState;
 
 static ENV_LOCK: StdMutex<()> = StdMutex::new(());
 
 fn launch(data_dir: &std::path::Path, notes_dir: &std::path::Path) -> AppState {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("WRIT_DATA_DIR", data_dir);
-    std::env::set_var("WRIT_NOTES_DIR", notes_dir);
+    std::env::set_var("JOTRA_DATA_DIR", data_dir);
+    std::env::set_var("JOTRA_NOTES_DIR", notes_dir);
     let state = AppState::initialize().expect("app state");
-    std::env::remove_var("WRIT_DATA_DIR");
-    std::env::remove_var("WRIT_NOTES_DIR");
+    std::env::remove_var("JOTRA_DATA_DIR");
+    std::env::remove_var("JOTRA_NOTES_DIR");
     state
 }
 
@@ -54,7 +54,7 @@ fn two_concurrent_mutations_both_land() {
     }
 
     let path = data.path().join("config.toml");
-    let on_disk = WritConfig::parse(&std::fs::read_to_string(path).expect("config written"))
+    let on_disk = JotraConfig::parse(&std::fs::read_to_string(path).expect("config written"))
         .expect("config parses");
     let in_memory = state.config.lock().expect("config lock").clone();
     for config in [&in_memory, &on_disk] {

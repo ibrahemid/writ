@@ -31,7 +31,7 @@ import {
 import { windowRegistry } from "../../stores/global/window-registry";
 import { configStore } from "../../stores/global/config";
 import { showToast } from "../../stores/global/notifications";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 
 const mockedPick = vi.mocked(pickInboxFolder);
 const mockedClear = vi.mocked(clearInbox);
@@ -42,8 +42,8 @@ const mockedGetActive = vi.mocked(windowRegistry.getActive);
 const mockedConfig = vi.mocked(configStore.config);
 const mockedToast = vi.mocked(showToast);
 
-function configWithFocus(focus: boolean): WritConfig {
-  return { inbox: { path: "/inbox", focus } } as WritConfig;
+function configWithFocus(focus: boolean): JotraConfig {
+  return { inbox: { path: "/inbox", focus } } as JotraConfig;
 }
 
 function fakeWindow() {

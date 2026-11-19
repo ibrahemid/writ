@@ -50,7 +50,7 @@ async function takeProgramsOffer(): Promise<void> {
 }
 
 /**
- * Offers Connected programs, once, when a program called Writ while it was
+ * Offers Connected programs, once, when a program called Jotra while it was
  * off: the server answered that it is off and wrote the program's name down
  * (ADR-031 rule 7.2). Recorded when shown, like the file offers, and held to
  * the same switch.

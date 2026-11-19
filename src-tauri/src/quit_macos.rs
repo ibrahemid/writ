@@ -176,7 +176,7 @@ fn start_flush(app: tauri::AppHandle) {
 
     state
         .event_bus
-        .emit(writ_core::events::bus::WritEvent::FlushBeforeQuit);
+        .emit(jotra_core::events::bus::JotraEvent::FlushBeforeQuit);
 
     let quit_state = state.quit.clone();
     std::thread::spawn(move || {

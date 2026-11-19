@@ -5,25 +5,25 @@
 use std::sync::Mutex as StdMutex;
 
 use chrono::{DateTime, TimeZone, Utc};
-use writ_core::config::{AppId, FileExtension, SidebarSection, WritConfig};
-use writ_tauri_lib::commands::buffer::save_buffer_content_inner;
-use writ_tauri_lib::commands::first_run::{
+use jotra_core::config::{AppId, FileExtension, JotraConfig, SidebarSection};
+use jotra_tauri_lib::commands::buffer::save_buffer_content_inner;
+use jotra_tauri_lib::commands::first_run::{
     auto_retitle_note_inner, dismiss_first_run_hint_inner, first_run_state_inner, RetitleOutcome,
 };
-use writ_tauri_lib::first_run::finish_first_run_inner;
-use writ_tauri_lib::state::AppState;
+use jotra_tauri_lib::first_run::finish_first_run_inner;
+use jotra_tauri_lib::state::AppState;
 
-// `AppState::initialize` reads `WRIT_DATA_DIR` and `WRIT_NOTES_DIR`; the tests
+// `AppState::initialize` reads `JOTRA_DATA_DIR` and `JOTRA_NOTES_DIR`; the tests
 // in this file all set them, so they take turns.
 static ENV_LOCK: StdMutex<()> = StdMutex::new(());
 
 /// Starts the app against `data_dir` the way `run()` does.
 fn launch(data_dir: &std::path::Path) -> AppState {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("WRIT_DATA_DIR", data_dir);
-    std::env::remove_var("WRIT_NOTES_DIR");
+    std::env::set_var("JOTRA_DATA_DIR", data_dir);
+    std::env::remove_var("JOTRA_NOTES_DIR");
     let state = AppState::initialize().expect("app state");
-    std::env::remove_var("WRIT_DATA_DIR");
+    std::env::remove_var("JOTRA_DATA_DIR");
     state
 }
 
@@ -31,16 +31,16 @@ fn launch(data_dir: &std::path::Path) -> AppState {
 /// a returning person has.
 fn launch_with_notes(data_dir: &std::path::Path, notes_dir: &std::path::Path) -> AppState {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("WRIT_DATA_DIR", data_dir);
-    std::env::set_var("WRIT_NOTES_DIR", notes_dir);
+    std::env::set_var("JOTRA_DATA_DIR", data_dir);
+    std::env::set_var("JOTRA_NOTES_DIR", notes_dir);
     let state = AppState::initialize().expect("app state");
-    std::env::remove_var("WRIT_DATA_DIR");
-    std::env::remove_var("WRIT_NOTES_DIR");
+    std::env::remove_var("JOTRA_DATA_DIR");
+    std::env::remove_var("JOTRA_NOTES_DIR");
     state
 }
 
 /// Answers the first-launch screen with plain text, which is its default.
-fn finish(state: &AppState) -> Option<writ_core::buffer::document::BufferDocument> {
+fn finish(state: &AppState) -> Option<jotra_core::buffer::document::BufferDocument> {
     finish_first_run_inner(state, FileExtension::Txt, &[]).expect("the screen is answered")
 }
 
@@ -50,11 +50,11 @@ fn config_file(data_dir: &std::path::Path) -> std::path::PathBuf {
 }
 
 /// The file a note was opened from.
-fn opened_path(note: &writ_core::buffer::document::BufferDocument) -> std::path::PathBuf {
+fn opened_path(note: &jotra_core::buffer::document::BufferDocument) -> std::path::PathBuf {
     std::path::PathBuf::from(note.source_path.clone().expect("a file"))
 }
 
-/// Every stem `writ_core::notes::minted_stem` gives a moment from `since` to
+/// Every stem `jotra_core::notes::minted_stem` gives a moment from `since` to
 /// `until`, oldest first. The clock can pass a minute between the app minting
 /// a file and a test naming it, so each minute the span touches is a stem the
 /// file may carry.
@@ -62,10 +62,10 @@ fn minted_stems(since: DateTime<Utc>, until: DateTime<Utc>) -> Vec<String> {
     let mut stems = Vec::new();
     let mut moment = since;
     while moment <= until {
-        stems.push(writ_core::notes::minted_stem(moment));
+        stems.push(jotra_core::notes::minted_stem(moment));
         moment += chrono::Duration::seconds(60);
     }
-    stems.push(writ_core::notes::minted_stem(until));
+    stems.push(jotra_core::notes::minted_stem(until));
     stems.dedup();
     stems
 }
@@ -92,7 +92,7 @@ fn minted_file(state: &AppState, since: DateTime<Utc>, extension: &str, why: &st
 
 #[test]
 fn a_file_minted_the_minute_before_the_check_still_carries_a_minted_name() {
-    let stem = writ_core::notes::minted_stem;
+    let stem = jotra_core::notes::minted_stem;
     let minute = chrono::Duration::seconds(60);
     let since = Utc
         .with_ymd_and_hms(2026, 1, 15, 3, 33, 59)
@@ -196,7 +196,7 @@ fn a_first_launch_creates_one_notes_folder_and_one_file_and_a_second_creates_nei
             .store
             .lock()
             .unwrap()
-            .list_by_status(writ_core::buffer::document::BufferStatus::Active)
+            .list_by_status(jotra_core::buffer::document::BufferStatus::Active)
             .expect("open notes")
             .len(),
         1,
@@ -224,7 +224,7 @@ fn the_format_the_screen_was_answered_with_is_written_and_is_what_gets_minted() 
 
     let written = std::fs::read_to_string(config_file(dir.path())).expect("the config");
     assert_eq!(
-        writ_core::config::FilesConfig::from_config_text(&written).default_extension,
+        jotra_core::config::FilesConfig::from_config_text(&written).default_extension,
         FileExtension::Md,
         "the answer is on disk for the next launch to read"
     );
@@ -338,7 +338,7 @@ fn the_first_launch_state_carries_the_hint_until_it_is_dismissed() {
 
     // Dismissed once is dismissed for good: it survives the launch that reads
     // the config back off disk.
-    std::env::set_var("WRIT_DATA_DIR", dir.path());
+    std::env::set_var("JOTRA_DATA_DIR", dir.path());
     let relaunched = launch(dir.path());
     assert!(
         first_run_state_inner(&relaunched)
@@ -348,7 +348,7 @@ fn the_first_launch_state_carries_the_hint_until_it_is_dismissed() {
 }
 
 /// Types `text` into the note and lets the save land, the way the editor does.
-fn type_into(state: &AppState, note: &writ_core::buffer::document::BufferDocument, text: &str) {
+fn type_into(state: &AppState, note: &jotra_core::buffer::document::BufferDocument, text: &str) {
     save_buffer_content_inner(state, &note.id, text).expect("save");
 }
 
@@ -401,7 +401,7 @@ fn a_note_something_else_has_touched_is_offered_the_rename_instead() {
 
     // Taking the offer lands the same file name the unasked rename would
     // have, and it carries the links with it: the offer is only reached
-    // because something outside Writ already touched the note, which is when
+    // because something outside Jotra already touched the note, which is when
     // a link naming it can exist.
     let journal = state.notes_root().join("Journal.md");
     let stem = std::path::Path::new(&name)
@@ -415,7 +415,7 @@ fn a_note_something_else_has_touched_is_offered_the_rename_instead() {
         .reconcile(&state.notes_root(), &|| false, &|_| false)
         .expect("index");
 
-    let outcome = writ_tauri_lib::commands::notes::rename_note_with_links_inner(
+    let outcome = jotra_tauri_lib::commands::notes::rename_note_with_links_inner(
         &state,
         &path.to_string_lossy(),
         &title,
@@ -519,7 +519,7 @@ fn a_folder_of_plain_text_is_a_folder_with_work_in_it() {
     );
     assert_eq!(opened_path(&note).file_name(), existing.file_name());
 
-    // A file Writ did not mint is never renamed from its own first line: only
+    // A file Jotra did not mint is never renamed from its own first line: only
     // minting arms the watch.
     assert!(state.retitle_watch.answer(&opened_path(&note)).is_none());
 }
@@ -616,7 +616,7 @@ fn the_apps_the_screen_was_answered_with_are_written_with_the_format() {
         .expect("the screen is answered");
 
     let written = std::fs::read_to_string(config_file(dir.path())).expect("the config");
-    let on_disk = WritConfig::parse(&written).expect("the config parses");
+    let on_disk = JotraConfig::parse(&written).expect("the config parses");
     assert_eq!(
         on_disk.apps_on().into_iter().collect::<Vec<_>>(),
         vec![AppId::Chat, AppId::Tags],
@@ -638,7 +638,7 @@ fn a_launch_answered_with_no_apps_writes_every_app_off_and_a_quiet_sidebar() {
     finish(&state);
 
     let written = std::fs::read_to_string(config_file(dir.path())).expect("the config");
-    let on_disk = WritConfig::parse(&written).expect("the config parses");
+    let on_disk = JotraConfig::parse(&written).expect("the config parses");
     assert!(on_disk.apps_on().is_empty(), "{written}");
     assert_eq!(
         on_disk.sidebar.hidden,

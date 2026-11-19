@@ -1,4 +1,4 @@
-//! Open at login: the OS entry that starts Writ hidden when the person logs
+//! Open at login: the OS entry that starts Jotra hidden when the person logs
 //! in, so the window chord works after a restart.
 //!
 //! The entry is made through tauri-plugin-autostart from Rust only; the
@@ -44,7 +44,7 @@ impl LoginItem for AutoLaunchManager {
     }
 }
 
-/// Whether Writ opens at login, as the OS has it.
+/// Whether Jotra opens at login, as the OS has it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct LoginItemStatus {
     pub enabled: bool,
@@ -74,7 +74,7 @@ pub fn set_launch_at_login_inner(
 /// answering whether one was made.
 ///
 /// A debug build makes none: the entry is named after the product, so a
-/// development run would point the installed Writ's entry at itself.
+/// development run would point the installed Jotra's entry at itself.
 pub fn apply_first_run_choice(
     state: &AppState,
     login: &impl LoginItem,
@@ -94,7 +94,7 @@ pub fn apply_first_run_choice(
     Ok(true)
 }
 
-/// IPC: whether Writ opens at login. The OS's answer rather than the config's,
+/// IPC: whether Jotra opens at login. The OS's answer rather than the config's,
 /// since the person can remove the entry from the system's own settings.
 #[tauri::command]
 pub async fn launch_at_login_status(app: AppHandle) -> Result<LoginItemStatus, String> {

@@ -110,7 +110,7 @@ class LockedBuildTests(unittest.TestCase):
             unlocked_cargo_calls("        run: cargo test --workspace\n"),
             ["run: cargo test --workspace"],
         )
-        self.assertEqual(unlocked_cargo_calls("  cargo build -p writ-cli \\\n    --locked\n"), [])
+        self.assertEqual(unlocked_cargo_calls("  cargo build -p jotra-cli \\\n    --locked\n"), [])
 
 
 class PinnedToolchainTests(unittest.TestCase):

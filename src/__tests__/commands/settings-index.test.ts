@@ -64,7 +64,7 @@ describe("settings index", () => {
 
   it("offers one file-types row, not a row per claimable group", () => {
     // The group ids now come from the backend at render time, so the index
-    // carries no id that could drift from crates/writ-core/src/default_app.rs.
+    // carries no id that could drift from crates/jotra-core/src/default_app.rs.
     const defaultAppEntries = SETTINGS_INDEX.filter((e) => e.id.startsWith("files.default_app"));
     expect(defaultAppEntries.map((e) => e.id)).toEqual(["files.default_app"]);
   });

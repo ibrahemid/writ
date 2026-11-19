@@ -5,7 +5,7 @@ import { dirname, isSameOrInside } from "../../lib/path";
 import { createFolderListing } from "./folder-listing";
 import { notesStore } from "./notes";
 
-// Singleton state — Writ is single-window. The listing of the notes folder the
+// Singleton state — Jotra is single-window. The listing of the notes folder the
 // sidebar draws when no other folder is open (NV-01): one array per folder the
 // tree has opened, read from disk and kept in step with the folder by the
 // three events that say it changed.
@@ -72,7 +72,7 @@ function createNotesTreeStore() {
   }
 
   /**
-   * Writ wrote files itself: each folder holding one is listed again, once
+   * Jotra wrote files itself: each folder holding one is listed again, once
    * however many of its files the write named. A path naming the notes folder
    * itself (a walk, a move) lists the folder again.
    */

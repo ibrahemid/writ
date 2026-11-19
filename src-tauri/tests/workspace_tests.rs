@@ -1,62 +1,62 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
-use tempfile::TempDir;
-use writ_core::config::WritConfig;
-use writ_core::events::bus::EventBus;
-use writ_core::preview::ContentRendererRegistry;
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
-use writ_tauri_lib::commands::notes::move_notes_folder_to;
-use writ_tauri_lib::commands::workspace::{
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::EventBus;
+use jotra_core::preview::ContentRendererRegistry;
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::notes_index::NotesIndexStore;
+use jotra_tauri_lib::commands::notes::move_notes_folder_to;
+use jotra_tauri_lib::commands::workspace::{
     clear_workspace_root_inner, list_workspace_dir_inner, set_workspace_root_from_path,
     workspace_reveal_target, ERR_NOT_IN_FOLDER,
 };
-use writ_tauri_lib::preview::handler::RenderCache;
-use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::AuthorizedPaths;
-use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::create_ignore_set;
+use jotra_tauri_lib::preview::handler::RenderCache;
+use jotra_tauri_lib::quit::QuitState;
+use jotra_tauri_lib::security::AuthorizedPaths;
+use jotra_tauri_lib::state::AppState;
+use jotra_tauri_lib::watcher::handler::create_ignore_set;
+use tempfile::TempDir;
 
 fn make_state(dir: &TempDir) -> AppState {
-    let writ_dir = dir.path().to_path_buf();
-    let buffers_dir = writ_dir.join("buffers");
+    let jotra_dir = dir.path().to_path_buf();
+    let buffers_dir = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
 
-    let notes_root = writ_dir.join("Writ");
+    let notes_root = jotra_dir.join("Jotra");
     std::fs::create_dir_all(&notes_root).expect("notes folder");
-    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+    let notes_root = jotra_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
     let store = BufferStore::new(conn, buffers_dir.clone());
 
-    let config_path = writ_dir.join("config.toml");
+    let config_path = jotra_dir.join("config.toml");
     let config_store = ConfigStore::new(config_path);
 
     let note_history = Arc::new(
-        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+        jotra_storage::note_history::NoteHistoryStore::open(&jotra_dir).expect("version store"),
     );
 
     AppState {
         store: Mutex::new(store),
         config_store,
-        config: Mutex::new(WritConfig::default()),
-        writ_dir,
+        config: Mutex::new(JotraConfig::default()),
+        jotra_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: std::sync::atomic::AtomicBool::new(false),
         menu_apps: std::sync::Mutex::new(None),
-        retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+        retitle_watch: std::sync::Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -82,7 +82,7 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
-        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+        command_usage: jotra_storage::command_usage::CommandUsageStore::new(
             open_database(&db_path).expect("usage db"),
         ),
         config_diagnostics: std::sync::Mutex::new(Vec::new()),
@@ -92,9 +92,9 @@ fn make_state(dir: &TempDir) -> AppState {
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
-        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(
-            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+            jotra_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
@@ -113,7 +113,7 @@ fn set_root_canonicalizes_persists_and_starts_watcher() {
 
     assert_eq!(
         root,
-        writ_tauri_lib::security::canonicalize_root(ws.path())
+        jotra_tauri_lib::security::canonicalize_root(ws.path())
             .unwrap()
             .to_string_lossy()
     );
@@ -144,7 +144,8 @@ fn set_root_rejects_missing_path() {
     let state = make_state(&dir);
 
     assert!(
-        set_workspace_root_from_path(&state, std::path::Path::new("/nonexistent/writ-ws")).is_err()
+        set_workspace_root_from_path(&state, std::path::Path::new("/nonexistent/jotra-ws"))
+            .is_err()
     );
 }
 
@@ -280,7 +281,7 @@ fn workspace_watcher_emits_change_events_on_bus() {
     let received: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let received_clone = received.clone();
     state.event_bus.subscribe(move |event| {
-        if let writ_core::events::bus::WritEvent::WorkspaceChanged { path, .. } = event {
+        if let jotra_core::events::bus::JotraEvent::WorkspaceChanged { path, .. } = event {
             received_clone.lock().unwrap().push(path.clone());
         }
     });
@@ -368,7 +369,7 @@ fn the_notes_folder_as_the_workspace_hears_a_note_under_vendor() {
     let received: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let received_clone = received.clone();
     state.event_bus.subscribe(move |event| {
-        if let writ_core::events::bus::WritEvent::WorkspaceChanged { path, .. } = event {
+        if let jotra_core::events::bus::JotraEvent::WorkspaceChanged { path, .. } = event {
             received_clone.lock().unwrap().push(path.clone());
         }
     });
@@ -418,7 +419,7 @@ fn the_workspace_the_notes_folder_moves_into_lists_and_hears_vendor() {
     let received: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let received_clone = received.clone();
     state.event_bus.subscribe(move |event| {
-        if let writ_core::events::bus::WritEvent::WorkspaceChanged { path, .. } = event {
+        if let jotra_core::events::bus::JotraEvent::WorkspaceChanged { path, .. } = event {
             received_clone.lock().unwrap().push(path.clone());
         }
     });
@@ -458,10 +459,10 @@ fn an_install_into_a_venv_inside_the_workspace_raises_no_event() {
     let received: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let received_clone = received.clone();
     state.event_bus.subscribe(move |event| match event {
-        writ_core::events::bus::WritEvent::WorkspaceChanged { path, .. } => {
+        jotra_core::events::bus::JotraEvent::WorkspaceChanged { path, .. } => {
             received_clone.lock().unwrap().push(path.clone());
         }
-        writ_core::events::bus::WritEvent::WorkspaceSwept { root } => {
+        jotra_core::events::bus::JotraEvent::WorkspaceSwept { root } => {
             received_clone.lock().unwrap().push(format!("swept:{root}"));
         }
         _ => {}

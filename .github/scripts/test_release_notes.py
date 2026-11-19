@@ -25,9 +25,9 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 ISOLATED_GIT_ENV = {
     "GIT_CONFIG_GLOBAL": os.devnull,
     "GIT_CONFIG_NOSYSTEM": "1",
-    "GIT_AUTHOR_NAME": "Writ Tests",
+    "GIT_AUTHOR_NAME": "Jotra Tests",
     "GIT_AUTHOR_EMAIL": "tests@example.com",
-    "GIT_COMMITTER_NAME": "Writ Tests",
+    "GIT_COMMITTER_NAME": "Jotra Tests",
     "GIT_COMMITTER_EMAIL": "tests@example.com",
 }
 

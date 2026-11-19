@@ -1,4 +1,4 @@
-// writ_core::notes::links, writ_core::notes::facts and writ_core::notes::snippet
+// jotra_core::notes::links, jotra_core::notes::facts and jotra_core::notes::snippet
 // for the page's in-memory folder: the same link syntax, resolution order, tag
 // rules, frontmatter reading and heading anchors the notes index applies.
 //

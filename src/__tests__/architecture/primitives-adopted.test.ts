@@ -122,8 +122,8 @@ describe("migrated surfaces use the primitives", () => {
     expect(shared).toContain("--editor-bar-rail");
     // ADR-030 §6 spends the accent on links, the caret, a checked box, focus
     // and one primary button. The question bar's rail was none of those.
-    expect(shared).not.toMatch(/border-left[^;]*var\(--writ-accent\)/);
-    expect(shared).not.toMatch(/--editor-bar-rail:\s*var\(--writ-accent\)/);
+    expect(shared).not.toMatch(/border-left[^;]*var\(--jotra-accent\)/);
+    expect(shared).not.toMatch(/--editor-bar-rail:\s*var\(--jotra-accent\)/);
   });
 
   // Every control in the find bar names its key. That key belongs in a tip, not

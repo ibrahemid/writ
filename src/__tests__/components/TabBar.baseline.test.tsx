@@ -205,11 +205,11 @@ describe("tab strip visibility", () => {
 describe("tab appearance", () => {
   it("seats the strip on the sidebar ground at the baseline metrics", () => {
     const bar = ruleFor(".tabbar");
-    // A floor, not a fixed height: the strip reads --writ-ui-md, so it grows
+    // A floor, not a fixed height: the strip reads --jotra-ui-md, so it grows
     // with the interface text size rather than clipping the labels.
     expect(bar.declarations.get("min-height")).toBe("36px");
     expect(bar.declarations.get("height")).toBeUndefined();
-    expect(bar.declarations.get("background")).toBe("var(--writ-bg-sidebar)");
+    expect(bar.declarations.get("background")).toBe("var(--jotra-bg-sidebar)");
     expect(bar.declarations.get("align-items")).toBe("flex-end");
     // The list scrolls under the tabs; the add control never scrolls away.
     expect(ruleFor(".tabbar-tabs").declarations.get("overflow-x")).toBe("auto");
@@ -222,19 +222,19 @@ describe("tab appearance", () => {
     expect(tab.declarations.get("height")).toBeUndefined();
     expect(tab.declarations.get("min-width")).toBe("100px");
     expect(tab.declarations.get("max-width")).toBe("200px");
-    expect(tab.declarations.get("padding")).toBe("0 var(--writ-space-3-5)");
+    expect(tab.declarations.get("padding")).toBe("0 var(--jotra-space-3-5)");
     expect(tab.declarations.get("border")).toBe("0");
     expect(tab.declarations.get("border-radius")).toBe(
-      "var(--writ-r-tab) var(--writ-r-tab) 0 0",
+      "var(--jotra-r-tab) var(--jotra-r-tab) 0 0",
     );
     expect(tab.declarations.get("background")).toBe("transparent");
-    expect(tab.declarations.get("color")).toBe("var(--writ-fg-muted)");
+    expect(tab.declarations.get("color")).toBe("var(--jotra-fg-muted)");
   });
 
   it("gives the active tab the canvas colour", () => {
     const active = ruleFor(".tab-active");
-    expect(active.declarations.get("background")).toBe("var(--writ-bg-canvas)");
-    expect(active.declarations.get("color")).toBe("var(--writ-fg)");
+    expect(active.declarations.get("background")).toBe("var(--jotra-bg-canvas)");
+    expect(active.declarations.get("color")).toBe("var(--jotra-fg)");
     expect(active.declarations.get("font-weight")).toBe("500");
   });
 
@@ -255,9 +255,9 @@ describe("tab appearance", () => {
     // The focus ring's own fallback names the accent, but the ring's colour is
     // the platform's decision, not a paint this strip makes.
     const painted = (value: string) =>
-      value.replace(/var\(--writ-focus-[a-z-]+,[^)]*\)\)?/g, "");
+      value.replace(/var\(--jotra-focus-[a-z-]+,[^)]*\)\)?/g, "");
     const accented = RULES.filter((rule) =>
-      [...rule.declarations.values()].some((value) => painted(value).includes("--writ-accent")),
+      [...rule.declarations.values()].some((value) => painted(value).includes("--jotra-accent")),
     );
     expect(accented.map((rule) => rule.selectors.join(","))).toEqual([
       '.tabbar[data-platform="linux"] .tab-active::after',
@@ -285,10 +285,10 @@ describe("tab appearance", () => {
 
     open(2);
     const { container } = render(() => <TabBar />);
-    const glyphs = container.querySelectorAll<SVGElement>(".tab-close .writ-icon");
+    const glyphs = container.querySelectorAll<SVGElement>(".tab-close .jotra-icon");
     expect(glyphs.length).toBe(2);
     expect(glyphs[0].style.width).toBe("12px");
-    expect(container.querySelector<SVGElement>(".tab-add .writ-icon")!.style.width).toBe("16px");
+    expect(container.querySelector<SVGElement>(".tab-add .jotra-icon")!.style.width).toBe("16px");
   });
 });
 
@@ -428,9 +428,9 @@ describe("platform layers", () => {
     expect(tab.declarations.get("min-height")).toBe("32px");
     expect(tab.declarations.get("max-width")).toBe("240px");
     expect(tab.declarations.get("padding")).toBe(
-      "var(--writ-space-3) 3px var(--writ-space-2) 3px",
+      "var(--jotra-space-3) 3px var(--jotra-space-2) 3px",
     );
-    expect(tab.declarations.get("font-size")).toBe("var(--writ-ui-sm)");
+    expect(tab.declarations.get("font-size")).toBe("var(--jotra-ui-sm)");
     const close = ruleFor('.tabbar[data-platform="win"] .tab-close');
     expect(close.declarations.get("width")).toBe("32px");
     expect(close.declarations.get("height")).toBe("24px");
@@ -442,15 +442,15 @@ describe("platform layers", () => {
     );
     const tab = ruleFor('.tabbar[data-platform="linux"] .tab');
     expect(tab.declarations.get("min-height")).toBe("26px");
-    expect(tab.declarations.get("border-radius")).toBe("var(--writ-r-tab)");
+    expect(tab.declarations.get("border-radius")).toBe("var(--jotra-r-tab)");
     const active = ruleFor('.tabbar[data-platform="linux"] .tab-active');
-    expect(active.declarations.get("background")).toBe("var(--writ-bg-selected)");
+    expect(active.declarations.get("background")).toBe("var(--jotra-bg-selected)");
     const indicator = ruleFor('.tabbar[data-platform="linux"] .tab-active::after');
     expect(indicator.declarations.get("height")).toBe("2px");
-    expect(indicator.declarations.get("background")).toBe("var(--writ-accent)");
+    expect(indicator.declarations.get("background")).toBe("var(--jotra-accent)");
     const close = ruleFor('.tabbar[data-platform="linux"] .tab-close');
     expect(close.declarations.get("width")).toBe("24px");
-    expect(close.declarations.get("border-radius")).toBe("var(--writ-r-pill)");
+    expect(close.declarations.get("border-radius")).toBe("var(--jotra-r-pill)");
   });
 });
 

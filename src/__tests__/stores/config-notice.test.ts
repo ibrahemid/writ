@@ -17,9 +17,9 @@ import { dismissToast, showToast } from "../../stores/global/notifications";
 
 const mockedDiagnostics = vi.mocked(getConfigDiagnostics);
 
-// RC-07: a launch on a config.toml with a value Writ cannot read says which
+// RC-07: a launch on a config.toml with a value Jotra cannot read says which
 // value and where, and that settings are not saved until the file is fixed.
-describe("the notice for values config.toml holds that Writ could not read", () => {
+describe("the notice for values config.toml holds that Jotra could not read", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

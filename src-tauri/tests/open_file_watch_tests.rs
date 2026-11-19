@@ -4,26 +4,26 @@
 //! and the classifier's decisions with injected backends. These run the
 //! platform's own watcher over a real folder, because the one thing an
 //! injected backend cannot prove is that a temp-plus-rename over a watched
-//! file reaches Writ at all — which is the write every careful program makes,
+//! file reaches Jotra at all — which is the write every careful program makes,
 //! and the reason the folder is watched rather than the file.
 
+use jotra_core::events::bus::{EventBus, JotraEvent};
+use jotra_core::hash::sha256_bytes;
+use jotra_core::notes::guard::DiskState;
+use jotra_core::notes::identity::FileIdentity;
+use jotra_core::watcher::ignore::DEFAULT_IGNORE_TTL;
+use jotra_tauri_lib::security::resolve_for_containment;
+use jotra_tauri_lib::watcher::handler::{create_ignore_set, start_notes_watcher};
+use jotra_tauri_lib::watcher::moves::{FileTracking, MoveOutcome, NoteFiles};
+use jotra_tauri_lib::watcher::open_files::{
+    start_open_file_watcher, NoOpenNotes, WatchOutcome, WatcherKind,
+};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
-use writ_core::events::bus::{EventBus, WritEvent};
-use writ_core::hash::sha256_bytes;
-use writ_core::notes::guard::DiskState;
-use writ_core::notes::identity::FileIdentity;
-use writ_core::watcher::ignore::DEFAULT_IGNORE_TTL;
-use writ_tauri_lib::security::resolve_for_containment;
-use writ_tauri_lib::watcher::handler::{create_ignore_set, start_notes_watcher};
-use writ_tauri_lib::watcher::moves::{FileTracking, MoveOutcome, NoteFiles};
-use writ_tauri_lib::watcher::open_files::{
-    start_open_file_watcher, NoOpenNotes, WatchOutcome, WatcherKind,
-};
 
 /// Long enough for the 500 ms debounce plus the platform's own notification
 /// latency, and for the ignore TTL to be nowhere near expiry.
@@ -49,7 +49,7 @@ fn canonical(dir: &Path) -> std::path::PathBuf {
 /// inode, which is what kills a watch bound to the file rather than the
 /// folder.
 fn write_by_temp_and_rename(path: &Path, bytes: &[u8]) {
-    let temp = path.with_extension("writ-test-tmp");
+    let temp = path.with_extension("jotra-test-tmp");
     std::fs::write(&temp, bytes).expect("write temp");
     std::fs::rename(&temp, path).expect("rename over target");
 }
@@ -61,8 +61,8 @@ fn write_by_temp_and_rename(path: &Path, bytes: &[u8]) {
 /// `FileTracking::untracked()` has no such record, so every report is news to
 /// it, including a late delivery of the write that seeded the file before the
 /// watcher started. That delivery is the platform's business and it happens on
-/// a loaded machine; what a tab does with it is Writ's, and this is the answer
-/// Writ has in production.
+/// a loaded machine; what a tab does with it is Jotra's, and this is the answer
+/// Jotra has in production.
 struct TabsThatHaveRead {
     read: HashMap<String, DiskState>,
 }
@@ -119,12 +119,12 @@ impl NoteFiles for TabsThatHaveRead {
 }
 
 /// Every `BufferExternal` the bus carried within `SETTLE`.
-fn collect_external(rx: &mpsc::Receiver<WritEvent>) -> Vec<WritEvent> {
+fn collect_external(rx: &mpsc::Receiver<JotraEvent>) -> Vec<JotraEvent> {
     let deadline = Instant::now() + SETTLE;
     let mut seen = Vec::new();
     while let Some(left) = deadline.checked_duration_since(Instant::now()) {
         match rx.recv_timeout(left) {
-            Ok(event @ WritEvent::BufferExternal { .. }) => seen.push(event),
+            Ok(event @ JotraEvent::BufferExternal { .. }) => seen.push(event),
             Ok(_) => {}
             Err(_) => break,
         }
@@ -132,7 +132,7 @@ fn collect_external(rx: &mpsc::Receiver<WritEvent>) -> Vec<WritEvent> {
     seen
 }
 
-fn bus_with_channel() -> (Arc<EventBus>, mpsc::Receiver<WritEvent>) {
+fn bus_with_channel() -> (Arc<EventBus>, mpsc::Receiver<JotraEvent>) {
     let bus = Arc::new(EventBus::new());
     let (tx, rx) = mpsc::channel();
     bus.subscribe(move |event| {
@@ -173,7 +173,7 @@ fn a_file_opened_from_anywhere_reports_one_change_when_another_program_rewrites_
         "a temp-plus-rename must reach the tab exactly once, saw {seen:?}"
     );
     match &seen[0] {
-        WritEvent::BufferExternal {
+        JotraEvent::BufferExternal {
             buffer_id,
             path,
             change,
@@ -189,13 +189,13 @@ fn a_file_opened_from_anywhere_reports_one_change_when_another_program_rewrites_
             );
             assert_eq!(
                 *change,
-                writ_core::watcher::change_event::ExternalChange::Modified
+                jotra_core::watcher::change_event::ExternalChange::Modified
             );
             assert_eq!(*new_path, None);
             assert_eq!(
                 disk_hash.as_deref(),
                 Some(
-                    writ_core::hash::comparison_digest_hex(b"rewritten by another program\n")
+                    jotra_core::hash::comparison_digest_hex(b"rewritten by another program\n")
                         .as_str()
                 ),
                 "the event carries what the file holds now"
@@ -206,8 +206,8 @@ fn a_file_opened_from_anywhere_reports_one_change_when_another_program_rewrites_
 }
 
 #[test]
-fn a_write_writ_stamped_never_comes_back_as_somebody_elses_edit() {
-    // The full round trip for the rule W3 exists for: Writ saves the file it
+fn a_write_jotra_stamped_never_comes_back_as_somebody_elses_edit() {
+    // The full round trip for the rule W3 exists for: Jotra saves the file it
     // opened, the folder watcher sees the write, and the stamp keyed by the
     // file's resolved path stops it becoming an offer to reload the text the
     // tab is already showing.
@@ -227,11 +227,11 @@ fn a_write_writ_stamped_never_comes_back_as_somebody_elses_edit() {
         .expect("registry")
         .watch_parent_of("note-1", &file);
 
-    let saved = b"saved from writ\n";
+    let saved = b"saved from jotra\n";
     {
         let mut set = ignore.lock().expect("ignore set");
         set.record(
-            writ_core::watcher::ignore::source_key(Path::new(&resolved(&file))),
+            jotra_core::watcher::ignore::source_key(Path::new(&resolved(&file))),
             saved,
             Instant::now(),
         );
@@ -318,7 +318,7 @@ fn a_folder_full_of_churn_never_names_a_file_that_is_not_open() {
     );
 
     for event in &seen {
-        let WritEvent::BufferExternal {
+        let JotraEvent::BufferExternal {
             buffer_id, path, ..
         } = event
         else {
@@ -390,7 +390,7 @@ fn a_note_inside_the_notes_folder_reaches_its_tab_when_another_program_rewrites_
     let seen = collect_external(&rx);
     assert_eq!(seen.len(), 1, "the tab must be told once, saw {seen:?}");
     match &seen[0] {
-        WritEvent::BufferExternal {
+        JotraEvent::BufferExternal {
             buffer_id,
             path,
             change,
@@ -402,13 +402,13 @@ fn a_note_inside_the_notes_folder_reaches_its_tab_when_another_program_rewrites_
             assert_eq!(resolved(Path::new(path)), resolved(&note));
             assert_eq!(
                 *change,
-                writ_core::watcher::change_event::ExternalChange::Modified
+                jotra_core::watcher::change_event::ExternalChange::Modified
             );
             assert_eq!(*new_path, None);
             assert_eq!(
                 disk_hash.as_deref(),
                 Some(
-                    writ_core::hash::comparison_digest_hex(b"rewritten by another program\n")
+                    jotra_core::hash::comparison_digest_hex(b"rewritten by another program\n")
                         .as_str()
                 ),
                 "the tab compares its document against this digest, so it has to be the file's"
@@ -419,8 +419,8 @@ fn a_note_inside_the_notes_folder_reaches_its_tab_when_another_program_rewrites_
 }
 
 #[test]
-fn a_save_writ_made_inside_the_notes_folder_never_comes_back_to_the_tab() {
-    // The same round trip on the notes side. Writ stamps a write before it
+fn a_save_jotra_made_inside_the_notes_folder_never_comes_back_to_the_tab() {
+    // The same round trip on the notes side. Jotra stamps a write before it
     // lands; if the stamp missed, every save would return as somebody else's
     // edit and the user would be asked whether to discard their own keystrokes.
     assert!(
@@ -456,11 +456,11 @@ fn a_save_writ_made_inside_the_notes_folder_never_comes_back_to_the_tab() {
     )
     .expect("start the notes watcher");
 
-    let saved = b"what writ itself wrote\n";
+    let saved = b"what jotra itself wrote\n";
     {
         let mut set = ignore.lock().expect("ignore set");
         set.record(
-            writ_core::watcher::ignore::source_key(Path::new(&resolved(&note))),
+            jotra_core::watcher::ignore::source_key(Path::new(&resolved(&note))),
             saved,
             Instant::now(),
         );
@@ -517,12 +517,12 @@ fn a_note_nobody_has_open_tells_no_tab() {
 }
 
 /// How many sweeps the bus carried in `window`.
-fn count_swept(rx: &mpsc::Receiver<WritEvent>, window: Duration) -> usize {
+fn count_swept(rx: &mpsc::Receiver<JotraEvent>, window: Duration) -> usize {
     let deadline = Instant::now() + window;
     let mut swept = 0;
     while let Some(left) = deadline.checked_duration_since(Instant::now()) {
         match rx.recv_timeout(left) {
-            Ok(WritEvent::NotesSwept { .. }) => swept += 1,
+            Ok(JotraEvent::NotesSwept { .. }) => swept += 1,
             Ok(_) => {}
             Err(_) => break,
         }
@@ -575,7 +575,7 @@ fn a_write_from_a_connected_program_reaches_the_tab_as_somebody_elses_edit() {
     // own: the client's process writes the file through the guarded facade
     // with no ignore stamp, the notes watcher sees the write, and the tab
     // holding that note is told once (ADR-031 rule 4 and ADR-033). A stamp on
-    // that write would be swallowed by the very mechanism that keeps Writ's
+    // that write would be swallowed by the very mechanism that keeps Jotra's
     // own saves from returning, so its absence is the thing under test.
     let notes = TempDir::new().expect("notes dir");
     let data = TempDir::new().expect("data dir");
@@ -619,20 +619,20 @@ fn a_write_from_a_connected_program_reaches_the_tab_as_somebody_elses_edit() {
 
     // The server's own host, over the same folder, holding no index and no
     // ignore set — which is everything the process a client launches has.
-    let host = writ_mcp::tools::ToolHost::open(
+    let host = jotra_mcp::tools::ToolHost::open(
         &root,
-        &data.path().join("writ.db"),
+        &data.path().join("jotra.db"),
         data.path(),
-        Box::new(writ_mcp::tools::FixedAppFolder(root.clone())),
-        Box::new(writ_mcp::consent::ConfigGate::new(data.path())),
+        Box::new(jotra_mcp::tools::FixedAppFolder(root.clone())),
+        Box::new(jotra_mcp::consent::ConfigGate::new(data.path())),
     )
     .expect("open the folder the way the served process does");
     let written = b"as a program left it\n";
     // The hash of the text the program read, which is what a client passes.
-    let read_by_the_program = writ_core::hash::sha256_hex(read_by_the_tab);
+    let read_by_the_program = jotra_core::hash::sha256_hex(read_by_the_tab);
     std::thread::spawn(move || {
         host.write_note(
-            &writ_core::activity::ClientId::named("Test Client"),
+            &jotra_core::activity::ClientId::named("Test Client"),
             "Launch.md",
             std::str::from_utf8(written).expect("utf-8"),
             Some(&read_by_the_program),
@@ -650,7 +650,7 @@ fn a_write_from_a_connected_program_reaches_the_tab_as_somebody_elses_edit() {
         "the tab must be told once about a program's write, saw {seen:?}"
     );
     match &seen[0] {
-        WritEvent::BufferExternal {
+        JotraEvent::BufferExternal {
             buffer_id,
             path,
             change,
@@ -662,12 +662,12 @@ fn a_write_from_a_connected_program_reaches_the_tab_as_somebody_elses_edit() {
             assert_eq!(resolved(Path::new(path)), resolved(&note));
             assert_eq!(
                 *change,
-                writ_core::watcher::change_event::ExternalChange::Modified
+                jotra_core::watcher::change_event::ExternalChange::Modified
             );
             assert_eq!(*new_path, None);
             assert_eq!(
                 disk_hash.as_deref(),
-                Some(writ_core::hash::comparison_digest_hex(written).as_str()),
+                Some(jotra_core::hash::comparison_digest_hex(written).as_str()),
                 "the tab reconciles against what the file holds now"
             );
         }
@@ -686,7 +686,7 @@ fn an_applied_proposal_reaches_the_tab_as_somebody_elses_edit() {
     // takes: through the guarded facade with no ignore stamp, so the tab
     // holding that note reconciles through the folder watcher rather than
     // sitting on text the file no longer has (ADR-033). A stamp here would be
-    // swallowed by the mechanism that keeps Writ's own saves from returning,
+    // swallowed by the mechanism that keeps Jotra's own saves from returning,
     // and the tab would learn nothing, so its absence is what is under test.
     let notes = TempDir::new().expect("notes dir");
     let data = TempDir::new().expect("data dir");
@@ -719,14 +719,14 @@ fn an_applied_proposal_reaches_the_tab_as_somebody_elses_edit() {
     .expect("start the notes watcher");
 
     let written = "as the pane applied it\n";
-    let outcome = writ_tauri_lib::commands::chat::apply_proposal_inner(
+    let outcome = jotra_tauri_lib::commands::chat::apply_proposal_inner(
         &root,
         &NoOpenNotes,
         data.path(),
         "api.example.com",
         "Launch.md",
         written,
-        &writ_core::hash::sha256_hex(read_by_the_tab),
+        &jotra_core::hash::sha256_hex(read_by_the_tab),
         None,
         |_, _, _| unreachable!(),
     )
@@ -740,7 +740,7 @@ fn an_applied_proposal_reaches_the_tab_as_somebody_elses_edit() {
         "the tab must be told once about an applied proposal, saw {seen:?}"
     );
     match &seen[0] {
-        WritEvent::BufferExternal {
+        JotraEvent::BufferExternal {
             buffer_id,
             path,
             change,
@@ -752,12 +752,12 @@ fn an_applied_proposal_reaches_the_tab_as_somebody_elses_edit() {
             assert_eq!(resolved(Path::new(path)), resolved(&note));
             assert_eq!(
                 *change,
-                writ_core::watcher::change_event::ExternalChange::Modified
+                jotra_core::watcher::change_event::ExternalChange::Modified
             );
             assert_eq!(*new_path, None);
             assert_eq!(
                 disk_hash.as_deref(),
-                Some(writ_core::hash::comparison_digest_hex(written.as_bytes()).as_str()),
+                Some(jotra_core::hash::comparison_digest_hex(written.as_bytes()).as_str()),
                 "the tab reconciles against what the file holds now"
             );
         }

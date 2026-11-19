@@ -1,5 +1,5 @@
 name: Feature Request
-description: Suggest a feature for Writ
+description: Suggest a feature for Jotra
 labels: ["enhancement"]
 body:
   - type: textarea

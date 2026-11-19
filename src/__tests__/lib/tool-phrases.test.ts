@@ -59,12 +59,12 @@ describe("the tools that change part of a file or show one", () => {
     expect(describeCall("append_note", false, "refuse")).toBe("asked to add to a file");
     expect(describeCall("replace_in_note", false, "allow")).toBe("replaced a passage in a file");
     expect(describeCall("today", false, "pending")).toBe("asked to use today's file");
-    expect(describeCall("open_in_writ", true, "allow")).toBe("asked to show");
+    expect(describeCall("open_in_jotra", true, "allow")).toBe("asked to show");
     expect(describeCall("read_index", false, "allow")).toBe("read the index of your folder");
   });
 
   it("counts showing a file as a read", () => {
-    expect(isReadAction("open_in_writ")).toBe(true);
+    expect(isReadAction("open_in_jotra")).toBe(true);
     expect(isReadAction("append_note")).toBe(false);
     expect(isReadAction("today")).toBe(false);
   });
@@ -73,16 +73,16 @@ describe("the tools that change part of a file or show one", () => {
 describe("seeing the open file", () => {
   it("names each read of the open file as done, with the file it named", () => {
     expect(describeCall("get_context", true, "allow")).toBe("read what is selected in");
-    expect(describeCall("get_context", false, "allow")).toBe("read which file is open in Writ");
+    expect(describeCall("get_context", false, "allow")).toBe("read which file is open in Jotra");
     expect(describeCall("get_context", false, "refuse")).toBe(
-      "asked to read which file is open in Writ",
+      "asked to read which file is open in Jotra",
     );
     expect(isReadAction("get_context")).toBe(false);
   });
 
   it("says what the grant covers in words", () => {
     expect(describeContextTools(["get_context"])).toBe(
-      "see the file open in Writ and the text you selected",
+      "see the file open in Jotra and the text you selected",
     );
   });
 

@@ -21,7 +21,7 @@ vi.mock("../../services/tauri", () => ({
 
 import { configStore } from "../../stores/global/config";
 import { aiConnectionStore } from "../../stores/global/ai-connection";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 
 /** Lets the effects and the requests they start settle. */
 async function settle(): Promise<void> {
@@ -75,7 +75,7 @@ describe("the model list and the rest of the settings", () => {
   });
 
   it("a reload of a file whose connection did not change sends none", async () => {
-    const onDisk: WritConfig = JSON.parse(JSON.stringify(configStore.config()));
+    const onDisk: JotraConfig = JSON.parse(JSON.stringify(configStore.config()));
     onDisk.sidebar.width = onDisk.sidebar.width === 260 ? 270 : 260;
     h.getConfig.mockResolvedValueOnce(onDisk);
 

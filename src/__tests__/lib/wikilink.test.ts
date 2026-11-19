@@ -6,7 +6,7 @@ import {
   wikilinkTargetPath,
 } from "../../lib/wikilink";
 
-// The Rust side of this split is `writ_core::notes::links::parse_wikilink`.
+// The Rust side of this split is `jotra_core::notes::links::parse_wikilink`.
 // The two have to agree: the name is what `Create note` gives the file, so a
 // disagreement mints a note under a name no link points at.
 describe("wikilinkName", () => {
@@ -84,19 +84,19 @@ describe("wikilinkFileName", () => {
 // fragment is the heading's anchor.
 describe("noteLinkHeading", () => {
   it.each([
-    ["writ-note:Note.md#later-part", "later-part"],
-    ["writ-note:Note.md#caf%C3%A9", "café"],
-    ["writ-note:folder/Note.md#a-b", "a-b"],
-    ["writ-note:a%23b.md#h", "h"],
-    ["writ-note:Note.md", null],
-    ["writ-note:Note.md#", null],
+    ["jotra-note:Note.md#later-part", "later-part"],
+    ["jotra-note:Note.md#caf%C3%A9", "café"],
+    ["jotra-note:folder/Note.md#a-b", "a-b"],
+    ["jotra-note:a%23b.md#h", "h"],
+    ["jotra-note:Note.md", null],
+    ["jotra-note:Note.md#", null],
     ["https://example.com/x#h", null],
   ])("reads %s as %s", (href, heading) => {
     expect(noteLinkHeading(href)).toBe(heading);
   });
 
   it("hands back an escape it cannot decode rather than throwing", () => {
-    expect(noteLinkHeading("writ-note:Note.md#%E0%A4%A")).toBe("%E0%A4%A");
+    expect(noteLinkHeading("jotra-note:Note.md#%E0%A4%A")).toBe("%E0%A4%A");
   });
 });
 

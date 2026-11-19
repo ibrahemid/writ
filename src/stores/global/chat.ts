@@ -144,7 +144,7 @@ export type Readiness =
   | { state: "ready" }
   | { state: Exclude<ReadinessState, "ready">; message: string; action: ReadinessAction };
 
-// Singleton state — Writ is single-window. One conversation is on screen at a
+// Singleton state — Jotra is single-window. One conversation is on screen at a
 // time; the entries behind it are per conversation, because a reply keeps
 // arriving into the conversation it was sent from.
 function createChatStore() {

@@ -34,7 +34,7 @@ export default function FirstRunHint() {
   // The status bar is the foot of the same box, so the layer stands on top of
   // it rather than over it; its own control would be under the offer's buttons.
   const bottomInset = () =>
-    configStore.config().editor.status_bar ? "var(--writ-statusbar-height)" : "0";
+    configStore.config().editor.status_bar ? "var(--jotra-statusbar-height)" : "0";
 
   // The row says "this note", so it is only shown over the note it is about.
   // A save can land after the person has moved on to another tab.

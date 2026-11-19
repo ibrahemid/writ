@@ -1,7 +1,7 @@
 use crate::poison::recover_poison;
 use crate::state::AppState;
+use jotra_core::recovery::RecoveredBuffer;
 use tauri::State;
-use writ_core::recovery::RecoveredBuffer;
 
 /// Returns the notes whose text this launch took from the unsaved-text
 /// journal (ADR-044), then clears the list.

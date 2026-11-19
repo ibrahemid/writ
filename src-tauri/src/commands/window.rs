@@ -1,6 +1,6 @@
+use jotra_core::title_bar::{title_bar_effect, DoubleClickPreference, TitleBarEffect, WindowState};
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
-use writ_core::title_bar::{title_bar_effect, DoubleClickPreference, TitleBarEffect, WindowState};
 
 use crate::snap_overlay::{self, CaptionButtonMetrics};
 use crate::state::AppState;
@@ -138,7 +138,7 @@ impl<R: tauri::Runtime> TitleBarWindow for tauri::WebviewWindow<R> {
 /// No check of `is_maximizable` comes first. On macOS that reads the window's
 /// zoom button, which an undecorated window does not have, so it is always
 /// false there; Tauri's own drag-region double-click checks it and never
-/// maximizes Writ's window.
+/// maximizes Jotra's window.
 pub fn title_bar_double_click_inner(
     window: &impl TitleBarWindow,
     preference: &DoubleClickPreference,

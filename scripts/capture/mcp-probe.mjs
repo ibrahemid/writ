@@ -1,20 +1,20 @@
-// Talks to `writ mcp` over stdio as an approved client, so the Activity
+// Talks to `jotra mcp` over stdio as an approved client, so the Activity
 // panel has real rows to show: a few reads, nothing written.
 //
-//   node scripts/capture/mcp-probe.mjs <writ binary> <data dir> <notes dir> [client name]
+//   node scripts/capture/mcp-probe.mjs <jotra binary> <data dir> <notes dir> [client name]
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 
 const [bin, dataDir, notesDir, clientName] = process.argv.slice(2);
 if (!bin || !dataDir || !notesDir) {
-  console.error('usage: mcp-probe.mjs <writ binary> <data dir> <notes dir>');
+  console.error('usage: mcp-probe.mjs <jotra binary> <data dir> <notes dir>');
   process.exit(2);
 }
 
 const CLIENT_NAME = clientName || 'Scribe CLI';
 
 const child = spawn(bin, ['mcp'], {
-  env: { ...process.env, WRIT_DATA_DIR: dataDir, WRIT_NOTES_DIR: notesDir },
+  env: { ...process.env, JOTRA_DATA_DIR: dataDir, JOTRA_NOTES_DIR: notesDir },
   stdio: ['pipe', 'pipe', 'inherit'],
 });
 const lines = createInterface({ input: child.stdout });

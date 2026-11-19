@@ -4,7 +4,7 @@
 //! offset to its file-name segment, so a 200k-file index costs one string per
 //! file rather than two: the lookup table holds positions keyed by a hash of
 //! the path, never a second copy of it (TS-36). The index is built by a
-//! bounded walk (in `writ-storage`) on workspace open and maintained
+//! bounded walk (in `jotra-storage`) on workspace open and maintained
 //! incrementally from the recursive workspace watcher: a changed path that
 //! still exists and passes the union ignore policy is upserted, a gone path is
 //! removed. The policy for one root is read once ([`WorkspaceIgnore`]) and
@@ -27,8 +27,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use hashbrown::HashTable;
-use writ_core::workspace::file_search::{rank_file_hits, FileHit};
-use writ_storage::workspace_search::{walk_index, IndexWalk, WorkspaceIgnore};
+use jotra_core::workspace::file_search::{rank_file_hits, FileHit};
+use jotra_storage::workspace_search::{walk_index, IndexWalk, WorkspaceIgnore};
 
 /// Upper bound on indexed files; past it the index is marked truncated.
 pub const MAX_INDEXED_FILES: usize = 200_000;

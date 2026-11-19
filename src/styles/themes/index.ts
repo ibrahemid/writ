@@ -1,6 +1,6 @@
 import type { Theme } from "../../types/theme";
-import writLight from "./writ-light.json";
-import writDark from "./writ-dark.json";
+import jotraLight from "./writ-light.json";
+import jotraDark from "./writ-dark.json";
 import warpDark from "./warp-dark.json";
 import warpLight from "./warp-light.json";
 import tokyoNight from "./tokyo-night.json";
@@ -9,8 +9,8 @@ import solarizedDark from "./solarized-dark.json";
 import catppuccinMocha from "./catppuccin-mocha.json";
 
 const presets: Theme[] = [
-  writLight as Theme,
-  writDark as Theme,
+  jotraLight as Theme,
+  jotraDark as Theme,
   warpDark as Theme,
   warpLight as Theme,
   tokyoNight as Theme,

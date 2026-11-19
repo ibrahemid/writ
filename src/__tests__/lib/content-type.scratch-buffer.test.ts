@@ -13,7 +13,7 @@ import type { BufferDocument } from "../../types/buffer";
 function buf(overrides: Partial<BufferDocument>): BufferDocument {
   return {
     id: "B",
-    title: "writ-1700000000",
+    title: "jotra-1700000000",
     filename: "abc-uuid.txt",
     status: "active",
     language: null,
@@ -42,7 +42,7 @@ describe("contentTypeForBuffer — scratch buffer renderability", () => {
   });
 
   it("default scratch (no extension in title, .txt filename) still returns null", () => {
-    // The Rust create_buffer default: title "writ-<ms>", filename "<uuid>.txt".
+    // The Rust create_buffer default: title "jotra-<ms>", filename "<uuid>.txt".
     // Neither carries a renderable extension; the preview must stay source.
     expect(contentTypeForBuffer(buf({}))).toBeNull();
   });

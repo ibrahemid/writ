@@ -29,7 +29,7 @@ import { SECTION_LABELS, settingEntry, UnknownSettingError } from "../../setting
 
 export type { ActivityRecord, ClientApproval, McpOffCall, McpServerCommand, McpTools, PendingClient };
 
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 
 /** How many records the panel holds. The list is read, not exported. */
 export const ACTIVITY_LIMIT = 200;
@@ -126,7 +126,7 @@ async function watchWaiting(): Promise<void> {
 
 /**
  * The last program that called while Connected programs was off: read once
- * at launch, since the call may have come while Writ was closed, and again
+ * at launch, since the call may have come while Jotra was closed, and again
  * whenever the server writes another.
  */
 async function watchOffCalls(): Promise<void> {
@@ -206,10 +206,10 @@ async function loadTools(): Promise<void> {
 function commandCaution(): string | undefined {
   const command = serverCommand();
   if (command?.needs_move) {
-    return "Move Writ to your Applications folder and open it from there first.";
+    return "Move Jotra to your Applications folder and open it from there first.";
   }
   if (command?.needs_install) {
-    return `Install the writ command first, under ${cliRowPath()}.`;
+    return `Install the jotra command first, under ${cliRowPath()}.`;
   }
   return undefined;
 }
@@ -249,7 +249,7 @@ async function setPermission(name: string, read: boolean, write: boolean): Promi
   await refreshLog();
 }
 
-/** Lets one program see the file open in Writ and its selection, or stops it (ADR-053). */
+/** Lets one program see the file open in Jotra and its selection, or stops it (ADR-053). */
 async function setContext(name: string, context: boolean): Promise<void> {
   takeClients(await mcpSetClientContext(name, context));
 }

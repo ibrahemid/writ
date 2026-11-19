@@ -1,27 +1,27 @@
 .kbd-chord {
   display: inline-flex;
   align-items: center;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
   white-space: nowrap;
 }
 
 .kbd-key {
-  font-family: var(--writ-font-ui);
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
-  color: var(--writ-fg-muted);
-  background: var(--writ-bg-sunken);
+  font-family: var(--jotra-font-ui);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
+  color: var(--jotra-fg-muted);
+  background: var(--jotra-bg-sunken);
   border: 0;
-  border-radius: var(--writ-r-control);
-  padding: var(--writ-space-1) var(--writ-space-2-5);
+  border-radius: var(--jotra-r-control);
+  padding: var(--jotra-space-1) var(--jotra-space-2-5);
   white-space: nowrap;
 }
 
 .kbd-chord-muted .kbd-key {
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
   background: transparent;
 }
 
 .kbd-key-empty {
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
 }

@@ -2,24 +2,24 @@
 //!
 //! The updater *mechanism* lives here (checking, downloading, installing via
 //! `tauri-plugin-updater`); the *policy* — which phase transitions are legal —
-//! lives in [`writ_core::update`]. Every observed step is fed through the
-//! phase machine and mirrored to the frontend as a `writ://update-status`
+//! lives in [`jotra_core::update`]. Every observed step is fed through the
+//! phase machine and mirrored to the frontend as a `jotra://update-status`
 //! event carrying the full [`UpdatePhase`].
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use tauri::{AppHandle, Manager};
-use tauri_plugin_updater::UpdaterExt;
-use writ_core::update::auto_check::{
+use jotra_core::update::auto_check::{
     last_known_check, next_silent_check_step, SilentCheckStep, RESIDENT_WAKE_INTERVAL_MS,
 };
-use writ_core::update::install::{
+use jotra_core::update::install::{
     is_managed, InstallFacts, MARKER_SEARCH_LEVELS, PACKAGE_MANAGER_MARKER,
 };
-use writ_core::update::{UpdateEvent, UpdatePhase};
+use jotra_core::update::{UpdateEvent, UpdatePhase};
+use tauri::{AppHandle, Manager};
+use tauri_plugin_updater::UpdaterExt;
 
-/// File under the Writ data dir holding the epoch-ms of the last silent
+/// File under the Jotra data dir holding the epoch-ms of the last silent
 /// update check. Kept out of `config.toml` so interval bookkeeping never
 /// rewrites the user's editable config or races the frontend's config writes.
 const LAST_CHECK_FILE: &str = ".update_check";
@@ -35,21 +35,21 @@ pub fn now_epoch_ms() -> u64 {
 
 /// Reads the last silent-check timestamp, or `None` if it has never run or
 /// the marker is missing/unparseable.
-pub fn read_last_check_ms(writ_dir: &Path) -> Option<u64> {
-    std::fs::read_to_string(writ_dir.join(LAST_CHECK_FILE))
+pub fn read_last_check_ms(jotra_dir: &Path) -> Option<u64> {
+    std::fs::read_to_string(jotra_dir.join(LAST_CHECK_FILE))
         .ok()
         .and_then(|s| s.trim().parse::<u64>().ok())
 }
 
 /// Records the silent-check timestamp. Best-effort: a write failure only means
 /// the next launch may check again, so it is logged, not propagated.
-pub fn write_last_check_ms(writ_dir: &Path, ms: u64) {
-    if let Err(e) = std::fs::write(writ_dir.join(LAST_CHECK_FILE), ms.to_string()) {
+pub fn write_last_check_ms(jotra_dir: &Path, ms: u64) {
+    if let Err(e) = std::fs::write(jotra_dir.join(LAST_CHECK_FILE), ms.to_string()) {
         tracing::debug!(error = %e, "failed to record last update-check time");
     }
 }
 
-use crate::events::{emit_event, WritFrontendEvent};
+use crate::events::{emit_event, JotraFrontendEvent};
 use crate::poison::recover_poison;
 use crate::relaunch::RelaunchShutdown;
 use crate::state::AppState;
@@ -92,7 +92,7 @@ pub fn read_install_facts(
 }
 
 #[cfg(unix)]
-fn dir_is_writable(dir: &Path) -> bool {
+pub(crate) fn dir_is_writable(dir: &Path) -> bool {
     rustix::fs::access(
         dir,
         rustix::fs::Access::WRITE_OK | rustix::fs::Access::EXEC_OK,
@@ -101,11 +101,11 @@ fn dir_is_writable(dir: &Path) -> bool {
 }
 
 #[cfg(not(unix))]
-fn dir_is_writable(_dir: &Path) -> bool {
+pub(crate) fn dir_is_writable(_dir: &Path) -> bool {
     true
 }
 
-/// Whether the running Writ was installed by a package manager, so an update
+/// Whether the running Jotra was installed by a package manager, so an update
 /// is reported as [`UpdatePhase::Managed`] and never downloaded.
 fn running_install_is_managed() -> bool {
     let exe = match tauri::utils::platform::current_exe() {
@@ -147,18 +147,18 @@ pub fn run_silent_checks(app: AppHandle) {
     std::thread::sleep(FIRST_SILENT_CHECK_DELAY);
     let mut last_run_ms: Option<u64> = None;
     loop {
-        let (auto_check, writ_dir) = {
+        let (auto_check, jotra_dir) = {
             let state = app.state::<AppState>();
             let cfg = recover_poison(state.config.lock(), "commands::update::run_silent_checks");
-            (cfg.updater.auto_check, state.writ_dir.clone())
+            (cfg.updater.auto_check, state.jotra_dir.clone())
         };
         let now_ms = now_epoch_ms();
-        let last_ms = last_known_check(read_last_check_ms(&writ_dir), last_run_ms);
+        let last_ms = last_known_check(read_last_check_ms(&jotra_dir), last_run_ms);
         match next_silent_check_step(auto_check, last_ms, now_ms) {
             SilentCheckStep::CheckNow => {
                 if tauri::async_runtime::block_on(run_update_check(app.clone(), false)) {
                     last_run_ms = Some(now_ms);
-                    write_last_check_ms(&writ_dir, now_ms);
+                    write_last_check_ms(&jotra_dir, now_ms);
                 } else {
                     std::thread::sleep(Duration::from_millis(RESIDENT_WAKE_INTERVAL_MS));
                 }
@@ -421,14 +421,14 @@ fn try_advance(app: &AppHandle, event: UpdateEvent) -> Option<UpdatePhase> {
 }
 
 fn emit_phase(app: &AppHandle, phase: &UpdatePhase) {
-    if let Err(e) = emit_event(app, WritFrontendEvent::UpdateStatus(phase.clone())) {
+    if let Err(e) = emit_event(app, JotraFrontendEvent::UpdateStatus(phase.clone())) {
         tracing::warn!(error = %e, "failed to emit update status");
     }
 }
 
 /// Builds an [`Updater`](tauri_plugin_updater::Updater) from the bundled
-/// config. In debug builds only, `WRIT_UPDATER_ENDPOINT` (and optional
-/// `WRIT_UPDATER_PUBKEY`) override the endpoint for the local test loop.
+/// config. In debug builds only, `JOTRA_UPDATER_ENDPOINT` (and optional
+/// `JOTRA_UPDATER_PUBKEY`) override the endpoint for the local test loop.
 ///
 /// The override branch is compiled out of release builds: a release binary
 /// must never let an environment variable redirect the update source or the
@@ -436,18 +436,18 @@ fn emit_phase(app: &AppHandle, phase: &UpdatePhase) {
 fn build_updater(app: &AppHandle) -> tauri_plugin_updater::Result<tauri_plugin_updater::Updater> {
     #[cfg(debug_assertions)]
     {
-        if let Ok(endpoint) = std::env::var("WRIT_UPDATER_ENDPOINT") {
+        if let Ok(endpoint) = std::env::var("JOTRA_UPDATER_ENDPOINT") {
             match url::Url::parse(&endpoint) {
                 Ok(parsed) => {
                     let mut builder = updater_builder(app).endpoints(vec![parsed])?;
-                    if let Ok(pubkey) = std::env::var("WRIT_UPDATER_PUBKEY") {
+                    if let Ok(pubkey) = std::env::var("JOTRA_UPDATER_PUBKEY") {
                         builder = builder.pubkey(pubkey);
                     }
                     tracing::warn!("using debug-only updater endpoint override");
                     return builder.build();
                 }
                 Err(e) => {
-                    tracing::warn!(error = %e, "invalid WRIT_UPDATER_ENDPOINT; ignoring override");
+                    tracing::warn!(error = %e, "invalid JOTRA_UPDATER_ENDPOINT; ignoring override");
                 }
             }
         }
@@ -566,7 +566,7 @@ mod tests {
     fn appimage_tree(root: &Path) -> PathBuf {
         let bin = root.join("usr").join("bin");
         std::fs::create_dir_all(&bin).unwrap();
-        let exe = bin.join("writ-tauri");
+        let exe = bin.join("jotra-tauri");
         std::fs::write(&exe, b"").unwrap();
         exe
     }
@@ -575,7 +575,7 @@ mod tests {
     fn a_marker_at_the_root_of_the_install_tree_makes_the_install_managed() {
         let dir = tempfile::tempdir().unwrap();
         let exe = appimage_tree(dir.path());
-        let appimage = dir.path().join("Writ.AppImage");
+        let appimage = dir.path().join("Jotra.AppImage");
         assert!(!read_install_facts(&exe, Some(&appimage), true).package_manager_marker);
 
         std::fs::write(dir.path().join(PACKAGE_MANAGER_MARKER), "pacman\n").unwrap();
@@ -587,7 +587,7 @@ mod tests {
     #[test]
     fn a_marker_above_the_install_tree_is_not_read() {
         let dir = tempfile::tempdir().unwrap();
-        let exe = appimage_tree(&dir.path().join("writ"));
+        let exe = appimage_tree(&dir.path().join("jotra"));
         std::fs::write(dir.path().join(PACKAGE_MANAGER_MARKER), "pacman\n").unwrap();
         assert!(!read_install_facts(&exe, None, true).package_manager_marker);
     }
@@ -612,7 +612,7 @@ mod tests {
         let exe = appimage_tree(&dir.path().join("mounted"));
         let locked = dir.path().join("locked");
         std::fs::create_dir(&locked).unwrap();
-        let appimage = locked.join("Writ.AppImage");
+        let appimage = locked.join("Jotra.AppImage");
         std::fs::write(&appimage, b"").unwrap();
 
         let writable = read_install_facts(&exe, Some(&appimage), true);

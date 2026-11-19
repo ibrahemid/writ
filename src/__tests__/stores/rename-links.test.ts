@@ -304,7 +304,7 @@ describe("a rename that carries the links", () => {
     expect(renameLinksStore.skippedNotes()).toMatchObject([
       {
         name: "Reader.md",
-        reason: "could be linking to Note.md, which Writ does not list.",
+        reason: "could be linking to Note.md, which Jotra does not list.",
       },
     ]);
   });

@@ -1,62 +1,62 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
-use tempfile::TempDir;
-use writ_core::config::WritConfig;
-use writ_core::events::bus::EventBus;
-use writ_core::preview::ContentRendererRegistry;
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
-use writ_tauri_lib::commands::buffer::save_buffer_content_inner;
-use writ_tauri_lib::commands::file::open_file_from_path;
-use writ_tauri_lib::commands::inbox::{clear_inbox_inner, set_inbox_path_from_path};
-use writ_tauri_lib::preview::handler::RenderCache;
-use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::{
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::EventBus;
+use jotra_core::preview::ContentRendererRegistry;
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::notes_index::NotesIndexStore;
+use jotra_tauri_lib::commands::buffer::save_buffer_content_inner;
+use jotra_tauri_lib::commands::file::open_file_from_path;
+use jotra_tauri_lib::commands::inbox::{clear_inbox_inner, set_inbox_path_from_path};
+use jotra_tauri_lib::preview::handler::RenderCache;
+use jotra_tauri_lib::quit::QuitState;
+use jotra_tauri_lib::security::{
     canonicalize_for_authorization, canonicalize_root, AuthorizedPaths,
 };
-use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::create_ignore_set;
+use jotra_tauri_lib::state::AppState;
+use jotra_tauri_lib::watcher::handler::create_ignore_set;
+use tempfile::TempDir;
 
 fn make_state(dir: &TempDir) -> AppState {
-    let writ_dir = dir.path().to_path_buf();
-    let buffers_dir = writ_dir.join("buffers");
+    let jotra_dir = dir.path().to_path_buf();
+    let buffers_dir = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
 
-    let notes_root = writ_dir.join("Writ");
+    let notes_root = jotra_dir.join("Jotra");
     std::fs::create_dir_all(&notes_root).expect("notes folder");
-    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+    let notes_root = jotra_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
     let store = BufferStore::new(conn, buffers_dir.clone());
 
-    let config_path = writ_dir.join("config.toml");
+    let config_path = jotra_dir.join("config.toml");
     let config_store = ConfigStore::new(config_path);
 
     let note_history = Arc::new(
-        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+        jotra_storage::note_history::NoteHistoryStore::open(&jotra_dir).expect("version store"),
     );
 
     AppState {
         store: Mutex::new(store),
         config_store,
-        config: Mutex::new(WritConfig::default()),
-        writ_dir,
+        config: Mutex::new(JotraConfig::default()),
+        jotra_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: std::sync::atomic::AtomicBool::new(false),
         menu_apps: std::sync::Mutex::new(None),
-        retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+        retitle_watch: std::sync::Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -82,7 +82,7 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
-        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+        command_usage: jotra_storage::command_usage::CommandUsageStore::new(
             open_database(&db_path).expect("usage db"),
         ),
         config_diagnostics: std::sync::Mutex::new(Vec::new()),
@@ -92,9 +92,9 @@ fn make_state(dir: &TempDir) -> AppState {
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
-        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(
-            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+            jotra_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
@@ -107,7 +107,7 @@ fn collect_arrivals(state: &AppState) -> Arc<Mutex<Vec<String>>> {
     let received: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let received_clone = received.clone();
     state.event_bus.subscribe(move |event| {
-        if let writ_core::events::bus::WritEvent::InboxFileArrived { path } = event {
+        if let jotra_core::events::bus::JotraEvent::InboxFileArrived { path } = event {
             received_clone.lock().unwrap().push(path.clone());
         }
     });
@@ -124,7 +124,7 @@ fn set_inbox_canonicalizes_persists_and_starts_watcher() {
 
     assert_eq!(
         root,
-        writ_tauri_lib::security::canonicalize_root(inbox.path())
+        jotra_tauri_lib::security::canonicalize_root(inbox.path())
             .unwrap()
             .to_string_lossy()
     );
@@ -156,7 +156,7 @@ fn set_inbox_rejects_missing_path() {
     let state = make_state(&dir);
 
     assert!(
-        set_inbox_path_from_path(&state, std::path::Path::new("/nonexistent/writ-inbox")).is_err()
+        set_inbox_path_from_path(&state, std::path::Path::new("/nonexistent/jotra-inbox")).is_err()
     );
 }
 
@@ -277,7 +277,7 @@ fn open_file_rejects_inbox_path_after_clear() {
 
 /// Opens the file at `path` through the command layer and saves `content` into
 /// it, which is the only way a save reaches the ignore set.
-fn save_through_writ(state: &AppState, path: &std::path::Path, content: &str) {
+fn save_through_jotra(state: &AppState, path: &std::path::Path, content: &str) {
     let canonical = canonicalize_for_authorization(path).expect("canonical");
     state.authorized_paths.record_for_open(canonical.clone());
     let opened = open_file_from_path(state, &canonical).expect("open");
@@ -293,19 +293,19 @@ fn classify_arrival(
     state: &AppState,
     path: &std::path::Path,
     root: &std::path::Path,
-) -> Option<writ_core::events::bus::WritEvent> {
-    writ_tauri_lib::watcher::handler::classify_inbox_event(
+) -> Option<jotra_core::events::bus::JotraEvent> {
+    jotra_tauri_lib::watcher::handler::classify_inbox_event(
         path,
         root,
         &std::collections::HashSet::new(),
         &state.watcher_ignore,
-        writ_core::watcher::ignore::DEFAULT_IGNORE_TTL,
+        jotra_core::watcher::ignore::DEFAULT_IGNORE_TTL,
         std::time::Instant::now(),
     )
 }
 
 #[test]
-fn a_writ_save_of_notes_a_index_md_does_not_suppress_an_external_change_to_notes_b_index_md() {
+fn a_jotra_save_of_notes_a_index_md_does_not_suppress_an_external_change_to_notes_b_index_md() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
     let watched = TempDir::new().unwrap();
@@ -315,13 +315,13 @@ fn a_writ_save_of_notes_a_index_md_does_not_suppress_an_external_change_to_notes
 
     let a = root.join("a").join("index.md");
     std::fs::write(&a, "what a held").unwrap();
-    save_through_writ(&state, &a, "what writ wrote");
+    save_through_jotra(&state, &a, "what jotra wrote");
 
-    // b holds exactly the bytes Writ wrote into a, so the fingerprint cannot
+    // b holds exactly the bytes Jotra wrote into a, so the fingerprint cannot
     // tell the two files apart. Only the key can, and a bare `index.md` key
     // was shared by both.
     let b = root.join("b").join("index.md");
-    std::fs::write(&b, "what writ wrote").unwrap();
+    std::fs::write(&b, "what jotra wrote").unwrap();
 
     assert!(
         classify_arrival(&state, &b, &root).is_some(),
@@ -329,12 +329,12 @@ fn a_writ_save_of_notes_a_index_md_does_not_suppress_an_external_change_to_notes
     );
     assert!(
         classify_arrival(&state, &a, &root).is_none(),
-        "the file Writ saved is still its own write"
+        "the file Jotra saved is still its own write"
     );
 }
 
 #[test]
-fn one_writ_save_fanning_out_into_several_events_is_fully_suppressed() {
+fn one_jotra_save_fanning_out_into_several_events_is_fully_suppressed() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
     let watched = TempDir::new().unwrap();
@@ -342,7 +342,7 @@ fn one_writ_save_fanning_out_into_several_events_is_fully_suppressed() {
 
     let note = root.join("agent-output.md");
     std::fs::write(&note, "# from somewhere").unwrap();
-    save_through_writ(&state, &note, "# edited in writ");
+    save_through_jotra(&state, &note, "# edited in jotra");
 
     for attempt in 1..=3 {
         assert!(
@@ -361,31 +361,31 @@ fn editing_a_file_named_config_toml_in_the_watched_folder_does_not_suppress_a_re
 
     let note = root.join("config.toml");
     std::fs::write(&note, "theme = \"dark\"\n").unwrap();
-    save_through_writ(&state, &note, "theme = \"light\"\n");
+    save_through_jotra(&state, &note, "theme = \"light\"\n");
 
-    // The config file now holds what Writ wrote into the note, so the bytes
+    // The config file now holds what Jotra wrote into the note, so the bytes
     // match the stamp and the namespace is all that separates them.
     let config_path = state.config_store.path().to_path_buf();
     std::fs::write(&config_path, "theme = \"light\"\n").unwrap();
 
-    let event = writ_tauri_lib::watcher::handler::classify_watch_event(
+    let event = jotra_tauri_lib::watcher::handler::classify_watch_event(
         &config_path,
         &config_path,
         &state.watcher_ignore,
-        writ_core::watcher::ignore::DEFAULT_IGNORE_TTL,
+        jotra_core::watcher::ignore::DEFAULT_IGNORE_TTL,
         std::time::Instant::now(),
     );
     assert!(
         matches!(
             event,
-            Some(writ_core::events::bus::WritEvent::ConfigChanged { .. })
+            Some(jotra_core::events::bus::JotraEvent::ConfigChanged { .. })
         ),
         "a note named config.toml must not stand in for the config file: {event:?}"
     );
 }
 
 #[test]
-fn a_writ_config_write_does_not_suppress_an_external_edit_to_config_toml_in_the_watched_folder() {
+fn a_jotra_config_write_does_not_suppress_an_external_edit_to_config_toml_in_the_watched_folder() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
     let watched = TempDir::new().unwrap();

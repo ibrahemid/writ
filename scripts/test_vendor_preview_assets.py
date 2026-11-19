@@ -40,7 +40,7 @@ def notices(katex_name: str = "KaTeX 0.16.22", fonts: tuple[str, ...] = FONTS) -
 
 class VendorPreviewAssetsTests(unittest.TestCase):
     def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory(prefix="writ-vendor-assets-test-")
+        tmp = tempfile.TemporaryDirectory(prefix="jotra-vendor-assets-test-")
         self.addCleanup(tmp.cleanup)
         self.root = pathlib.Path(tmp.name)
         self.write("package.json", json.dumps({"devDependencies": {"katex": "0.16.22", "mermaid": "11.15.0"}}))

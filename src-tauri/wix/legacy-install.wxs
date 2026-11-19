@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Fragment>
+        <Property Id="LEGACYINSTALLDIR" Secure="yes">
+            <RegistrySearch Id="LegacyInstallDirSearch"
+                            Root="HKCU"
+                            Key="Software\Ibrahem ID\Writ"
+                            Name="InstallDir"
+                            Type="directory" />
+        </Property>
+
+        <Property Id="LEGACYLAUNCHER" Secure="yes">
+            <DirectorySearch Id="LegacyDefaultInstallDirSearch"
+                             Path="[ProgramFiles64Folder]Writ"
+                             Depth="0">
+                <FileSearch Id="LegacyLauncherSearch"
+                            Name="writ-tauri.exe" />
+            </DirectorySearch>
+        </Property>
+
+        <SetProperty Id="INSTALLDIR"
+                     Action="SetInstallDirFromLegacyKey"
+                     Value="[LEGACYINSTALLDIR]"
+                     Before="SetInstallDirFromLegacyLauncher"
+                     Sequence="both">NOT Installed AND NOT INSTALLDIR AND LEGACYINSTALLDIR</SetProperty>
+
+        <SetProperty Id="INSTALLDIR"
+                     Action="SetInstallDirFromLegacyLauncher"
+                     Value="[ProgramFiles64Folder]Writ\"
+                     Before="CostFinalize"
+                     Sequence="both">NOT Installed AND NOT INSTALLDIR AND LEGACYLAUNCHER</SetProperty>
+
+        <DirectoryRef Id="ProgramMenuFolder">
+            <Directory Id="LegacyProgramsFolder" Name="Writ" />
+        </DirectoryRef>
+
+        <DirectoryRef Id="INSTALLDIR">
+            <Component Id="LegacyShortcuts" Guid="BADF7A83-7D05-4999-A072-D039570F8E37">
+                <CreateFolder />
+                <RemoveFile Id="LegacyStartMenuShortcut"
+                            Directory="LegacyProgramsFolder"
+                            Name="Writ.lnk"
+                            On="install" />
+                <RemoveFolder Id="LegacyProgramsFolder"
+                              Directory="LegacyProgramsFolder"
+                              On="install" />
+                <RemoveFile Id="LegacyDesktopShortcut"
+                            Directory="DesktopFolder"
+                            Name="Writ.lnk"
+                            On="install" />
+                <RemoveFile Id="LegacyUninstallShortcut"
+                            Directory="INSTALLDIR"
+                            Name="Uninstall Writ.lnk"
+                            On="install" />
+            </Component>
+
+            <Component Id="LegacyLauncher" Guid="7E25E986-7C0A-439A-8477-CADA64838A09">
+                <File Id="LegacyLauncherExe"
+                      Name="writ-tauri.exe"
+                      Source="$(sys.SOURCEFILEDIR)..\binaries\writ-tauri.exe"
+                      KeyPath="yes"
+                      Checksum="yes" />
+            </Component>
+        </DirectoryRef>
+    </Fragment>
+</Wix>

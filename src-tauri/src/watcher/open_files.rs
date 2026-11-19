@@ -1,6 +1,6 @@
 //! Following the folder an open file lives in.
 //!
-//! Writ opens files from anywhere: a git repository, `~/Downloads`, a folder
+//! Jotra opens files from anywhere: a git repository, `~/Downloads`, a folder
 //! a colleague shared. Those files are edited by other programs too, and a tab
 //! that has not looked at its file since it was opened is a tab that will
 //! overwrite somebody else's work on its next save. The notes folder already
@@ -10,7 +10,7 @@
 //! Two rules shape the whole module.
 //!
 //! **The parent folder is watched, never the file.** An atomic replace —
-//! which is how Writ, git, and every careful editor write — creates a new file
+//! which is how Jotra, git, and every careful editor write — creates a new file
 //! and renames it over the old one, so the inode a file-scoped watch is bound
 //! to stops being the file. The watch survives the rename only if it is on the
 //! folder (<https://docs.rs/notify/latest/notify/>).
@@ -32,6 +32,16 @@
 //! what changed during the restart.
 
 use crate::poison::recover_poison;
+use jotra_core::events::bus::{EventBus, JotraEvent};
+use jotra_core::notes::guard::DiskState;
+use jotra_core::notes::identity::{classify_delete, DeleteVerdict, FileIdentity};
+use jotra_core::notes::Writer;
+use jotra_core::text_encoding::TextEncoding;
+use jotra_core::watcher::change_event::{modification_is_news, ExternalChange};
+use jotra_core::watcher::ignore::{SuppressDecision, DEFAULT_IGNORE_TTL};
+use jotra_core::watcher::pending::{hold_window, HeldRemoval, HoldAnswer, PendingRemovals};
+use jotra_core::watcher::sighting::{LastSeen, DEFAULT_SIGHTING_TTL};
+use jotra_storage::paths::file_name_only;
 use notify::{Config as NotifyConfig, RecursiveMode, Watcher};
 use notify_debouncer_mini::{
     new_debouncer_opt, Config as DebounceConfig, DebounceEventResult, DebouncedEvent,
@@ -42,16 +52,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
-use writ_core::events::bus::{EventBus, WritEvent};
-use writ_core::notes::guard::DiskState;
-use writ_core::notes::identity::{classify_delete, DeleteVerdict, FileIdentity};
-use writ_core::notes::Writer;
-use writ_core::text_encoding::TextEncoding;
-use writ_core::watcher::change_event::{modification_is_news, ExternalChange};
-use writ_core::watcher::ignore::{SuppressDecision, DEFAULT_IGNORE_TTL};
-use writ_core::watcher::pending::{hold_window, HeldRemoval, HoldAnswer, PendingRemovals};
-use writ_core::watcher::sighting::{LastSeen, DEFAULT_SIGHTING_TTL};
-use writ_storage::paths::file_name_only;
 
 use super::handler::{ignore_key_path, IgnoreSet};
 use super::moves::{FileTracking, MoveOutcome};
@@ -588,10 +588,10 @@ pub fn open_delivery(
     pending: &RefCell<PendingRemovals>,
     tracking: &FileTracking,
     now: Instant,
-) -> (Vec<PathBuf>, HashSet<String>, Vec<WritEvent>) {
+) -> (Vec<PathBuf>, HashSet<String>, Vec<JotraEvent>) {
     let batch: Vec<PathBuf> = events.iter().map(|event| event.path.clone()).collect();
     let mut told: HashSet<String> = HashSet::new();
-    let mut answers: Vec<WritEvent> = Vec::new();
+    let mut answers: Vec<JotraEvent> = Vec::new();
     for (note_id, event) in answer_held_removals(&mut pending.borrow_mut(), &batch, tracking, now) {
         told.insert(note_id);
         answers.push(event);
@@ -607,7 +607,7 @@ fn report_delivery(
     pending: &RefCell<PendingRemovals>,
     tracking: &FileTracking,
     now: Instant,
-) -> Vec<WritEvent> {
+) -> Vec<JotraEvent> {
     // A rename arrives as the old path leaving and the new one appearing in
     // the same window, so the batch is where a file that moved is found again.
     let (batch, mut told, mut messages) = open_delivery(events, pending, tracking, now);
@@ -649,7 +649,7 @@ fn report_delivery(
 /// looked at cannot be skipped by the caller that matters. An event describing
 /// the file exactly as this watcher last found it is dropped before anything
 /// opens it, which is what keeps a classification's own read from arriving
-/// back as the next change on Linux ([`writ_core::watcher::sighting`]).
+/// back as the next change on Linux ([`jotra_core::watcher::sighting`]).
 pub fn report_open_file_event(
     path: &Path,
     note_id: &str,
@@ -658,7 +658,7 @@ pub fn report_open_file_event(
     ttl: Duration,
     now: Instant,
     vanished: &VanishedContext<'_>,
-) -> Option<WritEvent> {
+) -> Option<JotraEvent> {
     if !seen.is_news(
         path,
         super::handler::look_at(path),
@@ -673,13 +673,13 @@ pub fn report_open_file_event(
 /// Classifies a change to an open note's file into a domain event, or
 /// suppresses it.
 ///
-/// A write Writ itself made is suppressed. The stamp is keyed under the source
+/// A write Jotra itself made is suppressed. The stamp is keyed under the source
 /// namespace by the file's resolved path and fingerprints the bytes (W3), so a
 /// save of this file cannot swallow somebody else's edit to it, and a save of
 /// a file with the same name in another folder cannot swallow anything at all.
 ///
 /// `disk_hash` is the digest the editor compares its document against
-/// ([`writ_core::hash::comparison_digest_hex`]), taken from the same read the
+/// ([`jotra_core::hash::comparison_digest_hex`]), taken from the same read the
 /// fingerprint used. A file whose bytes are not on this machine is reported
 /// without one and without being read: reading it would make the sync provider
 /// fetch it (ADR-028 §5).
@@ -690,7 +690,7 @@ pub fn classify_open_file_event(
     ttl: Duration,
     now: Instant,
     vanished: &VanishedContext<'_>,
-) -> Option<WritEvent> {
+) -> Option<JotraEvent> {
     // A path holding a directory holds no note, the same as a path holding
     // nothing. Dropping the event instead left the tab on a dead id, saving
     // into `Is a directory` rather than saying the file is gone.
@@ -699,7 +699,7 @@ pub fn classify_open_file_event(
     };
 
     // Size and modification time before any read: a file that still matches
-    // what Writ last read or wrote is that file, and a tab on a busy log would
+    // what Jotra last read or wrote is that file, and a tab on a busy log would
     // otherwise read it whole on every event (TS-11). A file marked deleted
     // is one that came back, which is news whatever it holds.
     let files = &vanished.tracking.files;
@@ -709,7 +709,7 @@ pub fn classify_open_file_event(
         return None;
     }
 
-    let key = writ_core::watcher::ignore::source_key(&ignore_key_path(path));
+    let key = jotra_core::watcher::ignore::source_key(&ignore_key_path(path));
     let current_bytes = if metadata.len() > WATCHER_READ_CAP_BYTES {
         let decision = {
             let mut set = recover_poison(ignore_set.lock(), "watcher::open_files::classify");
@@ -739,10 +739,10 @@ pub fn classify_open_file_event(
 ///
 /// A watcher reports what the filesystem told it, and a report can be about a
 /// write the tab already read: FSEvents delivers on its own schedule, so the
-/// write that seeded a file can arrive after Writ opened it, and on a loaded
+/// write that seeded a file can arrive after Jotra opened it, and on a loaded
 /// runner it does. Handing that to the tab shows the user an external-change
 /// notice for the bytes in front of them. Whether it is news is
-/// [`modification_is_news`]'s call, on the digest Writ recorded when it last
+/// [`modification_is_news`]'s call, on the digest Jotra recorded when it last
 /// read or wrote the file.
 ///
 /// A tab with nothing on record gets the report: with no digest to compare
@@ -753,13 +753,13 @@ fn open_note_modification(
     bytes: Option<&[u8]>,
     came_back: bool,
     vanished: &VanishedContext<'_>,
-) -> Option<WritEvent> {
+) -> Option<JotraEvent> {
     let last_read = vanished
         .tracking
         .files
         .last_disk_state(note_id)
         .map(|state| state.hash);
-    let on_disk = bytes.map(writ_core::hash::sha256_bytes);
+    let on_disk = bytes.map(jotra_core::hash::sha256_bytes);
     if !modification_is_news(last_read, on_disk, came_back) {
         return None;
     }
@@ -778,9 +778,9 @@ fn open_note_modification(
 /// reading the file: past it the tab opened the file in large-file mode at
 /// best, and a server appending to it would otherwise cost a whole read per
 /// debounce window.
-pub const WATCHER_READ_CAP_BYTES: u64 = writ_core::file_ops::THRESHOLD_LARGE_BYTES;
+pub const WATCHER_READ_CAP_BYTES: u64 = jotra_core::file_ops::THRESHOLD_LARGE_BYTES;
 
-/// Whether `metadata` still describes the file as Writ last read or wrote it.
+/// Whether `metadata` still describes the file as Jotra last read or wrote it.
 ///
 /// Both the size and the modification time have to agree, and a record with
 /// no modification time matches nothing. An edit that keeps the size and
@@ -802,8 +802,9 @@ pub fn matches_last_look(last: Option<&DiskState>, metadata: &std::fs::Metadata)
 /// reading it would make the sync provider fetch it (ADR-028 §5). A file past
 /// [`WATCHER_READ_CAP_BYTES`] is reported without being read as well.
 fn readable_bytes(path: &Path) -> Option<Vec<u8>> {
-    if writ_core::notes::guard::is_not_downloaded(writ_storage::buffer_store::dataless_flags(path))
-    {
+    if jotra_core::notes::guard::is_not_downloaded(jotra_storage::buffer_store::dataless_flags(
+        path,
+    )) {
         return None;
     }
     if std::fs::metadata(path).is_ok_and(|m| m.len() > WATCHER_READ_CAP_BYTES) {
@@ -828,8 +829,8 @@ pub fn open_note_modified(
     bytes: Option<&[u8]>,
     encoding: TextEncoding,
     writer: Option<Writer>,
-) -> WritEvent {
-    WritEvent::BufferExternal {
+) -> JotraEvent {
+    JotraEvent::BufferExternal {
         buffer_id: note_id.to_string(),
         path: path.to_string_lossy().into_owned(),
         change: ExternalChange::Modified,
@@ -840,8 +841,8 @@ pub fn open_note_modified(
 }
 
 /// The event telling `note_id`'s tab its file is gone.
-pub fn open_note_removed(note_id: &str, path: &Path) -> WritEvent {
-    WritEvent::BufferExternal {
+pub fn open_note_removed(note_id: &str, path: &Path) -> JotraEvent {
+    JotraEvent::BufferExternal {
         buffer_id: note_id.to_string(),
         path: path.to_string_lossy().into_owned(),
         change: ExternalChange::Removed,
@@ -857,8 +858,13 @@ pub fn open_note_removed(note_id: &str, path: &Path) -> WritEvent {
 /// being about the file it is holding. The digest is the file's, read at its
 /// new home: a move changes no bytes, so this is what the tab already has, and
 /// carrying it is what lets the editor confirm that rather than assume it.
-pub fn open_note_moved(note_id: &str, from: &Path, to: &Path, encoding: TextEncoding) -> WritEvent {
-    WritEvent::BufferExternal {
+pub fn open_note_moved(
+    note_id: &str,
+    from: &Path,
+    to: &Path,
+    encoding: TextEncoding,
+) -> JotraEvent {
+    JotraEvent::BufferExternal {
         buffer_id: note_id.to_string(),
         path: from.to_string_lossy().into_owned(),
         change: ExternalChange::Moved,
@@ -879,7 +885,7 @@ pub struct VanishedContext<'a> {
     /// The identity probe and the record of what each tab's file is.
     pub tracking: &'a FileTracking,
     /// Where a removal no delivery has answered yet waits for the one that
-    /// might ([`writ_core::watcher::pending`]). A rename whose halves land in
+    /// might ([`jotra_core::watcher::pending`]). A rename whose halves land in
     /// different windows is a deletion to the first of them, and this is what
     /// keeps that answer from being given before the second window has been.
     pub hold: &'a RefCell<PendingRemovals>,
@@ -928,7 +934,7 @@ impl Candidates {
 /// of names answers the same way on any volume rather than in `read_dir`
 /// order. Order decides the answer where the same file is honestly at more
 /// than one path, because a hard link is one file with two names. A path under
-/// `notes_root` sorts ahead of the rest, since that is the one Writ keeps a
+/// `notes_root` sorts ahead of the rest, since that is the one Jotra keeps a
 /// note in; the test is textual, so where the folder watch and the notes root
 /// name one directory differently it does not fire and lexical order alone
 /// decides. Past `MAX_FOLDER_CANDIDATES` which names are in the set is the
@@ -986,7 +992,7 @@ pub fn open_note_vanished(
     note_id: &str,
     path: &Path,
     vanished: &VanishedContext<'_>,
-) -> Option<WritEvent> {
+) -> Option<JotraEvent> {
     let files = vanished.tracking.files.as_ref();
     let Some(before) = files.identity_of(note_id) else {
         // Nothing to compare against, so nothing can be claimed about where
@@ -1079,7 +1085,7 @@ fn announce_move(
     note_id: &str,
     from: &Path,
     to: &Path,
-) -> Option<WritEvent> {
+) -> Option<JotraEvent> {
     let files = tracking.files.as_ref();
     // Each answer is published after the record has been asked to agree with
     // it, never before: a save released while the row still names the old path
@@ -1132,14 +1138,14 @@ fn announce_move(
 /// always after the record has been made to agree with it: a save waiting on
 /// this note reads the row the moment it is released, and a release that came
 /// first would hand it the path the file has left
-/// ([`writ_core::watcher::pending::RemovalHolds`]).
+/// ([`jotra_core::watcher::pending::RemovalHolds`]).
 pub fn answer_held_removals(
     pending: &mut PendingRemovals,
     batch: &[PathBuf],
     tracking: &FileTracking,
     now: Instant,
-) -> Vec<(String, WritEvent)> {
-    let mut answers: Vec<(String, WritEvent)> = Vec::new();
+) -> Vec<(String, JotraEvent)> {
+    let mut answers: Vec<(String, JotraEvent)> = Vec::new();
     for note_id in pending.note_ids() {
         let Some(held) = pending.held(&note_id) else {
             continue;
@@ -1149,7 +1155,7 @@ pub fn answer_held_removals(
         // the id that says "the same file": something else at the path is a
         // stranger, and a save that landed here during the hold is a new file
         // too, so neither ends the wait. Asking the path whether anything is
-        // there would end it for both, and for Writ's own stamped write the
+        // there would end it for both, and for Jotra's own stamped write the
         // ignore set has already dropped the event that would tell the tab.
         let same_file_back = held.identity.as_ref().is_some_and(|before| {
             tracking
@@ -1208,7 +1214,7 @@ pub fn answer_held_removals(
 /// holding that file.
 ///
 /// The notes watcher has done the filtering by this point — ignored names,
-/// other clients' folders, and Writ's own stamped writes are all gone — so
+/// other clients' folders, and Jotra's own stamped writes are all gone — so
 /// this reads the file for its digest and builds the event, without asking the
 /// ignore set a second question it has already answered.
 pub fn open_note_change(
@@ -1216,7 +1222,7 @@ pub fn open_note_change(
     path: &Path,
     removed: bool,
     vanished: &VanishedContext<'_>,
-) -> Option<WritEvent> {
+) -> Option<JotraEvent> {
     if removed {
         return open_note_vanished(note_id, path, vanished);
     }
@@ -1242,7 +1248,7 @@ mod tests {
     fn announced_after_the_wait(
         pending: &RefCell<PendingRemovals>,
         tracking: &FileTracking,
-    ) -> Vec<WritEvent> {
+    ) -> Vec<JotraEvent> {
         let deadline = Instant::now() + hold_window(DEBOUNCE_WINDOW);
         answer_held_removals(&mut pending.borrow_mut(), &[], tracking, deadline)
             .into_iter()
@@ -1386,7 +1392,7 @@ mod tests {
     #[test]
     fn a_note_nested_inside_the_notes_folder_adds_no_second_watch() {
         let notes = tempdir().unwrap();
-        let nested = notes.path().join("projects").join("writ");
+        let nested = notes.path().join("projects").join("jotra");
         fs::create_dir_all(&nested).unwrap();
         let note = nested.join("plan.md");
         fs::write(&note, b"x").unwrap();
@@ -1715,7 +1721,10 @@ mod tests {
         registry.watch_parent_of("note-1", &open);
         let registry = Arc::new(Mutex::new(registry));
 
-        let batch = [closed.clone(), notes.path().join("closed.md.writ-test-tmp")];
+        let batch = [
+            closed.clone(),
+            notes.path().join("closed.md.jotra-test-tmp"),
+        ];
         let named: Vec<String> = batch
             .iter()
             .filter_map(|path| OpenNotes::note_at(&registry, path))
@@ -1742,7 +1751,7 @@ mod tests {
     #[derive(Default)]
     struct RecordingFiles {
         identity: Option<FileIdentity>,
-        last: Option<writ_core::notes::guard::DiskState>,
+        last: Option<jotra_core::notes::guard::DiskState>,
         notes_root: Option<PathBuf>,
         moved: Arc<Mutex<Vec<(PathBuf, PathBuf)>>>,
         removed: Arc<Mutex<Vec<PathBuf>>>,
@@ -1791,7 +1800,7 @@ mod tests {
             self.changed.lock().unwrap().push(note_id.to_string());
         }
 
-        fn last_disk_state(&self, _note_id: &str) -> Option<writ_core::notes::guard::DiskState> {
+        fn last_disk_state(&self, _note_id: &str) -> Option<jotra_core::notes::guard::DiskState> {
             self.last
         }
 
@@ -1804,10 +1813,10 @@ mod tests {
         }
     }
 
-    /// What Writ would have recorded after reading or writing `bytes`.
-    fn last_read(bytes: &[u8]) -> writ_core::notes::guard::DiskState {
-        writ_core::notes::guard::DiskState {
-            hash: writ_core::hash::sha256_bytes(bytes),
+    /// What Jotra would have recorded after reading or writing `bytes`.
+    fn last_read(bytes: &[u8]) -> jotra_core::notes::guard::DiskState {
+        jotra_core::notes::guard::DiskState {
+            hash: jotra_core::hash::sha256_bytes(bytes),
             size: bytes.len() as u64,
             mtime: None,
         }
@@ -1816,7 +1825,7 @@ mod tests {
     /// A probe that never answers, which is a volume with no file id on it.
     struct BlindProbe;
 
-    impl writ_core::notes::identity::IdentityProbe for BlindProbe {
+    impl jotra_core::notes::identity::IdentityProbe for BlindProbe {
         fn identity_of(&self, _path: &Path) -> Option<FileIdentity> {
             None
         }
@@ -1829,7 +1838,7 @@ mod tests {
         asked: Arc<Mutex<Vec<PathBuf>>>,
     }
 
-    impl writ_core::notes::identity::IdentityProbe for CountingProbe {
+    impl jotra_core::notes::identity::IdentityProbe for CountingProbe {
         fn identity_of(&self, path: &Path) -> Option<FileIdentity> {
             self.asked.lock().unwrap().push(path.to_path_buf());
             crate::watcher::identity::read_identity(path)
@@ -1912,7 +1921,7 @@ mod tests {
             &rename, &registry, &ignore, &mut seen, &pending, &tracking, later,
         );
         match second.as_slice() {
-            [WritEvent::BufferExternal {
+            [JotraEvent::BufferExternal {
                 buffer_id,
                 change,
                 new_path,
@@ -1957,7 +1966,7 @@ mod tests {
         );
 
         match event {
-            Some(WritEvent::BufferExternal { change, .. }) => {
+            Some(JotraEvent::BufferExternal { change, .. }) => {
                 assert_eq!(change, ExternalChange::Removed)
             }
             other => panic!("expected a removal, got {other:?}"),
@@ -2037,7 +2046,7 @@ mod tests {
             Instant::now(),
         );
         match answers.as_slice() {
-            [(note_id, WritEvent::BufferExternal { change, .. })] => {
+            [(note_id, JotraEvent::BufferExternal { change, .. })] => {
                 assert_eq!(note_id, "note-1");
                 assert_eq!(change, &ExternalChange::Removed);
             }
@@ -2075,7 +2084,7 @@ mod tests {
         );
 
         match event {
-            Some(WritEvent::BufferExternal {
+            Some(JotraEvent::BufferExternal {
                 buffer_id,
                 path,
                 change,
@@ -2089,7 +2098,7 @@ mod tests {
                 assert_eq!(new_path.as_deref(), Some(to.to_string_lossy().as_ref()));
                 assert_eq!(
                     disk_hash,
-                    Some(writ_core::hash::comparison_digest_hex(b"body")),
+                    Some(jotra_core::hash::comparison_digest_hex(b"body")),
                     "a move changes no bytes, so the digest is the one the tab already holds"
                 );
             }
@@ -2143,7 +2152,7 @@ mod tests {
 
         let announced = announced_after_the_wait(&pending, &tracking);
         match announced.as_slice() {
-            [WritEvent::BufferExternal { change, .. }] => {
+            [JotraEvent::BufferExternal { change, .. }] => {
                 assert_eq!(change, &ExternalChange::Removed);
             }
             other => panic!("expected a removal, got {other:?}"),
@@ -2195,7 +2204,7 @@ mod tests {
         match answers.as_slice() {
             [(
                 note_id,
-                WritEvent::BufferExternal {
+                JotraEvent::BufferExternal {
                     change, new_path, ..
                 },
             )] => {
@@ -2226,14 +2235,14 @@ mod tests {
         let away = dir.path().join("away");
         fs::create_dir(&away).unwrap();
         let parked = away.join("parked.md");
-        fs::write(&path, b"as writ left it").unwrap();
+        fs::write(&path, b"as jotra left it").unwrap();
         let identity = crate::watcher::identity::read_identity(&path);
         // A rename keeps the inode, so what comes back is the file on record.
         fs::rename(&path, &parked).unwrap();
 
         let (tracking, files) = tracking_with(RecordingFiles {
             identity,
-            last: Some(last_read(b"as writ left it")),
+            last: Some(last_read(b"as jotra left it")),
             notes_root: Some(dir.path().to_path_buf()),
             ..RecordingFiles::default()
         });
@@ -2265,20 +2274,20 @@ mod tests {
     #[test]
     fn another_file_at_the_path_is_not_the_note_s_file_come_back() {
         // The note's file is gone and something else holds its path: another
-        // program's write, or a save Writ let through during the hold. The
+        // program's write, or a save Jotra let through during the hold. The
         // path answers the same for both and for the file itself, so the path
         // is not what is asked — the id is. Forgetting the hold here would
         // leave the tab bound to a file it never opened, and the next save
         // would write over it (ADR-033 §12).
         let dir = tempdir().unwrap();
         let path = dir.path().join("note.md");
-        fs::write(&path, b"as writ left it").unwrap();
+        fs::write(&path, b"as jotra left it").unwrap();
         let retired = crate::watcher::identity::read_identity(&path);
         fs::remove_file(&path).unwrap();
 
         let (tracking, files) = tracking_with(RecordingFiles {
             identity: retired,
-            last: Some(last_read(b"as writ left it")),
+            last: Some(last_read(b"as jotra left it")),
             notes_root: Some(dir.path().to_path_buf()),
             ..RecordingFiles::default()
         });
@@ -2304,7 +2313,7 @@ mod tests {
         assert_eq!(answers.len(), 1, "saw {answers:?}");
         assert!(matches!(
             &answers[0].1,
-            WritEvent::BufferExternal {
+            JotraEvent::BufferExternal {
                 change: ExternalChange::Removed,
                 ..
             }
@@ -2343,7 +2352,7 @@ mod tests {
         );
 
         match event {
-            Some(WritEvent::BufferExternal {
+            Some(JotraEvent::BufferExternal {
                 change, new_path, ..
             }) => {
                 assert_eq!(change, ExternalChange::Moved);
@@ -2390,7 +2399,7 @@ mod tests {
         );
 
         match event {
-            Some(WritEvent::BufferExternal {
+            Some(JotraEvent::BufferExternal {
                 change, disk_hash, ..
             }) => {
                 assert_eq!(change, ExternalChange::Modified);
@@ -2457,7 +2466,7 @@ mod tests {
         assert!(
             matches!(
                 event,
-                Some(WritEvent::BufferExternal {
+                Some(JotraEvent::BufferExternal {
                     change: ExternalChange::Modified,
                     ..
                 })
@@ -2484,7 +2493,7 @@ mod tests {
 
         assert!(matches!(
             event,
-            Some(WritEvent::BufferExternal {
+            Some(JotraEvent::BufferExternal {
                 change: ExternalChange::Removed,
                 ..
             })
@@ -2539,7 +2548,7 @@ mod tests {
 
         assert!(matches!(
             event,
-            Some(WritEvent::BufferExternal {
+            Some(JotraEvent::BufferExternal {
                 change: ExternalChange::Modified,
                 ..
             })
@@ -2557,7 +2566,7 @@ mod tests {
         path: &Path,
         loaded: &[u8],
         was_removed: bool,
-    ) -> (Option<WritEvent>, Arc<RecordingFiles>) {
+    ) -> (Option<JotraEvent>, Arc<RecordingFiles>) {
         let (tracking, files) = tracking_with(RecordingFiles {
             last: Some(last_read(loaded)),
             was_removed,
@@ -2581,7 +2590,7 @@ mod tests {
 
     #[test]
     fn a_report_carrying_the_bytes_the_tab_loaded_is_not_news() {
-        // The write that seeded a file can be delivered after Writ opened and
+        // The write that seeded a file can be delivered after Jotra opened and
         // read it: FSEvents coalesces and delivers on its own schedule, and on
         // a loaded machine the seed lands behind the open. Handing it to the
         // tab shows the user an external-change notice for the bytes they are
@@ -2614,7 +2623,7 @@ mod tests {
 
         assert!(matches!(
             event,
-            Some(WritEvent::BufferExternal {
+            Some(JotraEvent::BufferExternal {
                 change: ExternalChange::Modified,
                 ..
             })
@@ -2638,7 +2647,7 @@ mod tests {
 
         assert!(matches!(
             event,
-            Some(WritEvent::BufferExternal {
+            Some(JotraEvent::BufferExternal {
                 change: ExternalChange::Modified,
                 ..
             })
@@ -2691,9 +2700,9 @@ mod tests {
     }
 
     /// What `open_note_vanished` decided, as the change and the path it named.
-    fn verdict_of(event: &Option<WritEvent>) -> Option<(&ExternalChange, Option<&str>)> {
+    fn verdict_of(event: &Option<JotraEvent>) -> Option<(&ExternalChange, Option<&str>)> {
         match event {
-            Some(WritEvent::BufferExternal {
+            Some(JotraEvent::BufferExternal {
                 change, new_path, ..
             }) => Some((change, new_path.as_deref())),
             _ => None,
@@ -2843,7 +2852,7 @@ mod tests {
         );
 
         let mut seen = LastSeen::new();
-        let told: Vec<WritEvent> = (0..11)
+        let told: Vec<JotraEvent> = (0..11)
             .filter_map(|_| {
                 report_open_file_event(
                     &file,
@@ -2913,12 +2922,12 @@ mod tests {
         );
     }
 
-    /// What Writ would have recorded for `file` as it stands: its size and
+    /// What Jotra would have recorded for `file` as it stands: its size and
     /// modification time, and a digest the size-and-time check never needs.
-    fn recorded_as_it_stands(file: &Path) -> writ_core::notes::guard::DiskState {
+    fn recorded_as_it_stands(file: &Path) -> jotra_core::notes::guard::DiskState {
         let metadata = fs::metadata(file).unwrap();
-        writ_core::notes::guard::DiskState {
-            hash: writ_core::hash::sha256_bytes(b"not read"),
+        jotra_core::notes::guard::DiskState {
+            hash: jotra_core::hash::sha256_bytes(b"not read"),
             size: metadata.len(),
             mtime: metadata.modified().ok(),
         }
@@ -2986,7 +2995,7 @@ mod tests {
         assert!(
             matches!(
                 event,
-                Some(WritEvent::BufferExternal {
+                Some(JotraEvent::BufferExternal {
                     change: ExternalChange::Modified,
                     disk_hash: Some(_),
                     ..
@@ -3046,7 +3055,7 @@ mod tests {
         assert!(
             matches!(
                 event,
-                Some(WritEvent::BufferExternal {
+                Some(JotraEvent::BufferExternal {
                     change: ExternalChange::Modified,
                     disk_hash: None,
                     ..
@@ -3057,7 +3066,7 @@ mod tests {
     }
 
     #[test]
-    fn a_save_writ_just_made_to_a_file_past_the_read_cap_stays_quiet() {
+    fn a_save_jotra_just_made_to_a_file_past_the_read_cap_stays_quiet() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("huge.log");
         let handle = fs::File::create(&file).unwrap();
@@ -3066,8 +3075,8 @@ mod tests {
         let ignore = make_set();
         let now = Instant::now();
         ignore.lock().unwrap().record(
-            writ_core::watcher::ignore::source_key(&ignore_key_path(&file)),
-            b"what writ wrote",
+            jotra_core::watcher::ignore::source_key(&ignore_key_path(&file)),
+            b"what jotra wrote",
             now,
         );
         let (batch, tracking) = nothing_tracked(&file);
@@ -3106,7 +3115,7 @@ mod tests {
                 tracking: &tracking,
             },
         ) {
-            Some(WritEvent::BufferExternal {
+            Some(JotraEvent::BufferExternal {
                 buffer_id,
                 path,
                 change,
@@ -3120,7 +3129,7 @@ mod tests {
                 assert_eq!(new_path, None);
                 assert_eq!(
                     disk_hash,
-                    Some(writ_core::hash::comparison_digest_hex(
+                    Some(jotra_core::hash::comparison_digest_hex(
                         b"written by somebody else\n"
                     ))
                 );
@@ -3130,13 +3139,13 @@ mod tests {
     }
 
     #[test]
-    fn a_save_writ_just_made_never_comes_back_as_somebody_elses_edit() {
+    fn a_save_jotra_just_made_never_comes_back_as_somebody_elses_edit() {
         // The failure this closes looks exactly like data loss from the
         // outside: every save would raise a change on the file it just wrote,
         // and the tab would offer to reload the text it is already showing.
         let dir = tempdir().unwrap();
         let file = dir.path().join("shared.md");
-        let bytes = b"# written in writ\n";
+        let bytes = b"# written in jotra\n";
         fs::write(&file, bytes).unwrap();
 
         let set = make_set();
@@ -3144,7 +3153,7 @@ mod tests {
         {
             let mut guard = set.lock().unwrap();
             guard.record(
-                writ_core::watcher::ignore::source_key(&ignore_key_path(&file)),
+                jotra_core::watcher::ignore::source_key(&ignore_key_path(&file)),
                 bytes,
                 now,
             );
@@ -3164,7 +3173,7 @@ mod tests {
                 },
             )
             .is_none(),
-            "writ's own write must not arrive back as an external change"
+            "jotra's own write must not arrive back as an external change"
         );
     }
 
@@ -3174,15 +3183,15 @@ mod tests {
         // moment the file stops holding those bytes.
         let dir = tempdir().unwrap();
         let file = dir.path().join("shared.md");
-        fs::write(&file, b"# written in writ\n").unwrap();
+        fs::write(&file, b"# written in jotra\n").unwrap();
 
         let set = make_set();
         let now = Instant::now();
         {
             let mut guard = set.lock().unwrap();
             guard.record(
-                writ_core::watcher::ignore::source_key(&ignore_key_path(&file)),
-                b"# written in writ\n",
+                jotra_core::watcher::ignore::source_key(&ignore_key_path(&file)),
+                b"# written in jotra\n",
                 now,
             );
         }
@@ -3202,7 +3211,7 @@ mod tests {
                 },
             )
             .is_some(),
-            "an edit landing right after writ's own save must still surface"
+            "an edit landing right after jotra's own save must still surface"
         );
     }
 
@@ -3224,7 +3233,7 @@ mod tests {
                 tracking: &tracking,
             },
         ) {
-            Some(WritEvent::BufferExternal {
+            Some(JotraEvent::BufferExternal {
                 change, disk_hash, ..
             }) => {
                 assert_eq!(change, ExternalChange::Removed);

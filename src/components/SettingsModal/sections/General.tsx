@@ -36,7 +36,7 @@ import { SettingsRow, SwitchRow } from "../SettingsRow";
  */
 function fallbackLine(displayPath: string, reason: NotesFallbackReason): string {
   const why =
-    reason === "holds_writ_data" ? "holds Writ's own data" : "could not be used";
+    reason === "holds_jotra_data" ? "holds Jotra's own data" : "could not be used";
   return `The folder in your settings ${why}, so files are in ${displayPath}.`;
 }
 

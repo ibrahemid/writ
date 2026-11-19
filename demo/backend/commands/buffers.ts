@@ -34,10 +34,10 @@ import {
   ERR_READ_NOT_UTF8,
 } from "../../../src/lib/read-failure";
 
-/** writ_core::notes::TEXT_EXTENSIONS: what a typed name may switch a note to. */
+/** jotra_core::notes::TEXT_EXTENSIONS: what a typed name may switch a note to. */
 const TEXT_EXTENSIONS = ["md", "markdown", "txt", "text"];
 
-/** writ_core::notes::NAME_IS_EMPTY. */
+/** jotra_core::notes::NAME_IS_EMPTY. */
 export const NAME_IS_EMPTY = "That name is empty.";
 
 /** notices::THIRD_PARTY_NOTICES_TITLE. */
@@ -71,7 +71,7 @@ function describeReadRefusal(error: unknown): string {
   throw error;
 }
 
-/** writ_core::notes::name_is_taken. */
+/** jotra_core::notes::name_is_taken. */
 const formatNameTaken = (name: string) => `A file named "${name}" is already there.`;
 
 /** notes::note_failure_message: a refusal's own sentence, else the code the editor words for itself. */
@@ -83,7 +83,7 @@ function describeNoteFailure(error: unknown): string {
   return `ERR_WRITE_FAILED: ${error instanceof Error ? error.message : String(error)}`;
 }
 
-/** writ_core::notes::explicit_extension: a known text extension the typed name ends in. */
+/** jotra_core::notes::explicit_extension: a known text extension the typed name ends in. */
 function findExplicitExtension(name: string): [string, string] | null {
   const trimmed = name.trim();
   const dot = trimmed.lastIndexOf(".");
@@ -93,7 +93,7 @@ function findExplicitExtension(name: string): [string, string] | null {
   return typedStem.trim() && known ? [typedStem, known] : null;
 }
 
-/** writ_core::notes::rename_stem: the typed name without the note's own extension, sanitised. */
+/** jotra_core::notes::rename_stem: the typed name without the note's own extension, sanitised. */
 function deriveRenameStem(current: string, typed: string): string | null {
   const text = typed.trim();
   const ext = extension(current);
@@ -107,7 +107,7 @@ function deriveRenameStem(current: string, typed: string): string | null {
 
 export function createBufferCommands(state: DemoState): CommandTable {
   const { folder, index, history, buffers } = state;
-  // Files Writ named itself whose first line may still rename them.
+  // Files Jotra named itself whose first line may still rename them.
   const renameable = new Set<string>();
 
   /** commands::buffer::read_buffer_content: the file's text in the note's encoding, or the hex dump a binary file opened as. */
@@ -377,7 +377,7 @@ export function createBufferCommands(state: DemoState): CommandTable {
       return null;
     },
     open_third_party_notices: async (): Promise<Answer<"openThirdPartyNotices">> => {
-      const path = `${HOME}/.writ/generated/${NOTICES_TITLE}.md`;
+      const path = `${HOME}/.jotra/generated/${NOTICES_TITLE}.md`;
       const content = (await import("../../../THIRD-PARTY-NOTICES.md?raw")).default;
       return state.openGeneratedDocument(path, NOTICES_TITLE, content);
     },

@@ -1,22 +1,23 @@
 # Maintainer: ibrahemid <ibrahemid@gmail.com>
 pkgname=writ-bin
-_pkgname=writ
+_pkgname=jotra
+_legacy_name=writ
 pkgver=1.0.1
 pkgrel=1
-pkgdesc="Light text editor for any text file, with full-text search and inline Markdown"
+pkgdesc="Jotra, a light text editor for any text file, with full-text search and inline Markdown"
 arch=('x86_64')
 url="https://github.com/ibrahemid/writ"
 license=('MIT')
 makedepends=('minisign')
 depends=('glibc' 'fuse2' 'gtk3' 'webkit2gtk-4.1' 'alsa-lib')
 optdepends=('appimagelauncher: desktop integration for AppImages')
-provides=("${_pkgname}")
-conflicts=("${_pkgname}")
+provides=("${_pkgname}" "${_legacy_name}")
+conflicts=("${_pkgname}" "${_legacy_name}")
 options=('!strip')
 # The signature is saved without a .sig suffix, which makepkg would read as a
 # PGP signature; prepare() checks it with minisign instead.
-source=("${_pkgname}-${pkgver}.AppImage::${url}/releases/download/v${pkgver}/Writ_${pkgver}_amd64.AppImage"
-        "${_pkgname}-${pkgver}.AppImage.minisign::${url}/releases/download/v${pkgver}/Writ_${pkgver}_amd64.AppImage.sig"
+source=("${_pkgname}-${pkgver}.AppImage::${url}/releases/download/v${pkgver}/Jotra_${pkgver}_amd64.AppImage"
+        "${_pkgname}-${pkgver}.AppImage.minisign::${url}/releases/download/v${pkgver}/Jotra_${pkgver}_amd64.AppImage.sig"
         "LICENSE-${pkgver}::${url}/raw/v${pkgver}/LICENSE")
 noextract=("${_pkgname}-${pkgver}.AppImage")
 sha256sums=('4369ca3e4e5746b94debfaecc4b5add8f9e2f6589b6a2be8db64432c51d9be13'
@@ -38,42 +39,72 @@ prepare() {
 
 package() {
     local root="${srcdir}/squashfs-root"
+    local opt="/opt/${_pkgname}"
 
-    install -dm755 "${pkgdir}/opt/${_pkgname}/"
-    cp -r "${root}/"* "${pkgdir}/opt/${_pkgname}/"
-    # Writ reads this marker and leaves updates to pacman.
-    printf 'pacman\n' > "${pkgdir}/opt/${_pkgname}/.package-manager"
-    chmod -R u+rwX,go+rX,go-w "${pkgdir}/opt/${_pkgname}"
+    install -dm755 "${pkgdir}${opt}/"
+    cp -r "${root}/"* "${pkgdir}${opt}/"
+    # Jotra reads this marker and leaves updates to pacman.
+    printf 'pacman\n' > "${pkgdir}${opt}/.package-manager"
+    # The CLI picks its MCP dialect from the name it runs under, so the legacy
+    # command runs a copy that carries the legacy name.
+    if [ ! -e "${pkgdir}${opt}/usr/bin/${_legacy_name}" ]; then
+        cp "${pkgdir}${opt}/usr/bin/${_pkgname}" "${pkgdir}${opt}/usr/bin/${_legacy_name}"
+    fi
+    chmod -R u+rwX,go+rX,go-w "${pkgdir}${opt}"
 
-    # /usr/bin/writ is the CLI from the payload, not the GUI launcher, so
-    # `writ file.rs` and `... | writ` behave as documented. The CLI launches the
-    # app through AppRun rather than usr/bin/writ-tauri directly, because AppRun
-    # sources the bundled GTK hook the payload's libraries expect.
+    # /usr/bin/jotra and /usr/bin/writ are the CLI from the payload, not the GUI
+    # launcher, so `jotra file.rs` and `... | jotra` behave as documented. The
+    # CLI launches the app through AppRun rather than usr/bin/jotra-tauri
+    # directly, because AppRun sources the bundled GTK hook the payload's
+    # libraries expect.
     install -dm755 "${pkgdir}/usr/bin"
     cat > "${pkgdir}/usr/bin/${_pkgname}" <<EOF
 #!/bin/sh
-: "\${WRIT_GUI_BIN:=/opt/${_pkgname}/AppRun}"
-export WRIT_GUI_BIN
-exec "/opt/${_pkgname}/usr/bin/${_pkgname}" "\$@"
+: "\${JOTRA_GUI_BIN:=\${WRIT_GUI_BIN:-${opt}/AppRun}}"
+export JOTRA_GUI_BIN
+exec "${opt}/usr/bin/${_pkgname}" "\$@"
 EOF
-    chmod 755 "${pkgdir}/usr/bin/${_pkgname}"
+    cat > "${pkgdir}/usr/bin/${_legacy_name}" <<EOF
+#!/bin/sh
+: "\${JOTRA_GUI_BIN:=\${WRIT_GUI_BIN:-${opt}/AppRun}}"
+export JOTRA_GUI_BIN
+JOTRA_COMMAND_NAME=${_legacy_name}
+export JOTRA_COMMAND_NAME
+exec "${opt}/usr/bin/${_legacy_name}" "\$@"
+EOF
+    chmod 755 "${pkgdir}/usr/bin/${_pkgname}" "${pkgdir}/usr/bin/${_legacy_name}"
+
+    # AppRun finds its hooks from the directory it was started in, so the
+    # launcher paths exec it by its full path instead of linking to it.
+    cat > "${pkgdir}/usr/bin/${_pkgname}-tauri" <<EOF
+#!/bin/sh
+exec "${opt}/AppRun" "\$@"
+EOF
+    chmod 755 "${pkgdir}/usr/bin/${_pkgname}-tauri"
+    ln -s "${_pkgname}-tauri" "${pkgdir}/usr/bin/${_legacy_name}-tauri"
 
     # Tauri names the bundled entry and icons after the product and the main
-    # binary: Writ.desktop and writ-tauri.png. Both are renamed to writ here so
-    # the desktop entry, the icon it points at, and /usr/bin/writ agree.
-    install -Dm644 "${root}/usr/share/applications/Writ.desktop" \
-        "${pkgdir}/usr/share/applications/${_pkgname}.desktop"
-    sed -i -e "s|^Exec=.*|Exec=/opt/${_pkgname}/AppRun %U|" \
+    # binary: Jotra.desktop and jotra-tauri.png. Both are renamed to jotra here
+    # so the desktop entry, the icon it points at, and /usr/bin/jotra agree.
+    local applications="${pkgdir}/usr/share/applications"
+    install -Dm644 "${root}/usr/share/applications/Jotra.desktop" \
+        "${applications}/${_pkgname}.desktop"
+    sed -i -e "s|^Exec=.*|Exec=${opt}/AppRun %U|" \
         -e "s|^Icon=.*|Icon=${_pkgname}|" \
-        -e "s|^StartupWMClass=.*|StartupWMClass=writ-tauri|" \
-        "${pkgdir}/usr/share/applications/${_pkgname}.desktop"
+        -e "s|^StartupWMClass=.*|StartupWMClass=${_pkgname}-tauri|" \
+        "${applications}/${_pkgname}.desktop"
+    # The legacy desktop id stays installed and hidden, so default-app entries
+    # that name it keep resolving.
+    sed -e '/^NoDisplay=/d' -e '/^\[Desktop Entry\]$/a NoDisplay=true' \
+        "${applications}/${_pkgname}.desktop" > "${applications}/${_legacy_name}.desktop"
+    chmod 644 "${applications}/${_legacy_name}.desktop"
 
     local icon rel
     while IFS= read -r -d '' icon; do
-        rel="${icon#${root}/usr/share/icons/}"
+        rel="${icon#"${root}"/usr/share/icons/}"
         install -Dm644 "${icon}" \
             "${pkgdir}/usr/share/icons/${rel%/*}/${_pkgname}.png"
-    done < <(find "${root}/usr/share/icons" -name 'writ-tauri.png' -print0)
+    done < <(find "${root}/usr/share/icons" -name "${_pkgname}-tauri.png" -print0)
 
     install -Dm644 "${srcdir}/LICENSE-${pkgver}" \
         "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"

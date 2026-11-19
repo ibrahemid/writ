@@ -7,7 +7,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 // no redirects and the fragment never reaches the server, so the script below
 // sends a hash on to its topic's page.
 ---
-<Prose title="How Writ works" description="Opening and saving files, the folder, Markdown inline, search, the apps in Settings, the writ command, themes and shortcuts." path="/docs/" lead="The same facts in more detail live in the repo's docs folder.">
+<Prose title="How Jotra works" description="Opening and saving files, the folder, Markdown inline, search, the apps in Settings, the jotra command, themes and shortcuts." path="/docs/" lead="The same facts in more detail live in the repo's docs folder.">
   <ul>
     {DOCS_TOPICS.map((t) => (
       <li id={t.id}><a href={getDocsTopicHref(t, base)} data-topic>{t.title}</a>: {t.description}</li>

@@ -13,8 +13,8 @@ class MissingTokenError extends Error {
   }
 }
 
-const writTourBp = /--writ-site-bp-lg:\s*([^;]+);/.exec(tokensCss)?.[1]?.trim();
-if (!writTourBp) throw new MissingTokenError('--writ-site-bp-lg');
+const jotraTourBp = /--jotra-site-bp-lg:\s*([^;]+);/.exec(tokensCss)?.[1]?.trim();
+if (!jotraTourBp) throw new MissingTokenError('--jotra-site-bp-lg');
 
 const NOUNS = ['text', 'note', 'scratchpad', 'Markdown editor', 'journal', 'to-do list'];
 const repo = 'https://github.com/ibrahemid/writ';
@@ -25,15 +25,15 @@ const p = release.platforms;
 ---
 <Site
   title="The only text app you need"
-  description="Writ opens any text file and searches every file in its folder. A Markdown file renders inline as you type. Free, for macOS, Windows and Linux."
+  description="Jotra opens any text file and searches every file in its folder. A Markdown file renders inline as you type. Free, for macOS, Windows and Linux."
   path="/"
 >
   <Fragment slot="head">
-    <script is:inline define:vars={{ writTourBp }}>
+    <script is:inline define:vars={{ jotraTourBp }}>
       if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        document.documentElement.setAttribute('data-writ-intro', '');
-        if (window.matchMedia('(min-width: ' + writTourBp + ')').matches) {
-          document.documentElement.setAttribute('data-writ-tour', '');
+        document.documentElement.setAttribute('data-jotra-intro', '');
+        if (window.matchMedia('(min-width: ' + jotraTourBp + ')').matches) {
+          document.documentElement.setAttribute('data-jotra-tour', '');
         }
       }
     </script>
@@ -45,7 +45,7 @@ const p = release.platforms;
           <span class:list={['noun', { 'is-on': i === 0 }]} aria-hidden={i === 0 ? undefined : 'true'}>{n}</span>
         ))}</span><br /> app you need
       </h1>
-      <p class="hero-sub">Writ opens any text file and searches every file in its folder. A Markdown file renders inline as you type.</p>
+      <p class="hero-sub">Jotra opens any text file and searches every file in its folder. A Markdown file renders inline as you type.</p>
       <div class="hero-ctas">
         <a
           href={p.mac.pkg}
@@ -64,31 +64,31 @@ const p = release.platforms;
     </section>
     <div class="stage">
       <div class="hero-media wrap-media">
-        <LiveWindow alt="The Writ window: the folder in the sidebar and a Markdown file rendered inline, the line being edited showing its markup" />
+        <LiveWindow alt="The Jotra window: the folder in the sidebar and a Markdown file rendered inline, the line being edited showing its markup" />
       </div>
 
-      <Feature id="any-file" loop="any-file" title="Any file" capture="text-file" alt="A plain text to-do list open in Writ">
-        <p>A <code>.txt</code>, a log, a config or a Markdown file opens from your file manager or the <code>writ</code> command and saves back to its own path.</p>
+      <Feature id="any-file" loop="any-file" title="Any file" capture="text-file" alt="A plain text to-do list open in Jotra">
+        <p>A <code>.txt</code>, a log, a config or a Markdown file opens from your file manager or the <code>jotra</code> command and saves back to its own path.</p>
       </Feature>
 
-      <Feature id="markdown" loop="markdown" anchor="bottom" title="Markdown, inline" capture="markdown-inline" alt="A Markdown file in Writ with headings, checkboxes and a code block rendered in place" flip>
+      <Feature id="markdown" loop="markdown" anchor="bottom" title="Markdown, inline" capture="markdown-inline" alt="A Markdown file in Jotra with headings, checkboxes and a code block rendered in place" flip>
         <p>Headings, lists, links and checkboxes render in place, and the line you are editing shows its markup.</p>
       </Feature>
 
-      <Feature id="search" loop="search" title="Search" capture="search" alt="Writ's search listing every file in the folder that mentions compost, with the matching line">
+      <Feature id="search" loop="search" title="Search" capture="search" alt="Jotra's search listing every file in the folder that mentions compost, with the matching line">
         <p>One query matches file names and the text inside them.</p>
       </Feature>
 
-      <Feature id="apps" loop="apps" title="Apps" capture="apps" alt="Writ's Settings on the Apps section, with Graph switched on" flip>
+      <Feature id="apps" loop="apps" title="Apps" capture="apps" alt="Jotra's Settings on the Apps section, with Graph switched on" flip>
         <p>Connections, the graph, tags, chat, rewriting and connected programs are switches in Settings, and each has no menu item or panel until it is on.</p>
       </Feature>
 
-      <Feature id="graph" loop="graph" title="Graph" capture="graph-folder" alt="Writ with the graph open beside the file list: a search field and a folder legend above files drawn as colored dots with names on the most linked ones, joined by lines">
+      <Feature id="graph" loop="graph" title="Graph" capture="graph-folder" alt="Jotra with the graph open beside the file list: a search field and a folder legend above files drawn as colored dots with names on the most linked ones, joined by lines">
         <p>The graph draws each Markdown file in the folder as a dot and each link between two of them as a line, with a color per top-level folder and names on the open file and the most linked ones. Hovering a file lights its links. Typing a name lights the files that match, and a double-click or Enter opens one.</p>
       </Feature>
 
       <Feature id="versions" loop="versions" title="Versions" capture="versions" alt="The earlier versions of a file listed by time, one open beside the list with Restore this version under it" flip>
-        <p>Writ keeps a version of a file in its folder when it is saved, for up to 30 days, stored outside that folder. Revert To, in the File menu, lists them and restores the one you pick. Files over 2 MB are not versioned.</p>
+        <p>Jotra keeps a version of a file in its folder when it is saved, for up to 30 days, stored outside that folder. Revert To, in the File menu, lists them and restores the one you pick. Files over 2 MB are not versioned.</p>
       </Feature>
     </div>
 
@@ -107,7 +107,7 @@ const p = release.platforms;
     if (nouns.length < 2) return;
     class NounIntervalError extends Error {
       constructor(raw) {
-        super('The noun rotation reads --writ-site-motion-noun-interval as a time, and the page resolved it to "' + raw + '".');
+        super('The noun rotation reads --jotra-site-motion-noun-interval as a time, and the page resolved it to "' + raw + '".');
         this.name = 'NounIntervalError';
       }
     }
@@ -124,7 +124,7 @@ const p = release.platforms;
     // Read on each start: the token is 0ms under reduced motion, and the
     // bundler may rewrite 2400ms as 2.4s, so the unit is read, not assumed.
     function readInterval() {
-      var raw = getComputedStyle(slot).getPropertyValue('--writ-site-motion-noun-interval').trim();
+      var raw = getComputedStyle(slot).getPropertyValue('--jotra-site-motion-noun-interval').trim();
       var time = /^(\d*\.?\d+)(ms|s)$/.exec(raw);
       var interval = time ? Number(time[1]) * (time[2] === 'ms' ? 1 : 1000) : 0;
       if (!(interval > 0)) throw new NounIntervalError(raw);

@@ -41,7 +41,7 @@ export default function OutlineSection(props: Props) {
                   type="button"
                   class="right-panel-row right-panel-heading"
                   classList={{ "is-current": index() === current() }}
-                  style={{ "padding-left": `calc(var(--writ-space-3) + ${indentOf(heading)})` }}
+                  style={{ "padding-left": `calc(var(--jotra-space-3) + ${indentOf(heading)})` }}
                   data-level={heading.level}
                   aria-current={index() === current() ? "location" : undefined}
                   onClick={() => win.editor.requestReveal(props.bufferId, heading.line)}

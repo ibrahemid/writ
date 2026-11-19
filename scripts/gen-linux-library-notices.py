@@ -231,7 +231,7 @@ def render_section(
         "",
         "For three years from the date this AppImage was published, the complete "
         "corresponding source code of every library above, at the version listed, is "
-        "available from the Writ maintainer for no more than the cost of providing it. "
+        "available from the Jotra maintainer for no more than the cost of providing it. "
         f"Ask at {SOURCE_REQUESTS}. Ubuntu publishes the same sources: on Ubuntu 22.04, "
         "`apt-get source <package>=<version>` fetches them.",
         "",

@@ -6,11 +6,14 @@ from __future__ import annotations
 import os
 import pathlib
 import re
+import shlex
 import sys
 
 PKGBUILD_PATH = pathlib.Path("packaging/aur/writ-bin/PKGBUILD")
 SRCINFO_PATH = pathlib.Path("packaging/aur/writ-bin/.SRCINFO")
-PACKAGE_DESCRIPTION = "Light text editor for any text file, with full-text search and inline Markdown"
+PACKAGE_DESCRIPTION = "Jotra, a light text editor for any text file, with full-text search and inline Markdown"
+SCALAR_ASSIGNMENT = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=([^(\n][^\n]*)$", re.MULTILINE)
+VARIABLE_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 def get_env(name: str) -> str:
@@ -60,7 +63,36 @@ def bump_pkgbuild(version: str, sha_appimage: str, sha_license: str) -> None:
     print(f"Bumped {PKGBUILD_PATH} to {version}")
 
 
-def srcinfo_text(version: str, sha_appimage: str, sha_license: str) -> str:
+def read_pkgbuild_scalars(text: str) -> dict[str, str]:
+    scalars: dict[str, str] = {}
+    for name, value in SCALAR_ASSIGNMENT.findall(text):
+        try:
+            words = shlex.split(value, comments=True)
+        except ValueError as error:
+            raise PkgbuildFormatError(f"PKGBUILD assigns {name} an unbalanced value: {error}") from error
+        if len(words) == 1:
+            scalars[name] = words[0]
+    return scalars
+
+
+def read_pkgbuild_array(text: str, name: str) -> list[str]:
+    match = re.search(rf"^{re.escape(name)}=\(([^)]*)\)", text, flags=re.MULTILINE)
+    if match is None:
+        raise PkgbuildFormatError(f"PKGBUILD is missing {name}")
+    scalars = read_pkgbuild_scalars(text)
+
+    def expand(reference: re.Match[str]) -> str:
+        variable = reference.group(1)
+        if variable not in scalars:
+            raise PkgbuildFormatError(f"PKGBUILD {name} names ${{{variable}}}, which it does not assign one word")
+        return scalars[variable]
+
+    return [VARIABLE_REFERENCE.sub(expand, word) for word in shlex.split(match.group(1), comments=True)]
+
+
+def srcinfo_text(pkgbuild: str, version: str, sha_appimage: str, sha_license: str) -> str:
+    provides = "".join(f"\tprovides = {name}\n" for name in read_pkgbuild_array(pkgbuild, "provides"))
+    conflicts = "".join(f"\tconflicts = {name}\n" for name in read_pkgbuild_array(pkgbuild, "conflicts"))
     return (
         "pkgbase = writ-bin\n"
         f"\tpkgdesc = {PACKAGE_DESCRIPTION}\n"
@@ -76,18 +108,18 @@ def srcinfo_text(version: str, sha_appimage: str, sha_license: str) -> str:
         "\tdepends = webkit2gtk-4.1\n"
         "\tdepends = alsa-lib\n"
         "\toptdepends = appimagelauncher: desktop integration for AppImages\n"
-        "\tprovides = writ\n"
-        "\tconflicts = writ\n"
+        f"{provides}"
+        f"{conflicts}"
         "\toptions = !strip\n"
-        f"\tsource = writ-{version}.AppImage::"
+        f"\tsource = jotra-{version}.AppImage::"
         f"https://github.com/ibrahemid/writ/releases/download/v{version}/"
-        f"Writ_{version}_amd64.AppImage\n"
-        f"\tsource = writ-{version}.AppImage.minisign::"
+        f"Jotra_{version}_amd64.AppImage\n"
+        f"\tsource = jotra-{version}.AppImage.minisign::"
         f"https://github.com/ibrahemid/writ/releases/download/v{version}/"
-        f"Writ_{version}_amd64.AppImage.sig\n"
+        f"Jotra_{version}_amd64.AppImage.sig\n"
         f"\tsource = LICENSE-{version}::"
         f"https://github.com/ibrahemid/writ/raw/v{version}/LICENSE\n"
-        f"\tnoextract = writ-{version}.AppImage\n"
+        f"\tnoextract = jotra-{version}.AppImage\n"
         f"\tsha256sums = {sha_appimage}\n"
         "\tsha256sums = SKIP\n"
         f"\tsha256sums = {sha_license}\n"
@@ -97,7 +129,12 @@ def srcinfo_text(version: str, sha_appimage: str, sha_license: str) -> str:
 
 
 def write_srcinfo(version: str, sha_appimage: str, sha_license: str) -> None:
-    SRCINFO_PATH.write_text(srcinfo_text(version, sha_appimage, sha_license))
+    try:
+        text = srcinfo_text(PKGBUILD_PATH.read_text(), version, sha_appimage, sha_license)
+    except PkgbuildFormatError as error:
+        print(error, file=sys.stderr)
+        sys.exit(1)
+    SRCINFO_PATH.write_text(text)
     print(f"Wrote {SRCINFO_PATH}")
 
 

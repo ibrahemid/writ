@@ -3,7 +3,7 @@
 //! Quitting inside the autosave debounce window used to lose whatever was
 //! typed in it: nothing asks the webview to write before the process goes
 //! away. The exit path now asks, and waits — but only as far as
-//! [`writ_core::recovery::QUIT_FLUSH_TIMEOUT`], because a quit that hangs on
+//! [`jotra_core::recovery::QUIT_FLUSH_TIMEOUT`], because a quit that hangs on
 //! an unresponsive webview is a worse failure than a quit that loses the last
 //! debounce window.
 //!
@@ -16,7 +16,7 @@
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
-use writ_core::recovery::should_force_exit;
+use jotra_core::recovery::should_force_exit;
 
 /// How often the wait re-reads the flag. Short enough that a confirmation
 /// costs the user no perceptible part of the quit.

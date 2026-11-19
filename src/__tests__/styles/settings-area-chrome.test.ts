@@ -26,7 +26,7 @@ const sheets = AREA.map((rel) => [rel, readFileSync(resolve(process.cwd(), rel),
 
 describe("the settings area follows the interface text size", () => {
   it("letter-spaces no label, and shouts at none", () => {
-    // The baseline's token table is explicit: --writ-ui-tracking is 0 and UI
+    // The baseline's token table is explicit: --jotra-ui-tracking is 0 and UI
     // labels are never tracked or upper-cased.
     const tracked = sheets
       .filter(([, css]) =>
@@ -94,16 +94,16 @@ describe("the accent row's pitch survives the bigger hit box", () => {
 
   it("keeps swatch to swatch at the distance it was", () => {
     const row = rule(".settings-accents");
-    const pitch = local(row, "--writ-accent-pitch");
-    const box = local(row, "--writ-accent-box");
+    const pitch = local(row, "--jotra-accent-pitch");
+    const box = local(row, "--jotra-accent-box");
 
     expect(pitch).toBe(SWATCH_PITCH);
     expect(box).toBeGreaterThanOrEqual(24);
-    expect(row).toMatch(/gap:\s*calc\(var\(--writ-accent-pitch[^)]*\) - var\(--writ-accent-box/);
+    expect(row).toMatch(/gap:\s*calc\(var\(--jotra-accent-pitch[^)]*\) - var\(--jotra-accent-box/);
 
     const swatch = rule(".settings-accent");
-    expect(swatch).toMatch(/width:\s*var\(--writ-accent-box/);
-    expect(swatch).toMatch(/height:\s*var\(--writ-accent-box/);
+    expect(swatch).toMatch(/width:\s*var\(--jotra-accent-box/);
+    expect(swatch).toMatch(/height:\s*var\(--jotra-accent-box/);
   });
 });
 
@@ -114,7 +114,7 @@ describe("the two app-level banners share one layer", () => {
       "src/components/NotesMigrationReport/NotesMigrationReport.css",
     ]) {
       const css = readFileSync(resolve(process.cwd(), rel), "utf8");
-      expect(css, rel).toContain("z-index: var(--writ-z-banner)");
+      expect(css, rel).toContain("z-index: var(--jotra-z-banner)");
     }
   });
 });

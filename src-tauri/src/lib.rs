@@ -1,4 +1,6 @@
 pub mod app_menu;
+#[cfg(target_os = "macos")]
+mod bundle_rename;
 pub mod bus_subscribers;
 pub mod capture;
 pub mod commands;
@@ -11,6 +13,8 @@ pub mod heartbeat;
 pub mod hotkey;
 pub mod instance;
 pub mod links;
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod linux_rename;
 pub mod logging;
 pub mod menu;
 pub mod navigation;
@@ -31,15 +35,17 @@ pub mod state;
 pub mod title_bar;
 pub mod watcher;
 pub mod window_state;
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+mod windows_rename;
 pub mod workspace_index;
 pub mod write_review;
 
-use events::{emit_event, WritFrontendEvent};
+use events::{emit_event, JotraFrontendEvent};
+use jotra_core::startup::{StartupFailure, StartupStage};
 use poison::recover_poison;
 use state::AppState;
 use tauri::{Listener, Manager};
 use tracing::info;
-use writ_core::startup::{StartupFailure, StartupStage};
 
 /// Writes everything the next launch needs before the process goes away.
 ///
@@ -141,7 +147,7 @@ fn drop_point(
 ///
 /// The walk reads every note, and a folder of a few thousand would hold the
 /// caller for seconds. An empty index reconciles to a full one, which is what
-/// makes deleting `writ.db` safe.
+/// makes deleting `jotra.db` safe.
 ///
 /// `gate` keeps one walk at a time. The sweep the notes watcher raises during
 /// a sync catch-up can arrive again while the last walk is still running, and
@@ -154,14 +160,14 @@ fn drop_point(
 /// The walk retires itself the moment the notes folder moves: one that
 /// finished against the old folder would prune every row the move re-keyed.
 /// The generation and the folder are taken per walk, from `root`, so the one
-/// that follows reads the folder Writ holds now, including a walk owed by a
+/// that follows reads the folder Jotra holds now, including a walk owed by a
 /// request the move made while the old walk ran.
 pub(crate) fn spawn_notes_reconcile(
-    index: std::sync::Arc<writ_storage::notes_index::NotesIndexStore>,
+    index: std::sync::Arc<jotra_storage::notes_index::NotesIndexStore>,
     cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    gate: std::sync::Arc<writ_core::watcher::reconcile::ReconcileGate>,
+    gate: std::sync::Arc<jotra_core::watcher::reconcile::ReconcileGate>,
     root: impl Fn() -> std::path::PathBuf + Send + 'static,
-    bus: std::sync::Arc<writ_core::events::bus::EventBus>,
+    bus: std::sync::Arc<jotra_core::events::bus::EventBus>,
 ) {
     if !gate.request() {
         return;
@@ -173,11 +179,11 @@ pub(crate) fn spawn_notes_reconcile(
 /// one more for every request that arrived while the last one ran, each over
 /// the folder `root` names when it starts.
 fn reconcile_until_settled(
-    index: &writ_storage::notes_index::NotesIndexStore,
+    index: &jotra_storage::notes_index::NotesIndexStore,
     cancel: &std::sync::atomic::AtomicBool,
-    gate: &writ_core::watcher::reconcile::ReconcileGate,
+    gate: &jotra_core::watcher::reconcile::ReconcileGate,
     root: &dyn Fn() -> std::path::PathBuf,
-    bus: &writ_core::events::bus::EventBus,
+    bus: &jotra_core::events::bus::EventBus,
 ) {
     use std::sync::atomic::Ordering;
 
@@ -185,7 +191,7 @@ fn reconcile_until_settled(
         let root = root();
         let generation = index.generation();
         let cancelled = || cancel.load(Ordering::Relaxed) || index.generation() != generation;
-        let outcome = index.reconcile(&root, &cancelled, &writ_storage::notes_index::is_dataless);
+        let outcome = index.reconcile(&root, &cancelled, &jotra_storage::notes_index::is_dataless);
         match outcome {
             Ok(outcome) => {
                 info!(
@@ -268,7 +274,7 @@ fn reveal_from_dock(window: &tauri::WebviewWindow) {
 
 /// Brings the main window up once per launch, whoever asks first.
 ///
-/// Writ starts its window hidden to kill the cold-start flash (PR #152), which
+/// Jotra starts its window hidden to kill the cold-start flash (PR #152), which
 /// makes showing it a step that has to happen rather than one that already
 /// did. Two callers own that step between them — the frontend after its first
 /// paint, and the timer behind it — and the claim in [`AppState`] is what
@@ -323,7 +329,7 @@ pub fn claim_reveal(
 /// it where they put it.
 ///
 /// The timer runs for the first seconds of a launch, and a dismissal inside
-/// those seconds is still a dismissal: without this, hiding Writ right after
+/// those seconds is still a dismissal: without this, hiding Jotra right after
 /// opening it would bring it straight back.
 pub fn note_window_dismissed(app: &tauri::AppHandle) {
     app.state::<AppState>()
@@ -340,7 +346,7 @@ pub fn note_window_dismissed(app: &tauri::AppHandle) {
 /// off-screen.
 fn restore_main_window_geometry(
     window: &tauri::WebviewWindow,
-    cfg: &writ_core::config::WindowConfig,
+    cfg: &jotra_core::config::WindowConfig,
 ) {
     // Work areas rather than full monitor rects: a restored window must not
     // land under the taskbar or the menu bar.
@@ -396,30 +402,31 @@ fn restore_main_window_geometry(
 }
 
 pub fn run() {
-    let writ_dir =
-        match state::resolve_writ_dir(std::env::var("WRIT_DATA_DIR").ok(), dirs::home_dir()) {
-            Ok(dir) => dir,
-            Err(error) => startup_failure::abort_with_report(
-                &StartupFailure::new(
-                    StartupStage::DataDirectory,
-                    error.to_string(),
-                    None,
-                    startup_failure::timestamp(),
-                ),
+    #[cfg(target_os = "windows")]
+    let app_user_model_id = windows_rename::set_app_user_model_id();
+    let jotra_dir = match state::locate_data_folder() {
+        Ok(data_folder) => data_folder.folder,
+        Err(error) => startup_failure::abort_with_report(
+            &StartupFailure::new(
+                StartupStage::DataDirectory,
+                error.to_string(),
                 None,
+                startup_failure::timestamp(),
             ),
-        };
+            None,
+        ),
+    };
 
     // Runs before anything opens the database: SQLite's write-ahead log does
     // not survive a sync provider. The report goes to the temporary directory
     // because the logs directory is inside the folder being turned down.
-    let verdict = startup::data_dir_verdict(&writ_dir, dirs::home_dir().as_deref(), None);
-    if verdict != writ_core::startup::DataDirVerdict::Ok {
+    let verdict = startup::data_dir_verdict(&jotra_dir, dirs::home_dir().as_deref(), None);
+    if verdict != jotra_core::startup::DataDirVerdict::Ok {
         startup_failure::abort_with_report(
             &StartupFailure::new(
                 StartupStage::DataDirectoryLocation,
-                writ_core::startup::data_dir_refusal_message(&verdict),
-                Some(writ_dir.clone()),
+                jotra_core::startup::data_dir_refusal_message(&verdict),
+                Some(jotra_dir.clone()),
                 startup_failure::timestamp(),
             ),
             None,
@@ -427,27 +434,31 @@ pub fn run() {
     }
 
     // Before the logs, the database or anything else in the folder is
-    // touched: a launch that finds another Writ on this folder hands its
+    // touched: a launch that finds another Jotra on this folder hands its
     // paths over and ends here, so two processes never write the same notes.
-    let instance_lock = instance::claim_or_hand_over(&writ_dir);
+    let instance_lock = instance::claim_or_hand_over(&jotra_dir);
 
-    let logs_dir = writ_dir.join("logs");
+    let logs_dir = jotra_dir.join("logs");
     // Installed first: setting the hook touches nothing, while opening the
     // log file can fail on the same unwritable directory.
     logging::panic_handler::install_panic_handler(&logs_dir);
     let mut log_guard = logging::init_logging(&logs_dir);
 
-    info!("writ starting");
+    info!("jotra starting");
+    #[cfg(target_os = "windows")]
+    if let Err(error) = app_user_model_id {
+        tracing::warn!(%error, "the taskbar app id was not set");
+    }
     let instance_lock = match instance_lock {
         Ok(lock) => {
-            // The instance any `writ --wait` left waiting has ended, and so
+            // The instance any `jotra --wait` left waiting has ended, and so
             // have its tabs.
-            writ_storage::instance::clear_waits(&writ_dir);
+            jotra_storage::instance::clear_waits(&jotra_dir);
             // The `get_context` calls whose answers nobody took have stopped
             // waiting too.
-            writ_storage::open_context::clear_answers(&writ_dir);
+            jotra_storage::open_context::clear_answers(&jotra_dir);
             // So have the held writes.
-            writ_storage::write_review::clear_reviews(&writ_dir);
+            jotra_storage::write_review::clear_reviews(&jotra_dir);
             Some(lock)
         }
         Err(error) => {
@@ -455,6 +466,9 @@ pub fn run() {
             None
         }
     };
+    #[cfg(target_os = "macos")]
+    let (instance_lock, bundle_per_user_steps) =
+        bundle_rename::rename_at_launch(&jotra_dir, instance_lock, &mut log_guard);
 
     let app_state = match AppState::initialize() {
         Ok(app_state) => app_state,
@@ -465,7 +479,7 @@ pub fn run() {
             // names and the remedy under it, and `StartupStage::AppState`
             // would tell the user to fix the folder's permissions.
             let refused = error
-                .downcast_ref::<writ_core::startup::DataDirRefused>()
+                .downcast_ref::<jotra_core::startup::DataDirRefused>()
                 .is_some();
             let (stage, report_dir) = if refused {
                 (StartupStage::DataDirectoryLocation, None)
@@ -477,15 +491,15 @@ pub fn run() {
                 &StartupFailure::new(
                     stage,
                     error.to_string(),
-                    Some(writ_dir.clone()),
+                    Some(jotra_dir.clone()),
                     startup_failure::timestamp(),
                 ),
                 report_dir,
             )
         }
     };
-    let config_path = app_state.writ_dir.join("config.toml");
-    let pending_path = writ_storage::pending_clients::path(&app_state.writ_dir);
+    let config_path = app_state.jotra_dir.join("config.toml");
+    let pending_path = jotra_storage::pending_clients::path(&app_state.jotra_dir);
     let watcher_ignore = app_state.watcher_ignore.clone();
 
     #[cfg(not(any(target_os = "macos", target_os = "ios")))]
@@ -496,10 +510,10 @@ pub fn run() {
                 .skip(1)
                 .map(std::ffi::OsString::from)
                 .collect();
-            let request = writ_core::instance::OpenRequest {
-                links: writ_core::writ_link::link_args(args.iter().cloned()),
+            let request = jotra_core::instance::OpenRequest {
+                links: jotra_core::jotra_link::link_args(args.iter().cloned()),
                 paths: instance::launch_paths(args),
-                ..writ_core::instance::OpenRequest::default()
+                ..jotra_core::instance::OpenRequest::default()
             };
             instance::deliver_forwarded(app, &request);
         }));
@@ -512,7 +526,7 @@ pub fn run() {
         // or an inert about: page, so a script cannot set top.location to an
         // external URL and carry note text out in the query string (TS-02).
         .plugin(
-            tauri::plugin::Builder::<tauri::Wry>::new("writ-navguard")
+            tauri::plugin::Builder::<tauri::Wry>::new("jotra-navguard")
                 .on_navigation(|webview, url| {
                     navigation::is_allowed_navigation(
                         url.as_str(),
@@ -532,11 +546,11 @@ pub fn run() {
         // commands is granted to the webview.
         .plugin(
             tauri_plugin_autostart::Builder::new()
-                .arg(writ_core::startup::LOGIN_LAUNCH_ARG)
+                .arg(jotra_core::startup::LOGIN_LAUNCH_ARG)
                 .build(),
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .register_asynchronous_uri_scheme_protocol("writ-preview", preview::handler::serve)
+        .register_asynchronous_uri_scheme_protocol("jotra-preview", preview::handler::serve)
         .on_page_load(|webview, payload| {
             dictation::window::cancel_on_page_load(
                 webview.app_handle(),
@@ -758,11 +772,19 @@ pub fn run() {
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
+            #[cfg(target_os = "macos")]
+            if let Some(steps) = bundle_per_user_steps {
+                bundle_rename::spawn_per_user_steps(&handle, steps);
+            }
+            #[cfg(target_os = "windows")]
+            windows_rename::spawn_rename_step(&handle, windows_rename::CurrentUserRegistry);
+            #[cfg(target_os = "linux")]
+            linux_rename::spawn_rename_steps(&handle);
 
             // Started by the login item: the window stays hidden until the
             // chord, the Dock or a second launch asks for it, so neither
             // startup reveal below may show it.
-            if writ_core::startup::is_login_launch(std::env::args_os().skip(1)) {
+            if jotra_core::startup::is_login_launch(std::env::args_os().skip(1)) {
                 note_window_dismissed(&handle);
                 info!("started at login; the window stays hidden");
             }
@@ -823,7 +845,7 @@ pub fn run() {
                 if count > 0 {
                     info!(count, "files opened from OS via argv");
                 }
-                let links = writ_core::writ_link::link_args(std::env::args_os().skip(1));
+                let links = jotra_core::jotra_link::link_args(std::env::args_os().skip(1));
                 links::follow(&handle, &links, false);
             }
 
@@ -845,7 +867,7 @@ pub fn run() {
                     if !drained.is_empty() {
                         let _ = emit_event(
                             &ready_handle,
-                            WritFrontendEvent::PendingOpens {
+                            JotraFrontendEvent::PendingOpens {
                                 paths: drained,
                                 lines,
                             },
@@ -874,8 +896,8 @@ pub fn run() {
             }
 
             {
-                let writ_dir = app.state::<AppState>().writ_dir.clone();
-                match instance::start_open_request_watcher(handle.clone(), writ_dir) {
+                let jotra_dir = app.state::<AppState>().jotra_dir.clone();
+                match instance::start_open_request_watcher(handle.clone(), jotra_dir) {
                     Ok(watcher) => {
                         app.manage(watcher);
                     }
@@ -1043,13 +1065,13 @@ pub fn run() {
             });
 
             if let Err(e) = std::thread::Builder::new()
-                .name("writ-update-check".into())
+                .name("jotra-update-check".into())
                 .spawn(move || commands::update::run_silent_checks(handle))
             {
                 tracing::warn!(error = %e, "could not start the update check thread");
             }
 
-            info!("writ ready");
+            info!("jotra ready");
             Ok(())
         });
 
@@ -1112,7 +1134,7 @@ pub fn run() {
                 api.prevent_exit();
                 state
                     .event_bus
-                    .emit(writ_core::events::bus::WritEvent::FlushBeforeQuit);
+                    .emit(jotra_core::events::bus::JotraEvent::FlushBeforeQuit);
 
                 let quit_state = state.quit.clone();
                 let shutdown_handle = app_handle.clone();
@@ -1154,17 +1176,17 @@ pub fn run() {
 
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         if let tauri::RunEvent::Opened { urls } = &event {
-            let writ_links: Vec<String> = urls
+            let jotra_links: Vec<String> = urls
                 .iter()
                 .map(|url| url.as_str().to_string())
-                .filter(|url| writ_core::writ_link::is_writ_link(url))
+                .filter(|url| jotra_core::jotra_link::is_jotra_link(url))
                 .collect();
-            if !writ_links.is_empty() {
+            if !jotra_links.is_empty() {
                 // Resolving a link's path asks the disk, which this thread
                 // does not wait on (ADR-047).
                 let app = app_handle.clone();
                 tauri::async_runtime::spawn_blocking(move || {
-                    links::follow(&app, &writ_links, true)
+                    links::follow(&app, &jotra_links, true)
                 });
             }
 
@@ -1192,7 +1214,7 @@ pub fn run() {
 
                     if let Some(dir_path) = dirs.last() {
                         info!(
-                            folder = %writ_storage::paths::file_name_only(dir_path),
+                            folder = %jotra_storage::paths::file_name_only(dir_path),
                             "workspace folder opened from OS"
                         );
                         if let Err(e) = commands::workspace::set_workspace_root_from_path(
@@ -1213,7 +1235,7 @@ pub fn run() {
                         ) {
                             let _ = emit_event(
                                 app_handle,
-                                WritFrontendEvent::PendingOpens {
+                                JotraFrontendEvent::PendingOpens {
                                     paths: files,
                                     lines: Default::default(),
                                 },
@@ -1230,7 +1252,7 @@ pub fn run() {
         }
 
         // Clicking the Dock icon of an app whose only window is hidden asks
-        // AppKit to reopen it, and AppKit has nothing to reopen: Writ hides its
+        // AppKit to reopen it, and AppKit has nothing to reopen: Jotra hides its
         // window rather than closing it, so the click reaches here or it does
         // nothing at all. Answering it is what keeps a launch that ended with
         // no window recoverable without quitting.
@@ -1283,7 +1305,7 @@ pub fn run() {
                     .unwrap_or(1.0);
                 let _ = emit_event(
                     app_handle,
-                    WritFrontendEvent::FilesDropped {
+                    JotraFrontendEvent::FilesDropped {
                         paths: canonical_paths,
                         position: drop_point(
                             position.x,
@@ -1586,16 +1608,16 @@ mod reconcile_tests {
     use std::sync::atomic::AtomicBool;
     use std::sync::Mutex;
 
-    use writ_core::events::bus::EventBus;
-    use writ_core::watcher::reconcile::ReconcileGate;
-    use writ_storage::notes_index::NotesIndexStore;
+    use jotra_core::events::bus::EventBus;
+    use jotra_core::watcher::reconcile::ReconcileGate;
+    use jotra_storage::notes_index::NotesIndexStore;
 
     #[test]
-    fn a_walk_owed_while_the_folder_moved_reads_the_folder_writ_holds_now() {
+    fn a_walk_owed_while_the_folder_moved_reads_the_folder_jotra_holds_now() {
         let dir = tempfile::TempDir::new().expect("temp dir");
-        let db = dir.path().join("writ.db");
-        let conn = writ_storage::database::connection::open_database(&db).expect("open");
-        writ_storage::database::migrations::run_migrations(&conn).expect("migrations");
+        let db = dir.path().join("jotra.db");
+        let conn = jotra_storage::database::connection::open_database(&db).expect("open");
+        jotra_storage::database::migrations::run_migrations(&conn).expect("migrations");
         drop(conn);
         let index = NotesIndexStore::open(&db).expect("index");
         let old = dir.path().join("Old");

@@ -74,7 +74,7 @@ describe("a note whose open has not answered yet", () => {
     // The fail-closed answer is for the reload decision and not for the tab's
     // mark, which is what `isTracked` is asked first to keep out of it.
     const store = createEditorStore();
-    store.noteOpened("one", doc("as Writ opened it\n"), true);
+    store.noteOpened("one", doc("as Jotra opened it\n"), true);
     await turns();
 
     expect(store.isTracked("one")).toBe(false);
@@ -132,7 +132,7 @@ describe("two opens of one note in flight at once", () => {
     const asOpened = "as-opened".padEnd(64, "0");
     const asRewritten = "as-rewritten".padEnd(64, "0");
 
-    store.noteOpened("one", doc("as Writ opened it\n"), true);
+    store.noteOpened("one", doc("as Jotra opened it\n"), true);
     await turns();
     store.applyExternalContent("one", "rewritten while it was behind\n");
     await turns();
@@ -159,7 +159,7 @@ describe("two opens of one note in flight at once", () => {
     const store = createEditorStore();
     const asRewritten = "as-rewritten".padEnd(64, "0");
 
-    store.noteOpened("one", doc("as Writ opened it\n"), true);
+    store.noteOpened("one", doc("as Jotra opened it\n"), true);
     await turns();
     store.applyExternalContent("one", "rewritten while it was behind\n");
     await turns();

@@ -274,7 +274,7 @@ describe("PreviewLayoutToggle", () => {
     await vi.waitFor(() => expect(container.querySelectorAll('[role="radio"]').length).toBe(2));
     const chord = formatKeybinding("CmdOrCtrl+Shift+V");
     const tips: string[] = [];
-    for (const anchor of container.querySelectorAll<HTMLElement>(".writ-tooltip-anchor")) {
+    for (const anchor of container.querySelectorAll<HTMLElement>(".jotra-tooltip-anchor")) {
       fireEvent.pointerEnter(anchor);
       await vi.advanceTimersByTimeAsync(600);
       tips.push(document.querySelector('[role="tooltip"]')!.textContent ?? "");
@@ -293,7 +293,7 @@ describe("PreviewLayoutToggle", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const { container } = await mountWithActive(HTML_BUFFER);
     await vi.waitFor(() => expect(container.querySelectorAll('[role="radio"]').length).toBe(3));
-    const anchor = container.querySelectorAll<HTMLElement>(".writ-tooltip-anchor")[1];
+    const anchor = container.querySelectorAll<HTMLElement>(".jotra-tooltip-anchor")[1];
     fireEvent.pointerEnter(anchor);
     await vi.advanceTimersByTimeAsync(600);
     expect(document.querySelector('[role="tooltip"]')!.textContent).toMatch(

@@ -128,7 +128,7 @@ describe("the macOS lights have one host", () => {
     const lights = container.querySelectorAll(".window-lights");
     expect(lights).toHaveLength(1);
     expect(lights[0].closest(".sidebar")).toBeNull();
-    expect(lights[0].closest(".writ-toolbar")).toBeNull();
+    expect(lights[0].closest(".jotra-toolbar")).toBeNull();
     expect(lights[0].closest(".window-lights-layer")).not.toBeNull();
   });
 
@@ -159,18 +159,18 @@ describe("the panes the lights sit over", () => {
   it("reserves the toolbar's lead only while the sidebar is closed", () => {
     h.sidebarOpen = false;
     const closed = render(() => <Toolbar />);
-    expect(closed.container.querySelector(".writ-toolbar")!.classList).toContain("leads-lights");
+    expect(closed.container.querySelector(".jotra-toolbar")!.classList).toContain("leads-lights");
     cleanup();
     h.sidebarOpen = true;
     const open = render(() => <Toolbar />);
-    expect(open.container.querySelector(".writ-toolbar")!.classList).not.toContain("leads-lights");
+    expect(open.container.querySelector(".jotra-toolbar")!.classList).not.toContain("leads-lights");
   });
 
   it.each(["win", "linux"] as const)("reserves no lead on %s", (p) => {
     h.platform = p;
     h.sidebarOpen = false;
     const { container } = render(() => <Toolbar />);
-    expect(container.querySelector(".writ-toolbar")!.classList).not.toContain("leads-lights");
+    expect(container.querySelector(".jotra-toolbar")!.classList).not.toContain("leads-lights");
   });
 
   // The lights are window chrome, not note actions: the bar's roving group

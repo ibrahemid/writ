@@ -8,7 +8,7 @@ import type {
   DictationConfig,
   FileExtension,
   SidebarSectionId,
-  WritConfig,
+  JotraConfig,
 } from "../../types/config";
 import * as api from "../../services/tauri";
 import { dismissToast, showToast } from "./notifications";
@@ -84,7 +84,7 @@ const DEFAULT_APPEARANCE: AppearanceConfig = {
   interface_text_size: null,
 };
 
-const DEFAULT_CONFIG: WritConfig = {
+const DEFAULT_CONFIG: JotraConfig = {
   hotkey: { toggle: SHIPPED_WINDOW_CHORD, capture: SHIPPED_CAPTURE_CHORD },
   sidebar: {
     toggle: "CmdOrCtrl+\\",
@@ -93,7 +93,7 @@ const DEFAULT_CONFIG: WritConfig = {
     open: true,
     width: SIDEBAR_WIDTH_DEFAULT,
     collapsed: [],
-    // Rust's `WritConfig::default`: the file tree and search (ADR-042).
+    // Rust's `JotraConfig::default`: the file tree and search (ADR-042).
     hidden: ["recent"],
   },
   // Closed on a first launch: the window opens on a cursor and nothing else.
@@ -145,11 +145,11 @@ const PERSIST_DEBOUNCE_MS = 750;
 /** A plain copy of a config, sharing nothing with the store. The store adopts
  * and mutates the objects it is given, and the config is JSON-shaped because
  * it arrives over IPC. */
-function plainCopy(config: WritConfig): WritConfig {
-  return JSON.parse(JSON.stringify(unwrap(config))) as WritConfig;
+function plainCopy(config: JotraConfig): JotraConfig {
+  return JSON.parse(JSON.stringify(unwrap(config))) as JotraConfig;
 }
 
-// A config written before Writ had a format to ask about carries no [files]
+// A config written before Jotra had a format to ask about carries no [files]
 // table, and one written by hand can carry a word that is neither extension.
 // Both answer the same way the first launch answers when nobody has chosen.
 function knownExtension(value: unknown): FileExtension {
@@ -179,7 +179,7 @@ function knownApps(value: unknown): AppId[] {
 }
 
 /** Whether `app` is on in `config`. */
-export function isAppOnIn(config: WritConfig, app: AppId): boolean {
+export function isAppOnIn(config: JotraConfig, app: AppId): boolean {
   switch (app) {
     case "chat":
       return config.ai.chat.enabled;
@@ -199,7 +199,7 @@ export function isAppOnIn(config: WritConfig, app: AppId): boolean {
 }
 
 /** `config` with `app` switched, on the key that app is read from. */
-export function withApp(config: WritConfig, app: AppId, on: boolean): WritConfig {
+export function withApp(config: JotraConfig, app: AppId, on: boolean): JotraConfig {
   switch (app) {
     case "chat":
       return { ...config, ai: { ...config.ai, chat: { ...config.ai.chat, enabled: on } } };
@@ -216,7 +216,7 @@ export function withApp(config: WritConfig, app: AppId, on: boolean): WritConfig
   }
 }
 
-function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
+function normalizeIncomingConfig(incoming: JotraConfig): JotraConfig {
   return {
     ...incoming,
     sidebar: {
@@ -319,14 +319,14 @@ export function unreadValuesNotice(unread: readonly ConfigDiagnostic[]): string 
   if (!first) return null;
   const tail = "Settings won't be saved until the file is fixed.";
   if (!first.key) {
-    return `Writ could not read config.toml (line ${first.line}) and is using default settings. ${tail}`;
+    return `Jotra could not read config.toml (line ${first.line}) and is using default settings. ${tail}`;
   }
   const others = unread.length - 1;
   if (others === 0) {
-    return `Writ could not read ${first.key} on line ${first.line} of config.toml and is using its default. ${tail}`;
+    return `Jotra could not read ${first.key} on line ${first.line} of config.toml and is using its default. ${tail}`;
   }
   const more = others === 1 ? "1 other value" : `${others} other values`;
-  return `Writ could not read ${first.key} on line ${first.line} of config.toml and ${more}, and is using defaults for them. ${tail}`;
+  return `Jotra could not read ${first.key} on line ${first.line} of config.toml and ${more}, and is using defaults for them. ${tail}`;
 }
 
 /**
@@ -340,7 +340,7 @@ export function unreadValuesNotice(unread: readonly ConfigDiagnostic[]): string 
  * of that value alone.
  */
 function createConfigStore() {
-  const [state, setState] = createStore<WritConfig>(plainCopy(DEFAULT_CONFIG));
+  const [state, setState] = createStore<JotraConfig>(plainCopy(DEFAULT_CONFIG));
   // Whether the first load has answered, read or failed. Window state derived
   // from the config waits for it, so a launch does not show the defaults'
   // layout before the stored one.
@@ -353,7 +353,7 @@ function createConfigStore() {
   let persistFailureReported = false;
   let unreadNotice: number | null = null;
 
-  const config = (): WritConfig => state;
+  const config = (): JotraConfig => state;
 
   /** Shows the notice naming the values config.toml holds that the launch
    * could not use, and takes it down once a reload reads the file in full. */
@@ -374,7 +374,7 @@ function createConfigStore() {
     if (unreadNotice === null) unreadNotice = showToast(text, "warning", 0);
   }
 
-  function replaceWith(next: WritConfig) {
+  function replaceWith(next: JotraConfig) {
     setState(reconcile(next));
   }
 
@@ -390,7 +390,7 @@ function createConfigStore() {
       loadFailureReported = true;
       logFailure("settings could not be read");
       showToast(
-        "Could not read your settings. Writ is using defaults; saving now replaces the stored file.",
+        "Could not read your settings. Jotra is using defaults; saving now replaces the stored file.",
         "error",
         8000,
       );
@@ -400,7 +400,7 @@ function createConfigStore() {
     }
   }
 
-  async function save(updated: WritConfig) {
+  async function save(updated: JotraConfig) {
     const normalized = plainCopy(normalizeIncomingConfig(updated));
     await api.updateConfig(normalized);
     replaceWith(normalized);
@@ -531,7 +531,7 @@ function createConfigStore() {
   }
 
   // Rust has already written this one; the copy here catches up so the next
-  // whole-config write does not carry the old answer back over it. Writ's own
+  // whole-config write does not carry the old answer back over it. Jotra's own
   // config write is stamped into the watcher's ignore set, so nothing else
   // tells this store the file moved.
   function noteFirstRunHintDismissed() {
@@ -540,7 +540,7 @@ function createConfigStore() {
   }
 
   /** Whether `app` is on, read from the key that app has always used
-   * (`WritConfig::is_app_on` in Rust). Reactive. */
+   * (`JotraConfig::is_app_on` in Rust). Reactive. */
   function isAppOn(app: AppId): boolean {
     return isAppOnIn(state, app);
   }
@@ -574,7 +574,7 @@ function createConfigStore() {
     }
   }
 
-  // The three below change what Writ does next rather than what it shows, and
+  // The three below change what Jotra does next rather than what it shows, and
   // each is read again before the file could be: they are set here at once
   // and written straight after, so an app switched on in the same moment
   // cannot write a copy without them.

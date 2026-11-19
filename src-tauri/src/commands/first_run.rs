@@ -5,10 +5,10 @@
 use serde::Serialize;
 use std::sync::atomic::Ordering;
 
+use jotra_core::buffer::document::BufferDocument;
+use jotra_core::config::{AppId, FileExtension};
+use jotra_core::startup::{file_manager_name, RetitleAnswer};
 use tauri::{AppHandle, Manager, Runtime, State};
-use writ_core::buffer::document::BufferDocument;
-use writ_core::config::{AppId, FileExtension};
-use writ_core::startup::{file_manager_name, RetitleAnswer};
 
 use crate::commands::buffer::ERR_WRITE_FAILED;
 use crate::commands::config::mutate_config;
@@ -110,7 +110,7 @@ pub enum RetitleOutcome {
     /// The note is one this applies to, but it has no first line yet. A
     /// later save may still answer.
     NotYet,
-    /// The note is not one this applies to: Writ did not mint it this launch,
+    /// The note is not one this applies to: Jotra did not mint it this launch,
     /// or its first line has already been answered for.
     Skipped,
 }
@@ -125,7 +125,7 @@ pub fn auto_retitle_note_inner(state: &AppState, id: &str) -> Result<RetitleOutc
     // The file, not the document: the save that led here has already landed,
     // and the file is the only copy of the text (ADR-028).
     let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let Some(title) = writ_core::startup::first_line_title(&content) else {
+    let Some(title) = jotra_core::startup::first_line_title(&content) else {
         // A note with no first line yet may still name itself on the next
         // save. One whose first line is there and names nothing — a
         // frontmatter fence, a line that is only a link — will not, and it
@@ -157,13 +157,13 @@ pub fn auto_retitle_note_inner(state: &AppState, id: &str) -> Result<RetitleOutc
     }
 }
 
-/// IPC: renames a note Writ minted from the note's own first line, or offers
+/// IPC: renames a note Jotra minted from the note's own first line, or offers
 /// to.
 ///
 /// The rename goes through the same guarded path as the one in the menu, so it
 /// is stamped into the watcher's ignore set and recorded on the row in one
 /// write. Whether it may happen unasked is
-/// [`writ_core::startup::retitle_answer`], and the title is the note's own
+/// [`jotra_core::startup::retitle_answer`], and the title is the note's own
 /// first line, read from the file the save just wrote.
 #[tauri::command]
 pub async fn auto_retitle_note<R: Runtime>(

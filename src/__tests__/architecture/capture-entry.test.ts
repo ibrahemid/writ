@@ -71,7 +71,7 @@ describe("the capture window's entry", () => {
     const offenders = files.filter(
       (file) =>
         /\.tsx?$/.test(file) &&
-        readFileSync(resolve(SRC, file), "utf8").includes("Writ is single-window"),
+        readFileSync(resolve(SRC, file), "utf8").includes("Jotra is single-window"),
     );
     expect(offenders).toEqual([]);
   });

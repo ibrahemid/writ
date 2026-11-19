@@ -1,6 +1,6 @@
 //! Pure window-toggle state machine.
 //!
-//! The global hotkey's intent: bring Writ into view when away, dismiss it
+//! The global hotkey's intent: bring Jotra into view when away, dismiss it
 //! when active.
 //! macOS minimization adds a fourth state that must be handled explicitly,
 //! since a minimized window is technically "visible" but invisible to the
@@ -76,7 +76,7 @@ pub fn decide_reveal(
 pub enum ReopenAction {
     /// Unminimize if it is minimized, show it, then focus it.
     Reveal,
-    /// Something of Writ's is already on screen: raise it.
+    /// Something of Jotra's is already on screen: raise it.
     Focus,
 }
 
@@ -306,7 +306,7 @@ mod tests {
         assert_eq!(decide_reveal(true, false, Err(())), RevealAction::Show);
     }
 
-    // Hiding Writ seconds after opening it is still hiding it; the timer must
+    // Hiding Jotra seconds after opening it is still hiding it; the timer must
     // not pull the window back.
     #[test]
     fn a_dismissed_window_stays_away() {
@@ -329,7 +329,7 @@ mod tests {
     }
 
     // AppKit counts windows across the app; ours answering "hidden" is the one
-    // that matters, since it is the only window Writ has. Focus would leave a
+    // that matters, since it is the only window Jotra has. Focus would leave a
     // hidden window hidden.
     #[test]
     fn dock_click_reveals_a_main_window_that_is_not_up() {

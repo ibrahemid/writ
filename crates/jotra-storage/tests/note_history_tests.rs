@@ -1,0 +1,1046 @@
+//! The version store, asserted against a real directory and a real database.
+//!
+//! What the policy decides is covered in `jotra-core`; what is covered here is
+//! where the texts land, that they never land in the notes folder, that a
+//! note keeps its history when its file is renamed or its folder is moved,
+//! and that pruning gives the disk back rather than only the index rows.
+
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
+
+use jotra_core::note_history::{VersionKey, MAX_VERSIONS_PER_NOTE};
+use jotra_core::notes::identity::{FileIdentity, IdentityProbe};
+use jotra_core::notes::WriteOrigin;
+use jotra_storage::errors::StorageError;
+use jotra_storage::note_history::{Kept, NoteHistoryStore};
+use tempfile::TempDir;
+
+/// The platform's answer on Unix, and a description everywhere else.
+///
+/// Two lines of [`jotra_storage::identity::PlatformIdentity`], with the
+/// fallback in place of a Windows file id so the fallback arm is what Windows
+/// runs.
+struct Probe;
+
+impl IdentityProbe for Probe {
+    #[cfg(unix)]
+    fn identity_of(&self, path: &Path) -> Option<FileIdentity> {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = std::fs::metadata(path).ok()?;
+        metadata.is_file().then(|| FileIdentity::Inode {
+            dev: metadata.dev(),
+            ino: metadata.ino(),
+            birth_ns: None,
+        })
+    }
+
+    #[cfg(not(unix))]
+    fn identity_of(&self, path: &Path) -> Option<FileIdentity> {
+        let metadata = std::fs::metadata(path).ok()?;
+        metadata.is_file().then(|| FileIdentity::Fallback {
+            path: path.to_string_lossy().into_owned(),
+            size: metadata.len(),
+            mtime_ms: None,
+            birth_ns: None,
+        })
+    }
+}
+
+/// A volume with no stable id to give, which is FAT, exFAT and some SMB
+/// servers ([`FileIdentity::Fallback`]).
+struct NoStableId;
+
+impl IdentityProbe for NoStableId {
+    fn identity_of(&self, path: &Path) -> Option<FileIdentity> {
+        let metadata = std::fs::metadata(path).ok()?;
+        Some(FileIdentity::Fallback {
+            path: path.to_string_lossy().into_owned(),
+            size: metadata.len(),
+            mtime_ms: Some(1),
+            birth_ns: None,
+        })
+    }
+}
+
+/// A data directory, a notes folder beside it, and a store over both.
+struct Fixture {
+    _home: TempDir,
+    jotra_dir: PathBuf,
+    notes: PathBuf,
+    store: NoteHistoryStore,
+}
+
+impl Fixture {
+    fn new() -> Self {
+        Self::with_probe(Arc::new(Probe))
+    }
+
+    fn with_probe(probe: Arc<dyn IdentityProbe>) -> Self {
+        let home = TempDir::new().expect("temp dir");
+        let jotra_dir = home.path().join("jotra-data");
+        let notes = home.path().join("Jotra");
+        std::fs::create_dir_all(&jotra_dir).expect("data dir");
+        std::fs::create_dir_all(&notes).expect("notes dir");
+        let store = NoteHistoryStore::open(&jotra_dir).expect("open");
+        store.set_notes_root(notes.clone());
+        store.set_probe(probe);
+        Self {
+            _home: home,
+            jotra_dir,
+            notes,
+            store,
+        }
+    }
+
+    /// Writes a note and hands back its path.
+    fn note(&self, name: &str, text: &str) -> PathBuf {
+        let path = self.notes.join(name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("note folder");
+        }
+        std::fs::write(&path, text).expect("write note");
+        path
+    }
+
+    fn key(&self, path: &Path) -> VersionKey {
+        self.store.key_for(path).expect("a note inside the folder")
+    }
+}
+
+fn at(secs: u64) -> SystemTime {
+    SystemTime::UNIX_EPOCH + Duration::from_secs(secs)
+}
+
+/// Every file under `root`, so a test can say what a folder does not hold.
+fn walk(root: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return found;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            found.extend(walk(&path));
+        } else {
+            found.push(path);
+        }
+    }
+    found
+}
+
+#[test]
+fn a_text_is_kept_and_comes_back_byte_for_byte() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "---\ntags: [a]\n---\n\nthe body\r\n");
+    let key = fixture.key(&path);
+    let bytes = std::fs::read(&path).expect("read");
+
+    let id = fixture
+        .store
+        .capture(&key, &bytes, at(1_000), &WriteOrigin::Editor)
+        .expect("capture")
+        .entry()
+        .expect("an entry");
+
+    assert_eq!(fixture.store.content(id).expect("content"), bytes);
+}
+
+#[test]
+fn the_texts_live_under_the_data_directory_and_never_in_the_notes_folder() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "one\n");
+    let key = fixture.key(&path);
+    fixture
+        .store
+        .capture(&key, b"one\n", at(1_000), &WriteOrigin::Editor)
+        .expect("capture");
+    fixture
+        .store
+        .capture(&key, b"two\n", at(2_000), &WriteOrigin::Editor)
+        .expect("capture");
+
+    let in_notes = walk(&fixture.notes);
+    assert_eq!(
+        in_notes,
+        vec![path],
+        "the notes folder holds the note and nothing else"
+    );
+    let kept = walk(&fixture.jotra_dir.join("history"));
+    assert_eq!(kept.len(), 2, "one file per text, sharded: {kept:?}");
+    for text in &kept {
+        let shard = text.parent().expect("a shard folder");
+        assert_eq!(
+            shard
+                .file_name()
+                .expect("shard name")
+                .to_string_lossy()
+                .len(),
+            2,
+            "the shard is the first byte of the digest"
+        );
+    }
+    assert!(fixture.jotra_dir.join("history.db").exists());
+}
+
+#[test]
+fn a_run_of_saves_inside_the_window_is_one_entry_and_the_next_one_is_another() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "draft\n");
+    let key = fixture.key(&path);
+
+    let start = at(1_000);
+    for save in 0..100u64 {
+        let text = format!("draft {save}\n");
+        fixture
+            .store
+            .capture(
+                &key,
+                text.as_bytes(),
+                start + Duration::from_millis(save * 90),
+                &WriteOrigin::Editor,
+            )
+            .expect("capture");
+    }
+    assert_eq!(fixture.store.versions(&key).expect("versions").len(), 1);
+
+    fixture
+        .store
+        .capture(
+            &key,
+            b"the eleventh second\n",
+            start + Duration::from_secs(11),
+            &WriteOrigin::Editor,
+        )
+        .expect("capture");
+    assert_eq!(fixture.store.versions(&key).expect("versions").len(), 2);
+}
+
+#[test]
+fn a_write_that_is_not_the_editors_is_never_absorbed_by_a_run_of_saves() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "the first\n");
+    let key = fixture.key(&path);
+    let start = at(1_000);
+
+    fixture
+        .store
+        .capture(&key, b"the second\n", start, &WriteOrigin::Editor)
+        .expect("save");
+    // Three seconds later, well inside the window a save would have joined.
+    let put_back = fixture
+        .store
+        .capture(
+            &key,
+            b"the first\n",
+            start + Duration::from_secs(3),
+            &WriteOrigin::Restore,
+        )
+        .expect("restore");
+
+    assert!(
+        matches!(put_back, Kept::Added(_)),
+        "a restore is a version of its own: {put_back:?}"
+    );
+    let texts: Vec<Vec<u8>> = fixture
+        .store
+        .versions(&key)
+        .expect("versions")
+        .into_iter()
+        .map(|entry| fixture.store.content(entry.id).expect("text"))
+        .collect();
+    assert_eq!(
+        texts,
+        vec![b"the first\n".to_vec(), b"the second\n".to_vec()],
+        "the text the restore landed on is still there to go back to"
+    );
+}
+
+#[test]
+fn a_run_of_autosaves_inside_the_window_is_one_entry_like_a_run_of_saves() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "draft\n");
+    let key = fixture.key(&path);
+
+    let start = at(1_000);
+    for tick in 0..20u64 {
+        let text = format!("draft {tick}\n");
+        fixture
+            .store
+            .capture(
+                &key,
+                text.as_bytes(),
+                start + Duration::from_millis(tick * 400),
+                &WriteOrigin::Autosave,
+            )
+            .expect("capture");
+    }
+
+    assert_eq!(
+        fixture.store.versions(&key).expect("versions").len(),
+        1,
+        "an autosave is the editor writing, so a run of them collapses the way a run of saves does"
+    );
+}
+
+#[test]
+fn an_idle_save_storm_costs_nothing() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "unchanged\n");
+    let key = fixture.key(&path);
+
+    for save in 0..50u64 {
+        fixture
+            .store
+            .capture(
+                &key,
+                b"unchanged\n",
+                at(1_000 + save * 60),
+                &WriteOrigin::Editor,
+            )
+            .expect("capture");
+    }
+    assert_eq!(
+        fixture.store.versions(&key).expect("versions").len(),
+        1,
+        "the same text is kept once however often it is saved"
+    );
+    assert_eq!(walk(&fixture.jotra_dir.join("history")).len(), 1);
+}
+
+#[test]
+fn a_text_about_to_be_replaced_is_kept_even_inside_the_window() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "mine\n");
+    let key = fixture.key(&path);
+
+    fixture
+        .store
+        .capture(&key, b"mine\n", at(1_000), &WriteOrigin::Editor)
+        .expect("capture");
+    fixture
+        .store
+        .capture_replaced(&key, b"somebody else's\n", at(1_002))
+        .expect("capture");
+
+    let versions = fixture.store.versions(&key).expect("versions");
+    assert_eq!(
+        versions.len(),
+        2,
+        "the merge window never drops a text with nowhere else to be"
+    );
+}
+
+#[test]
+fn a_note_over_the_ceiling_is_not_versioned_at_all() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Big.md", "x");
+    let key = fixture.key(&path);
+    let big = vec![b'x'; 3 * 1024 * 1024];
+
+    assert_eq!(
+        fixture
+            .store
+            .capture(&key, &big, at(1_000), &WriteOrigin::Editor)
+            .expect("capture"),
+        Kept::Nothing
+    );
+    assert!(fixture.store.versions(&key).expect("versions").is_empty());
+    assert!(walk(&fixture.jotra_dir.join("history")).is_empty());
+}
+
+#[test]
+fn a_file_the_notes_folder_does_not_hold_has_no_key() {
+    let fixture = Fixture::new();
+    let stranger = fixture._home.path().join("elsewhere.md");
+    std::fs::write(&stranger, "not a note\n").expect("write");
+
+    assert!(fixture.store.key_for(&stranger).is_none());
+}
+
+// The fixture's probe answers with an inode on unix and with the fallback
+// everywhere else (`Probe` above), and a fallback cannot recognise the same
+// file at another name. The platform's Windows probe reads a durable file id
+// (`jotra_storage::identity`); what this fixture tests on Windows is the
+// fallback arm, below.
+#[cfg(unix)]
+#[test]
+fn a_note_renamed_inside_the_folder_keeps_its_history_through_its_identity() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "one\n");
+    let key = fixture.key(&path);
+    fixture
+        .store
+        .capture(&key, b"one\n", at(1_000), &WriteOrigin::Editor)
+        .expect("capture");
+
+    let renamed = fixture.notes.join("Ship it.md");
+    std::fs::rename(&path, &renamed).expect("rename");
+
+    let after = fixture.store.key_for(&renamed).expect("key");
+    assert_ne!(after.path, key.path, "the note is at another name now");
+    let versions = fixture.store.versions(&after).expect("versions");
+    assert_eq!(versions.len(), 1, "the history followed the file");
+    assert_eq!(
+        fixture.store.content(versions[0].id).expect("content"),
+        b"one\n"
+    );
+}
+
+/// Replaces the file at `path` the way a save does: a sibling written and
+/// renamed over it, so the path holds a new file afterwards.
+#[cfg(unix)]
+fn replace_like_a_save(path: &Path, text: &str) {
+    let sibling = path.with_extension("incoming");
+    std::fs::write(&sibling, text).expect("write the sibling");
+    std::fs::rename(&sibling, path).expect("rename over the note");
+}
+
+#[cfg(unix)]
+#[test]
+fn following_a_rename_before_a_save_keeps_the_history_the_note_had_under_its_old_name() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "one\n");
+    let key = fixture.key(&path);
+    fixture
+        .store
+        .capture(&key, b"one\n", at(1_000), &WriteOrigin::Editor)
+        .expect("capture");
+    let renamed = fixture.notes.join("Ship it.md");
+    std::fs::rename(&path, &renamed).expect("rename");
+
+    fixture.store.follow_rename(&renamed).expect("follow");
+    replace_like_a_save(&renamed, "two\n");
+    let after = fixture.key(&renamed);
+    fixture
+        .store
+        .capture(&after, b"two\n", at(2_000), &WriteOrigin::Chat)
+        .expect("capture");
+
+    let texts: Vec<Vec<u8>> = fixture
+        .store
+        .versions(&after)
+        .expect("versions")
+        .into_iter()
+        .map(|entry| fixture.store.content(entry.id).expect("content"))
+        .collect();
+    assert_eq!(texts, [b"two\n".to_vec(), b"one\n".to_vec()]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_save_over_a_renamed_note_nobody_followed_starts_a_history_of_its_own() {
+    // The case following exists for: the save gives the path a new file, so
+    // neither the path nor the identity the capture reads names the note's
+    // row any more.
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "one\n");
+    let key = fixture.key(&path);
+    fixture
+        .store
+        .capture(&key, b"one\n", at(1_000), &WriteOrigin::Editor)
+        .expect("capture");
+    let renamed = fixture.notes.join("Ship it.md");
+    std::fs::rename(&path, &renamed).expect("rename");
+
+    replace_like_a_save(&renamed, "two\n");
+    let after = fixture.key(&renamed);
+    fixture
+        .store
+        .capture(&after, b"two\n", at(2_000), &WriteOrigin::Chat)
+        .expect("capture");
+
+    assert_eq!(fixture.store.versions(&after).expect("versions").len(), 1);
+}
+
+#[test]
+fn following_a_file_the_store_does_not_hold_changes_nothing() {
+    let fixture = Fixture::new();
+    let kept = fixture.note("Launch.md", "one\n");
+    let key = fixture.key(&kept);
+    fixture
+        .store
+        .capture(&key, b"one\n", at(1_000), &WriteOrigin::Editor)
+        .expect("capture");
+    let stranger = fixture.note("Never kept.md", "two\n");
+    let outside = fixture.jotra_dir.join("outside.md");
+    std::fs::write(&outside, "three\n").expect("write outside");
+
+    fixture.store.follow_rename(&stranger).expect("follow");
+    fixture.store.follow_rename(&outside).expect("follow");
+    fixture
+        .store
+        .follow_rename(&fixture.notes.join("Not there.md"))
+        .expect("follow");
+
+    assert!(fixture
+        .store
+        .versions(&fixture.key(&stranger))
+        .expect("versions")
+        .is_empty());
+    assert_eq!(fixture.store.versions(&key).expect("versions").len(), 1);
+}
+
+#[cfg(not(unix))]
+#[test]
+fn a_note_renamed_where_no_id_can_be_read_keeps_its_history_under_the_old_name() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "one\n");
+    let key = fixture.key(&path);
+    assert!(
+        key.durable_identity().is_none(),
+        "the fallback is what this fixture describes a file by off unix"
+    );
+    fixture
+        .store
+        .capture(&key, b"one\n", at(1_000), &WriteOrigin::Editor)
+        .expect("capture");
+
+    let renamed = fixture.notes.join("Ship it.md");
+    std::fs::rename(&path, &renamed).expect("rename");
+
+    let after = fixture.store.key_for(&renamed).expect("key");
+    assert!(
+        fixture.store.versions(&after).expect("versions").is_empty(),
+        "a name nothing was kept under has nothing, where no id can follow the file"
+    );
+    assert_eq!(
+        fixture.store.versions(&key).expect("versions").len(),
+        1,
+        "the path is the whole of the key, so the old name still answers"
+    );
+}
+
+#[test]
+fn moving_the_notes_folder_keeps_every_notes_history() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Ideas/Launch.md", "one\n");
+    let key = fixture.key(&path);
+    fixture
+        .store
+        .capture(&key, b"one\n", at(1_000), &WriteOrigin::Editor)
+        .expect("capture");
+
+    let moved = fixture._home.path().join("Notes moved");
+    std::fs::rename(&fixture.notes, &moved).expect("move the folder");
+    fixture.store.set_notes_root(moved.clone());
+
+    let after = fixture
+        .store
+        .key_for(&moved.join("Ideas/Launch.md"))
+        .expect("key");
+    assert_eq!(
+        fixture.store.versions(&after).expect("versions").len(),
+        1,
+        "history is keyed by identity and a folder-relative name, not by where the folder sits"
+    );
+}
+
+#[test]
+fn a_note_that_took_a_name_another_one_left_lists_what_that_name_held() {
+    // The name is what a person asks about, so the name is what answers. A
+    // note is the file at a path, and every atomic save by any editor puts a
+    // new file there: an id that stopped matching cannot be read as a
+    // different note without splitting one note's history on every save
+    // somebody else's editor makes. The texts of the note that moved away are
+    // still there to restore, and they rejoin it under its own name the next
+    // time it is written.
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "the first\n");
+    let key = fixture.key(&path);
+    fixture
+        .store
+        .capture(&key, b"the first\n", at(1_000), &WriteOrigin::Editor)
+        .expect("capture");
+    std::fs::rename(&path, fixture.notes.join("Launch old.md")).expect("rename");
+
+    let second = fixture.note("Launch.md", "a different note\n");
+    let second_key = fixture.store.key_for(&second).expect("key");
+    fixture
+        .store
+        .capture(
+            &second_key,
+            b"a different note\n",
+            at(2_000),
+            &WriteOrigin::Editor,
+        )
+        .expect("capture");
+
+    let versions = fixture.store.versions(&second_key).expect("versions");
+    assert_eq!(
+        versions.len(),
+        2,
+        "the name keeps everything written under it"
+    );
+    assert_eq!(
+        fixture.store.content(versions[0].id).expect("content"),
+        b"a different note\n",
+        "and the newest is the one just written"
+    );
+}
+
+#[test]
+fn a_volume_with_no_stable_id_still_keeps_a_notes_history_under_its_path() {
+    let fixture = Fixture::with_probe(Arc::new(NoStableId));
+    let path = fixture.note("Launch.md", "one\n");
+    let key = fixture.key(&path);
+    assert!(
+        key.durable_identity().is_none(),
+        "the fallback is what a volume with no id is described by"
+    );
+
+    fixture
+        .store
+        .capture(&key, b"one\n", at(1_000), &WriteOrigin::Editor)
+        .expect("capture");
+    std::fs::write(&path, "two\n").expect("write");
+    let later = fixture.store.key_for(&path).expect("key");
+    fixture
+        .store
+        .capture(&later, b"two\n", at(2_000), &WriteOrigin::Editor)
+        .expect("capture");
+
+    assert_eq!(
+        fixture.store.versions(&later).expect("versions").len(),
+        2,
+        "the path is the whole of the key where nothing else can be read"
+    );
+}
+
+#[test]
+fn a_note_whose_file_is_gone_still_answers_for_its_history() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "the last thing it said\n");
+    let key = fixture.key(&path);
+    fixture
+        .store
+        .capture(
+            &key,
+            b"the last thing it said\n",
+            at(1_000),
+            &WriteOrigin::Editor,
+        )
+        .expect("capture");
+    std::fs::remove_file(&path).expect("delete");
+
+    let after = fixture.store.key_for(&path).expect("key");
+    assert!(
+        after.identity.is_none(),
+        "a file that is gone describes nothing"
+    );
+    let versions = fixture.store.versions(&after).expect("versions");
+    assert_eq!(versions.len(), 1);
+    assert_eq!(
+        fixture.store.content(versions[0].id).expect("content"),
+        b"the last thing it said\n"
+    );
+}
+
+#[test]
+fn an_entry_that_is_not_there_is_a_typed_error() {
+    let fixture = Fixture::new();
+    match fixture.store.content(404) {
+        Err(StorageError::VersionMissing { id }) => assert_eq!(id, 404),
+        other => panic!("expected a missing version, got {other:?}"),
+    }
+}
+
+#[test]
+fn pruning_gives_back_the_disk_and_not_only_the_rows() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "one\n");
+    let key = fixture.key(&path);
+    let old = at(1_000);
+    for save in 0..5u64 {
+        let text = format!("draft {save}\n");
+        fixture
+            .store
+            .capture(
+                &key,
+                text.as_bytes(),
+                old + Duration::from_secs(save * 60),
+                &WriteOrigin::Editor,
+            )
+            .expect("capture");
+    }
+    assert_eq!(walk(&fixture.jotra_dir.join("history")).len(), 5);
+
+    let outcome = fixture
+        .store
+        .prune(old + Duration::from_secs(40 * 24 * 60 * 60))
+        .expect("prune");
+
+    assert_eq!(outcome.retired, 4, "the newest is the one a note keeps");
+    assert_eq!(outcome.texts_deleted, 4);
+    assert!(outcome.bytes_freed > 0);
+    assert_eq!(
+        walk(&fixture.jotra_dir.join("history")).len(),
+        1,
+        "a retired entry's text is deleted, not left behind"
+    );
+    assert_eq!(fixture.store.versions(&key).expect("versions").len(), 1);
+}
+
+#[test]
+fn two_entries_holding_one_text_keep_it_until_both_are_gone() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "one\n");
+    let key = fixture.key(&path);
+    // There and back again: two entries, one text.
+    fixture
+        .store
+        .capture(&key, b"one\n", at(1_000), &WriteOrigin::Editor)
+        .expect("capture");
+    fixture
+        .store
+        .capture(&key, b"two\n", at(2_000), &WriteOrigin::Editor)
+        .expect("capture");
+    fixture
+        .store
+        .capture(&key, b"one\n", at(3_000), &WriteOrigin::Editor)
+        .expect("capture");
+    assert_eq!(fixture.store.versions(&key).expect("versions").len(), 3);
+    assert_eq!(walk(&fixture.jotra_dir.join("history")).len(), 2);
+
+    fixture
+        .store
+        .prune(at(3_000) + Duration::from_secs(40 * 24 * 60 * 60))
+        .expect("prune");
+
+    let kept = fixture.store.versions(&key).expect("versions");
+    assert_eq!(kept.len(), 1);
+    assert_eq!(
+        fixture.store.content(kept[0].id).expect("content"),
+        b"one\n"
+    );
+}
+
+#[test]
+fn ten_thousand_saves_of_one_note_leave_two_hundred_versions_and_a_small_store() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "start\n");
+    let key = fixture.key(&path);
+
+    let start = at(1_000);
+    // 20 KB, and a different 20 KB every time: nothing here is deduped away.
+    for save in 0..10_000u64 {
+        let mut text = format!("save {save}\n").into_bytes();
+        text.resize(20 * 1024, b'x');
+        text.extend_from_slice(save.to_string().as_bytes());
+        fixture
+            .store
+            .capture(
+                &key,
+                &text,
+                start + Duration::from_secs(save * 60),
+                &WriteOrigin::Editor,
+            )
+            .expect("capture");
+    }
+    let last = start + Duration::from_secs(10_000 * 60);
+    fixture.store.prune(last).expect("prune");
+
+    let versions = fixture.store.versions(&key).expect("versions");
+    assert!(
+        versions.len() <= MAX_VERSIONS_PER_NOTE,
+        "{} versions is over the cap",
+        versions.len()
+    );
+    let on_disk: u64 = walk(&fixture.jotra_dir)
+        .iter()
+        .filter_map(|path| path.metadata().ok())
+        .map(|meta| meta.len())
+        .sum();
+    assert!(
+        on_disk < 25 * 1024 * 1024,
+        "the whole store is {on_disk} bytes"
+    );
+    assert_eq!(
+        walk(&fixture.notes),
+        vec![path],
+        "ten thousand saves put nothing in the notes folder"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn a_notes_folder_spelled_as_the_app_carries_it_still_names_its_notes() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Ideas/Launch.md", "one\n");
+    // What `std::fs::canonicalize` hands back on Windows, which is not how
+    // `AppState` spells the same folder (U7's CI round).
+    let verbatim = std::fs::canonicalize(&fixture.notes).expect("canonicalize");
+    fixture.store.set_notes_root(verbatim);
+
+    let key = fixture
+        .store
+        .key_for(&std::fs::canonicalize(&path).expect("canonicalize"))
+        .expect("a note inside the folder");
+    assert_eq!(
+        key.path,
+        PathBuf::from("Ideas/Launch.md"),
+        "one spelling of a note's name on every platform"
+    );
+}
+
+/// Forty minutes of typing the way a save hands the store its texts: what the
+/// file held offered first, then a save every ten seconds.
+fn type_for_forty_minutes(fixture: &Fixture, key: &VersionKey, start: SystemTime, before: &[u8]) {
+    fixture
+        .store
+        .capture_replaced(key, before, start - Duration::from_millis(1))
+        .expect("capture what the file held");
+    for save in 0..=240u64 {
+        let text = format!("draft {save}\n");
+        fixture
+            .store
+            .capture(
+                key,
+                text.as_bytes(),
+                start + Duration::from_secs(save * 10),
+                &WriteOrigin::Editor,
+            )
+            .expect("capture a save");
+    }
+}
+
+fn holds_text(fixture: &Fixture, key: &VersionKey, text: &[u8]) -> bool {
+    fixture
+        .store
+        .versions(key)
+        .expect("versions")
+        .iter()
+        .any(|entry| fixture.store.content(entry.id).expect("content") == text)
+}
+
+#[test]
+fn the_version_from_before_a_forty_minute_session_is_kept() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "before the session\n");
+    let key = fixture.key(&path);
+    fixture
+        .store
+        .capture(
+            &key,
+            b"before the session\n",
+            at(1_000),
+            &WriteOrigin::Editor,
+        )
+        .expect("an earlier session");
+
+    let start = at(1_000) + Duration::from_secs(2 * 60 * 60);
+    type_for_forty_minutes(&fixture, &key, start, b"before the session\n");
+    fixture
+        .store
+        .prune(start + Duration::from_secs(2_400))
+        .expect("prune");
+
+    assert!(fixture.store.versions(&key).expect("versions").len() <= MAX_VERSIONS_PER_NOTE);
+    assert!(
+        holds_text(&fixture, &key, b"before the session\n"),
+        "the text from before the session is the one a person wants back"
+    );
+}
+
+#[test]
+fn the_text_a_first_session_started_from_is_kept_after_forty_minutes() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "what the file held\n");
+    let key = fixture.key(&path);
+
+    let start = at(50_000);
+    type_for_forty_minutes(&fixture, &key, start, b"what the file held\n");
+    fixture
+        .store
+        .prune(start + Duration::from_secs(2_400))
+        .expect("prune");
+
+    assert!(fixture.store.versions(&key).expect("versions").len() <= MAX_VERSIONS_PER_NOTE);
+    assert!(holds_text(&fixture, &key, b"what the file held\n"));
+}
+
+#[test]
+fn a_damaged_text_is_reported_rather_than_restored() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "one\n");
+    let key = fixture.key(&path);
+    let id = fixture
+        .store
+        .capture(
+            &key,
+            b"the text that was kept\n",
+            at(1_000),
+            &WriteOrigin::Editor,
+        )
+        .expect("capture")
+        .entry()
+        .expect("an entry");
+    let blobs = walk(&fixture.jotra_dir.join("history"));
+    assert_eq!(blobs.len(), 1);
+    std::fs::write(&blobs[0], b"something else\n").expect("damage the text");
+
+    match fixture.store.content(id) {
+        Err(StorageError::VersionDamaged { id: named }) => assert_eq!(named, id),
+        other => panic!("expected a damaged version, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_text_kept_with_its_digest_handed_over_reads_back_as_kept() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "one\n");
+    let key = fixture.key(&path);
+    let text = b"the text a save already hashed\n";
+    let id = fixture
+        .store
+        .capture_hashed(
+            &key,
+            text,
+            jotra_core::hash::sha256_bytes(text),
+            at(1_000),
+            &WriteOrigin::Editor,
+        )
+        .expect("capture")
+        .entry()
+        .expect("an entry");
+    assert_eq!(fixture.store.content(id).expect("content"), text);
+}
+
+#[test]
+fn each_entry_names_the_write_that_left_its_text() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Plan.md", "first");
+    let key = fixture.key(&path);
+    let program = WriteOrigin::Mcp {
+        client: "claude-code".into(),
+    };
+    fixture
+        .store
+        .capture_replaced(&key, b"what was there", at(1))
+        .expect("replaced");
+    fixture
+        .store
+        .capture(&key, b"typed", at(100), &WriteOrigin::Editor)
+        .expect("save");
+    fixture
+        .store
+        .capture(&key, b"the program's", at(200), &program)
+        .expect("program");
+    fixture
+        .store
+        .capture(&key, b"from chat", at(300), &WriteOrigin::Chat)
+        .expect("chat");
+
+    let writers: Vec<Option<String>> = fixture
+        .store
+        .versions(&key)
+        .expect("versions")
+        .into_iter()
+        .map(|entry| entry.writer)
+        .collect();
+    assert_eq!(
+        writers,
+        vec![
+            Some("chat".to_string()),
+            Some("mcp:claude-code".to_string()),
+            Some("editor".to_string()),
+            None,
+        ]
+    );
+}
+
+#[test]
+fn a_run_of_saves_merged_into_one_entry_keeps_its_writer() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Plan.md", "first");
+    let key = fixture.key(&path);
+    fixture
+        .store
+        .capture(&key, b"a", at(100), &WriteOrigin::Editor)
+        .expect("save");
+    fixture
+        .store
+        .capture(&key, b"ab", at(102), &WriteOrigin::Autosave)
+        .expect("autosave");
+    let entries = fixture.store.versions(&key).expect("versions");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].writer.as_deref(), Some("autosave"));
+}
+
+#[test]
+fn the_writer_of_the_text_a_file_holds_is_the_newest_entrys_only() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Plan.md", "first");
+    let key = fixture.key(&path);
+    let program = WriteOrigin::Mcp {
+        client: "codex".into(),
+    };
+    fixture
+        .store
+        .capture(&key, b"by the program", at(100), &program)
+        .expect("program");
+    let digest = jotra_core::hash::sha256_bytes(b"by the program");
+    assert_eq!(
+        fixture
+            .store
+            .writer_of(&key, digest)
+            .expect("lookup")
+            .as_deref(),
+        Some("mcp:codex")
+    );
+
+    // Somebody saves something else, then a third program puts the file back
+    // to the program's text: the older entry is not this change's writer.
+    fixture
+        .store
+        .capture(&key, b"by hand", at(200), &WriteOrigin::Editor)
+        .expect("save");
+    assert_eq!(fixture.store.writer_of(&key, digest).expect("lookup"), None);
+
+    let unknown = fixture.key(&fixture.note("Other.md", "x"));
+    assert_eq!(
+        fixture.store.writer_of(&unknown, digest).expect("lookup"),
+        None
+    );
+}
+
+#[test]
+fn a_store_made_before_writers_were_kept_gains_the_column_and_keeps_its_entries() {
+    let home = TempDir::new().expect("temp dir");
+    let jotra_dir = home.path().join("jotra-data");
+    let notes = home.path().join("Jotra");
+    std::fs::create_dir_all(&jotra_dir).expect("data dir");
+    std::fs::create_dir_all(&notes).expect("notes dir");
+    {
+        let conn = rusqlite::Connection::open(jotra_dir.join("history.db")).expect("db");
+        conn.execute_batch(
+            "CREATE TABLE notes (id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE,
+                identity TEXT, birth_ns TEXT);
+             CREATE TABLE versions (id INTEGER PRIMARY KEY,
+                note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+                at_ms INTEGER NOT NULL, bytes INTEGER NOT NULL, hash TEXT NOT NULL,
+                merges INTEGER NOT NULL DEFAULT 0);
+             INSERT INTO notes (id, path) VALUES (1, 'Plan.md');
+             INSERT INTO versions (note_id, at_ms, bytes, hash) VALUES (1, 1000, 3, 'abc');",
+        )
+        .expect("old schema");
+    }
+
+    let store = NoteHistoryStore::open(&jotra_dir).expect("open upgrades");
+    // A second process opening the same file finds the column already there.
+    let again = NoteHistoryStore::open(&jotra_dir).expect("open again");
+    store.set_notes_root(notes.clone());
+    let key = VersionKey::new(None, PathBuf::from("Plan.md"));
+    let entries = store.versions(&key).expect("versions");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].writer, None);
+
+    again.set_notes_root(notes);
+    again
+        .capture(&key, b"new text", at(5), &WriteOrigin::Editor)
+        .expect("capture after the upgrade");
+    assert_eq!(
+        store.versions(&key).expect("versions")[0].writer.as_deref(),
+        Some("editor")
+    );
+}

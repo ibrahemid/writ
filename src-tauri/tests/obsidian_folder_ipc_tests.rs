@@ -1,23 +1,23 @@
 //! The Obsidian fixture folder read through the note commands.
 //!
-//! `obsidian_folder_tests` in `writ-storage` asserts the rows. This asserts
+//! `obsidian_folder_tests` in `jotra-storage` asserts the rows. This asserts
 //! that what the editor is handed carries them: the same folder, the same one
 //! walk, read back through `note_facts`, `note_backlinks`, `note_all_tags` and
 //! `note_graph` and their DTOs (ADR-034, ADR-036).
 
 use std::path::{Path, PathBuf};
 
-use tempfile::TempDir;
-use writ_storage::notes_index::{self, NotesIndexStore};
-use writ_tauri_lib::commands::note_index::{
+use jotra_storage::notes_index::{self, NotesIndexStore};
+use jotra_tauri_lib::commands::note_index::{
     note_all_tags_inner, note_backlinks_inner, note_facts_inner, note_graph_inner,
 };
+use tempfile::TempDir;
 
 /// The folder as it was written in the other editor, shared with the storage
 /// test so both layers answer for one corpus.
 const FIXTURE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../crates/writ-storage/tests/fixtures/obsidian-folder"
+    "/../crates/jotra-storage/tests/fixtures/obsidian-folder"
 );
 
 /// Copies `from` to `to`, dot-named entries included: the settings folder and
@@ -38,9 +38,9 @@ fn copy_tree(from: &Path, to: &Path) {
 /// The fixture folder, copied out and walked once.
 fn opened() -> (TempDir, PathBuf, NotesIndexStore) {
     let dir = TempDir::new().expect("tempdir");
-    let db_path = dir.path().join("writ.db");
-    let conn = writ_storage::database::connection::open_database(&db_path).expect("open");
-    writ_storage::database::migrations::run_migrations(&conn).expect("migrations");
+    let db_path = dir.path().join("jotra.db");
+    let conn = jotra_storage::database::connection::open_database(&db_path).expect("open");
+    jotra_storage::database::migrations::run_migrations(&conn).expect("migrations");
     drop(conn);
 
     let root = dir.path().join("notes");

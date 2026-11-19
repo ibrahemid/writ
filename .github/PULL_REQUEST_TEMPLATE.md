@@ -25,7 +25,7 @@ All boxes must be checked before a maintainer will review.
 
 Confirm the change respects the rules in [docs/ARCHITECTURE.md](https://github.com/ibrahemid/writ/blob/main/docs/ARCHITECTURE.md) and [CONTRIBUTING.md](https://github.com/ibrahemid/writ/blob/main/CONTRIBUTING.md):
 
-- [ ] Cargo workspace boundaries respected (`writ-core` has no Tauri dependency, `src-tauri` is the only Tauri adapter).
+- [ ] Cargo workspace boundaries respected (`jotra-core` has no Tauri dependency, `src-tauri` is the only Tauri adapter).
 - [ ] `src/services/tauri.ts` is still the only file that imports `@tauri-apps/api`.
 - [ ] `src/services/events.ts` is still the only file that imports `@tauri-apps/api/event`.
 - [ ] Components call stores, stores call services, services call Tauri. No layers skipped.

@@ -10,7 +10,7 @@ interface OpenBuffer extends ExternalEditBuffer {
   filename: string;
 }
 
-/** The editor store, as the response to a change outside Writ reaches it. */
+/** The editor store, as the response to a change outside Jotra reaches it. */
 interface ExternalEditEditor {
   isDirty: (id: string) => boolean;
   isRemovedOnDisk: (id: string) => boolean;

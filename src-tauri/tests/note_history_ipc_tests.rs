@@ -16,39 +16,39 @@ use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime};
 
-use tempfile::TempDir;
-use writ_core::activity::{Actor, Decision};
-use writ_core::config::WritConfig;
-use writ_core::diff::LineKind;
-use writ_core::events::bus::{EventBus, WritEvent};
-use writ_core::note_history::NoVersionsReason;
-use writ_core::notes::guard::DiskState;
-use writ_core::notes::{WriteOrigin, Writer};
-use writ_core::preview::ContentRendererRegistry;
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::change_event::{modification_is_news, ExternalChange};
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::note_history::NoteHistoryStore;
-use writ_storage::notes_index::NotesIndexStore;
-use writ_tauri_lib::commands::buffer::{read_buffer_content_inner, save_buffer_content_inner};
-use writ_tauri_lib::commands::file::open_file_from_path;
-use writ_tauri_lib::commands::note_history::{
+use jotra_core::activity::{Actor, Decision};
+use jotra_core::config::JotraConfig;
+use jotra_core::diff::LineKind;
+use jotra_core::events::bus::{EventBus, JotraEvent};
+use jotra_core::note_history::NoVersionsReason;
+use jotra_core::notes::guard::DiskState;
+use jotra_core::notes::{WriteOrigin, Writer};
+use jotra_core::preview::ContentRendererRegistry;
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::change_event::{modification_is_news, ExternalChange};
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::note_history::NoteHistoryStore;
+use jotra_storage::notes_index::NotesIndexStore;
+use jotra_tauri_lib::commands::buffer::{read_buffer_content_inner, save_buffer_content_inner};
+use jotra_tauri_lib::commands::file::open_file_from_path;
+use jotra_tauri_lib::commands::note_history::{
     compare_note_version_inner, copy_note_version_inner, note_version_content_inner,
     note_versions_inner, restore_note_version_for_tab, restore_note_version_inner, NoteVersion,
 };
-use writ_tauri_lib::commands::preview::{preview_get_scripts_inner, preview_set_scripts_inner};
-use writ_tauri_lib::preview::handler::{RenderCache, RenderedDoc};
-use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
-use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::create_ignore_set;
-use writ_tauri_lib::watcher::identity::PlatformIdentity;
+use jotra_tauri_lib::commands::preview::{preview_get_scripts_inner, preview_set_scripts_inner};
+use jotra_tauri_lib::preview::handler::{RenderCache, RenderedDoc};
+use jotra_tauri_lib::quit::QuitState;
+use jotra_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
+use jotra_tauri_lib::state::AppState;
+use jotra_tauri_lib::watcher::handler::create_ignore_set;
+use jotra_tauri_lib::watcher::identity::PlatformIdentity;
+use tempfile::TempDir;
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
 
@@ -65,26 +65,26 @@ const COMMANDS: &[&str] = &[
 struct Folder {
     dir: TempDir,
     notes: PathBuf,
-    writ_dir: PathBuf,
+    jotra_dir: PathBuf,
     store: NoteHistoryStore,
 }
 
 impl Folder {
     fn new() -> Self {
         let dir = TempDir::new().expect("temp dir");
-        let writ_dir = dir.path().join("data");
-        std::fs::create_dir_all(&writ_dir).expect("data folder");
-        let notes = writ_dir.join("Writ");
+        let jotra_dir = dir.path().join("data");
+        std::fs::create_dir_all(&jotra_dir).expect("data folder");
+        let notes = jotra_dir.join("Jotra");
         std::fs::create_dir_all(&notes).expect("notes folder");
-        let notes = writ_tauri_lib::security::canonicalize_root(&notes).expect("canonical");
+        let notes = jotra_tauri_lib::security::canonicalize_root(&notes).expect("canonical");
 
-        let store = NoteHistoryStore::open(&writ_dir).expect("version store");
+        let store = NoteHistoryStore::open(&jotra_dir).expect("version store");
         store.set_notes_root(notes.clone());
         store.set_probe(Arc::new(PlatformIdentity));
         Self {
             dir,
             notes,
-            writ_dir,
+            jotra_dir,
             store,
         }
     }
@@ -117,10 +117,10 @@ impl Folder {
         note_version_content_inner(&self.store, version.id).expect("the text of an entry")
     }
 
-    /// What Writ would have recorded for a tab holding these bytes.
+    /// What Jotra would have recorded for a tab holding these bytes.
     fn last_known(bytes: &[u8]) -> DiskState {
         DiskState {
-            hash: writ_core::hash::sha256_bytes(bytes),
+            hash: jotra_core::hash::sha256_bytes(bytes),
             size: bytes.len() as u64,
             mtime: None,
         }
@@ -158,23 +158,23 @@ struct Running {
 impl Running {
     fn new() -> Self {
         let dir = TempDir::new().expect("temp dir");
-        let writ_dir = dir.path().join("data");
-        let buffers_dir = writ_dir.join("buffers");
+        let jotra_dir = dir.path().join("data");
+        let buffers_dir = jotra_dir.join("buffers");
         std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
 
-        let notes_root = writ_dir.join("Writ");
+        let notes_root = jotra_dir.join("Jotra");
         std::fs::create_dir_all(&notes_root).expect("notes folder");
         let notes_root =
-            writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+            jotra_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
-        let db_path = writ_dir.join("writ.db");
+        let db_path = jotra_dir.join("jotra.db");
         let conn = open_database(&db_path).expect("open db");
         run_migrations(&conn).expect("migrations");
 
-        let note_history = Arc::new(NoteHistoryStore::open(&writ_dir).expect("version store"));
+        let note_history = Arc::new(NoteHistoryStore::open(&jotra_dir).expect("version store"));
         note_history.set_notes_root(notes_root.clone());
         note_history.set_probe(Arc::new(
-            writ_tauri_lib::watcher::identity::PlatformIdentity,
+            jotra_tauri_lib::watcher::identity::PlatformIdentity,
         ));
 
         let mut store = BufferStore::new(conn, buffers_dir.clone());
@@ -183,15 +183,15 @@ impl Running {
 
         let state = AppState {
             store: Mutex::new(store),
-            config_store: ConfigStore::new(writ_dir.join("config.toml")),
-            config: Mutex::new(WritConfig::default()),
-            writ_dir: writ_dir.clone(),
+            config_store: ConfigStore::new(jotra_dir.join("config.toml")),
+            config: Mutex::new(JotraConfig::default()),
+            jotra_dir: jotra_dir.clone(),
             buffers_dir,
             notes_root: RwLock::new(notes_root.clone()),
             first_run: false,
             first_run_finished: std::sync::atomic::AtomicBool::new(false),
             menu_apps: std::sync::Mutex::new(None),
-            retitle_watch: Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+            retitle_watch: Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
             notes_root_fallback: RwLock::new(None),
             watcher_ignore: create_ignore_set(),
             watcher: Mutex::new(None),
@@ -217,7 +217,7 @@ impl Running {
             preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
             preview_render_cache: Arc::new(RenderCache::new()),
             layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
-            command_usage: writ_storage::command_usage::CommandUsageStore::new(
+            command_usage: jotra_storage::command_usage::CommandUsageStore::new(
                 open_database(&db_path).expect("usage db"),
             ),
             config_diagnostics: std::sync::Mutex::new(Vec::new()),
@@ -227,9 +227,9 @@ impl Running {
             workspace_watcher: Mutex::new(None),
             inbox_root: Mutex::new(None),
             inbox_watcher: Mutex::new(None),
-            fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+            fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
             workspace_index: Arc::new(RwLock::new(
-                writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+                jotra_tauri_lib::workspace_index::WorkspaceIndex::new(None),
             )),
             search_generation: Arc::new(AtomicU64::new(0)),
             last_disk_hash: Mutex::new(HashMap::new()),
@@ -298,7 +298,7 @@ impl Running {
     /// Attached at the point a test is about to act, not at the open, so what
     /// it holds is the answer to that one call rather than everything the
     /// setup raised on the way there.
-    fn events(&self) -> Arc<Mutex<Vec<WritEvent>>> {
+    fn events(&self) -> Arc<Mutex<Vec<JotraEvent>>> {
         let events = Arc::new(Mutex::new(Vec::new()));
         let collected = Arc::clone(&events);
         self.state.event_bus.subscribe(move |event| {
@@ -312,12 +312,12 @@ impl Running {
 }
 
 /// The external-change events among what was collected.
-fn external_events(events: &Mutex<Vec<WritEvent>>) -> Vec<WritEvent> {
+fn external_events(events: &Mutex<Vec<JotraEvent>>) -> Vec<JotraEvent> {
     events
         .lock()
         .expect("collected events")
         .iter()
-        .filter(|event| matches!(event, WritEvent::BufferExternal { .. }))
+        .filter(|event| matches!(event, JotraEvent::BufferExternal { .. }))
         .cloned()
         .collect()
 }
@@ -338,7 +338,7 @@ fn note_versions_lists_what_a_note_held_newest_first() {
 }
 
 #[test]
-fn each_version_names_its_writer_and_one_writ_cannot_place_names_nobody() {
+fn each_version_names_its_writer_and_one_jotra_cannot_place_names_nobody() {
     let folder = Folder::new();
     let path = folder.note("Launch.md", b"seen on disk\n", 90);
     let key = folder
@@ -374,7 +374,7 @@ fn each_version_names_its_writer_and_one_writ_cannot_place_names_nobody() {
             Some(Writer::Program {
                 name: "claude-code".to_string()
             }),
-            Some(Writer::Writ),
+            Some(Writer::Jotra),
             None,
         ]
     );
@@ -435,7 +435,7 @@ fn a_restore_names_the_version_that_undoes_it() {
     let first = folder.versions(&path)[1].id;
 
     let restored =
-        restore_note_version_inner(&folder.notes, &folder.writ_dir, &folder.store, first, None)
+        restore_note_version_inner(&folder.notes, &folder.jotra_dir, &folder.store, first, None)
             .expect("restore");
 
     let undo = restored
@@ -443,7 +443,7 @@ fn a_restore_names_the_version_that_undoes_it() {
         .expect("the version holding what was replaced");
     restore_note_version_inner(
         &folder.notes,
-        &folder.writ_dir,
+        &folder.jotra_dir,
         &folder.store,
         undo,
         Some(Folder::last_known(b"the first\n")),
@@ -481,7 +481,7 @@ fn a_damaged_version_reads_as_damaged() {
     let folder = Folder::new();
     let path = folder.note("Launch.md", b"kept\n", 60);
     let id = folder.versions(&path)[0].id;
-    let shard = folder.writ_dir.join("history");
+    let shard = folder.jotra_dir.join("history");
     let blob = std::fs::read_dir(&shard)
         .expect("shards")
         .flatten()
@@ -527,7 +527,7 @@ fn restoring_a_version_writes_it_back_and_keeps_the_text_it_replaced() {
     let first = listed[1].id;
 
     let restored =
-        restore_note_version_inner(&folder.notes, &folder.writ_dir, &folder.store, first, None)
+        restore_note_version_inner(&folder.notes, &folder.jotra_dir, &folder.store, first, None)
             .expect("restore");
 
     assert_eq!(restored.note, "Launch.md");
@@ -555,7 +555,7 @@ fn restoring_twice_returns_the_note_to_where_it_started() {
     folder.keep(&path, b"the second\n", 30);
 
     let first = folder.versions(&path)[1].id;
-    restore_note_version_inner(&folder.notes, &folder.writ_dir, &folder.store, first, None)
+    restore_note_version_inner(&folder.notes, &folder.jotra_dir, &folder.store, first, None)
         .expect("restore");
 
     let back = folder
@@ -569,7 +569,7 @@ fn restoring_twice_returns_the_note_to_where_it_started() {
     // a note nothing has open.
     restore_note_version_inner(
         &folder.notes,
-        &folder.writ_dir,
+        &folder.jotra_dir,
         &folder.store,
         back.id,
         Some(Folder::last_known(b"the first\n")),
@@ -584,13 +584,13 @@ fn a_note_changed_underneath_is_refused_and_the_version_is_written_beside_it() {
     let folder = Folder::new();
     let path = folder.note("Launch.md", b"the first\n", 60);
     let last_known = Folder::last_known(b"the first\n");
-    // Somebody else writes the file, and Writ never read what they wrote.
+    // Somebody else writes the file, and Jotra never read what they wrote.
     std::fs::write(&path, b"what somebody else wrote\n").expect("overwrite");
 
     let version = folder.versions(&path)[0].id;
     let error = restore_note_version_inner(
         &folder.notes,
-        &folder.writ_dir,
+        &folder.jotra_dir,
         &folder.store,
         version,
         Some(last_known),
@@ -631,7 +631,7 @@ fn a_restore_puts_back_every_byte_it_was_given() {
     let version = folder.versions(&path)[0].id;
     restore_note_version_inner(
         &folder.notes,
-        &folder.writ_dir,
+        &folder.jotra_dir,
         &folder.store,
         version,
         None,
@@ -651,7 +651,7 @@ fn copying_a_version_leaves_the_note_alone() {
     let first = folder.versions(&path)[1].id;
     let copy = copy_note_version_inner(
         &folder.notes,
-        &folder.writ_dir,
+        &folder.jotra_dir,
         &folder.store,
         first,
         chrono::Utc::now(),
@@ -688,7 +688,7 @@ fn a_version_copy_is_stamped_for_the_watcher_like_a_conflict_copy() {
 
     let copy = copy_note_version_inner(
         &folder.notes,
-        &folder.writ_dir,
+        &folder.jotra_dir,
         &folder.store,
         version,
         chrono::Utc::now(),
@@ -712,7 +712,7 @@ fn a_restore_and_a_copy_each_leave_a_line_in_the_activity_log_naming_no_text() {
 
     restore_note_version_inner(
         &folder.notes,
-        &folder.writ_dir,
+        &folder.jotra_dir,
         &folder.store,
         version,
         None,
@@ -720,7 +720,7 @@ fn a_restore_and_a_copy_each_leave_a_line_in_the_activity_log_naming_no_text() {
     .expect("restore");
     copy_note_version_inner(
         &folder.notes,
-        &folder.writ_dir,
+        &folder.jotra_dir,
         &folder.store,
         version,
         chrono::Utc::now(),
@@ -728,7 +728,7 @@ fn a_restore_and_a_copy_each_leave_a_line_in_the_activity_log_naming_no_text() {
     )
     .expect("copy");
 
-    let lines = writ_storage::activity_log::read_recent(&folder.writ_dir, 10);
+    let lines = jotra_storage::activity_log::read_recent(&folder.jotra_dir, 10);
     for action in ["restore_note_version", "copy_note_version"] {
         let line = lines
             .iter()
@@ -775,7 +775,7 @@ fn a_restore_undone_by_the_row_above_it_lands_rather_than_reading_as_a_change_on
     assert_eq!(
         app.names(),
         vec!["Launch.md".to_string()],
-        "a restore Writ itself wrote leaves no dated copy behind"
+        "a restore Jotra itself wrote leaves no dated copy behind"
     );
 }
 
@@ -834,7 +834,7 @@ fn a_restore_tells_the_tab_holding_the_note_what_it_put_on_the_file() {
         "a restore tells the tab holding the note once: {raised:?}"
     );
     match &raised[0] {
-        WritEvent::BufferExternal {
+        JotraEvent::BufferExternal {
             buffer_id,
             path: told,
             change,
@@ -848,7 +848,7 @@ fn a_restore_tells_the_tab_holding_the_note_what_it_put_on_the_file() {
             assert_eq!(new_path, &None);
             assert_eq!(
                 disk_hash.as_deref(),
-                Some(writ_core::hash::comparison_digest_hex(b"the first\n").as_str()),
+                Some(jotra_core::hash::comparison_digest_hex(b"the first\n").as_str()),
                 "the digest is the restored text's, in the form the editor compares its \
                  document against"
             );
@@ -863,7 +863,7 @@ fn a_restore_the_guard_refuses_tells_the_tab_nothing() {
     let (id, path) = app.open("Launch.md", "the first\n");
     save_buffer_content_inner(&app.state, &id, "the second\n").expect("save");
     let first = app.version_holding(&path, b"the first\n");
-    // A write the tab never read, so what Writ recorded for it no longer
+    // A write the tab never read, so what Jotra recorded for it no longer
     // describes the file and the guard refuses the restore.
     std::fs::write(&path, b"somebody else\n").expect("write");
     let recorded = app.state.disk_state(&id).expect("a record of the file");
@@ -932,7 +932,7 @@ fn the_watcher_has_nothing_to_add_once_a_restore_has_told_the_tab() {
         "the command tells the tab what the restore wrote"
     );
     let recorded = app.state.disk_state(&id).expect("a record of the file");
-    let on_disk = writ_core::hash::sha256_bytes(&std::fs::read(&path).expect("read"));
+    let on_disk = jotra_core::hash::sha256_bytes(&std::fs::read(&path).expect("read"));
     assert!(
         !modification_is_news(Some(recorded.hash), Some(on_disk), false),
         "the watcher reporting the restore is telling the tab what it already knows"

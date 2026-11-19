@@ -113,9 +113,9 @@ describe("CommandPalette over the shared shell", () => {
   it("gives a command with a glyph its icon and leaves the rest bare", async () => {
     await open();
     const glyph = items().find((el) => el.textContent?.includes("Glyph command"))!;
-    expect(glyph.querySelector(".writ-icon use")?.getAttribute("href")).toBe("#ph-note-pencil");
+    expect(glyph.querySelector(".jotra-icon use")?.getAttribute("href")).toBe("#ph-note-pencil");
     const alpha = items().find((el) => el.textContent?.includes("Alpha command"))!;
-    expect(alpha.querySelector(".writ-icon")).toBeNull();
+    expect(alpha.querySelector(".jotra-icon")).toBeNull();
   });
 
   it("declares a glyph for the commands the baseline draws with one", () => {

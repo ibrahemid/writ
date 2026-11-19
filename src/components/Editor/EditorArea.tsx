@@ -36,13 +36,13 @@ export default function EditorArea() {
   // height is a floor, so the clearance is read off it rather than guessed.
   createEffect(() => {
     document.documentElement.style.setProperty(
-      "--writ-toast-bottom",
+      "--jotra-toast-bottom",
       statusBarOn()
-        ? "calc(var(--writ-statusbar-height) + var(--writ-space-4))"
-        : "var(--writ-space-5)",
+        ? "calc(var(--jotra-statusbar-height) + var(--jotra-space-4))"
+        : "var(--jotra-space-5)",
     );
   });
-  onCleanup(() => document.documentElement.style.removeProperty("--writ-toast-bottom"));
+  onCleanup(() => document.documentElement.style.removeProperty("--jotra-toast-bottom"));
 
   // Find targets the active buffer's text; once it closes there is nothing
   // left to search, so the panel should not linger open over an empty canvas.

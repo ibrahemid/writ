@@ -14,7 +14,7 @@ export const CHANGELOG_URL = "https://writ.ibrahemid.com/changelog/";
 
 // Singleton — app-global, not window-scoped (ADR-009 E3).
 // The Rust UpdatePhase is the source of truth; this store mirrors it from
-// writ://update-status events and exposes the user actions that drive transitions.
+// jotra://update-status events and exposes the user actions that drive transitions.
 
 const UNREACHABLE_MESSAGE = "Could not reach the update server.";
 const NOT_INSTALLED_MESSAGE = "The update could not be installed.";

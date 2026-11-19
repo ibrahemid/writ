@@ -10,6 +10,7 @@ import contextlib
 import io
 import json
 import pathlib
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -41,7 +42,7 @@ CLIENT_ENTRIES = {
 
 class WindowsSigningTests(unittest.TestCase):
     def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory(prefix="writ-windows-signing-test-")
+        tmp = tempfile.TemporaryDirectory(prefix="jotra-windows-signing-test-")
         self.addCleanup(tmp.cleanup)
         self.root = pathlib.Path(tmp.name)
         self.package = self.root / "client.nupkg"
@@ -139,6 +140,56 @@ class WindowsSigningTests(unittest.TestCase):
             )
         self.assertEqual(code, 1)
         self.assertIn("endpoint", stderr.getvalue())
+
+    def test_one_file_is_signed_with_the_overlays_command(self) -> None:
+        config = self.write()
+        target = self.root / "launcher.exe"
+        target.write_bytes(b"MZ")
+        ran: list[list[str]] = []
+
+        def run(command: list[str]) -> subprocess.CompletedProcess:
+            ran.append(list(command))
+            return subprocess.CompletedProcess(command, 0)
+
+        windows_signing.sign_file(config, target, run)
+
+        args = json.loads(config.read_text())["bundle"]["windows"]["signCommand"]["args"]
+        self.assertEqual(ran, [[SIGNTOOL, *args[:-1], str(target.resolve())]])
+
+    def test_a_failed_signature_is_an_error(self) -> None:
+        config = self.write()
+        target = self.root / "launcher.exe"
+        target.write_bytes(b"MZ")
+        with self.assertRaisesRegex(windows_signing.WindowsSigningError, r"signtool\.exe exited with 3 while signing"):
+            windows_signing.sign_file(config, target, lambda command: subprocess.CompletedProcess(command, 3))
+
+    def test_a_missing_file_or_an_unusable_config_signs_nothing(self) -> None:
+        config = self.write()
+        target = self.root / "launcher.exe"
+        target.write_bytes(b"MZ")
+        overlay = json.loads(config.read_text())
+        without_file = self.root / "without-file.json"
+        overlay["bundle"]["windows"]["signCommand"]["args"].remove("%1")
+        without_file.write_text(json.dumps(overlay))
+        not_json = self.root / "not-json.json"
+        not_json.write_text("{")
+        cases = (
+            (config, self.root / "absent.exe", "no file to sign"),
+            (without_file, target, "no %1 argument"),
+            (not_json, target, "holds no bundle.windows.signCommand"),
+            (self.root / "absent.json", target, "holds no bundle.windows.signCommand"),
+        )
+        for config_path, file, message in cases:
+            with self.subTest(message=message, config=config_path.name):
+                with self.assertRaisesRegex(windows_signing.WindowsSigningError, message):
+                    windows_signing.sign_file(config_path, file, lambda command: self.fail(f"ran {command}"))
+
+    def test_the_sign_subcommand_reports_a_refusal(self) -> None:
+        config = self.write()
+        with contextlib.redirect_stderr(io.StringIO()) as stderr:
+            code = windows_signing.main(["sign", str(config), str(self.root / "absent.exe")])
+        self.assertEqual(code, 1)
+        self.assertIn("no file to sign", stderr.getvalue())
 
     @unittest.skipUnless(TAURI_SCHEMA.exists(), "the Tauri CLI is not installed (pnpm install)")
     def test_the_sign_command_matches_the_tauri_config_schema(self) -> None:

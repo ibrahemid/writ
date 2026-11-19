@@ -7,20 +7,20 @@
 //! again, the person opens the note, which shows its file, types, and the save
 //! lands. The text typed before the close is in no file at that point.
 //!
-//! One test in its own binary, because `initialize` reads `WRIT_DATA_DIR` and
-//! `WRIT_NOTES_DIR` from the process environment and a second test in the same
+//! One test in its own binary, because `initialize` reads `JOTRA_DATA_DIR` and
+//! `JOTRA_NOTES_DIR` from the process environment and a second test in the same
 //! binary would race it.
 
 use std::path::{Path, PathBuf};
 
-use tempfile::TempDir;
-use writ_tauri_lib::commands::buffer::{
+use jotra_tauri_lib::commands::buffer::{
     close_buffer_inner, record_unsaved_notes_inner, save_buffer_content_inner, UnsavedNote,
     ERR_READ_ONLY_DESTINATION,
 };
-use writ_tauri_lib::commands::file::open_file_from_path;
-use writ_tauri_lib::security::canonicalize_for_authorization;
-use writ_tauri_lib::state::AppState;
+use jotra_tauri_lib::commands::file::open_file_from_path;
+use jotra_tauri_lib::security::canonicalize_for_authorization;
+use jotra_tauri_lib::state::AppState;
+use tempfile::TempDir;
 
 const ON_DISK: &str = "what the file held\n";
 const TYPED_BEFORE_THE_CLOSE: &str = "what the file held\ntyped before the close\n";
@@ -61,8 +61,8 @@ fn open(state: &AppState, canonical: &str) -> String {
 fn text_a_closed_tab_handed_over_survives_a_reopen_a_landed_save_and_a_relaunch() {
     let data = TempDir::new().expect("data folder");
     let notes = TempDir::new().expect("notes folder");
-    std::env::set_var("WRIT_DATA_DIR", data.path());
-    std::env::set_var("WRIT_NOTES_DIR", notes.path());
+    std::env::set_var("JOTRA_DATA_DIR", data.path());
+    std::env::set_var("JOTRA_NOTES_DIR", notes.path());
 
     let session = AppState::initialize().expect("the first launch");
     let note = session.notes_root().join("Shared.md");
@@ -94,8 +94,8 @@ fn text_a_closed_tab_handed_over_survives_a_reopen_a_landed_save_and_a_relaunch(
     drop(session);
 
     let relaunched = AppState::initialize();
-    std::env::remove_var("WRIT_DATA_DIR");
-    std::env::remove_var("WRIT_NOTES_DIR");
+    std::env::remove_var("JOTRA_DATA_DIR");
+    std::env::remove_var("JOTRA_NOTES_DIR");
     let relaunched = relaunched.expect("the relaunch");
 
     let offered = relaunched

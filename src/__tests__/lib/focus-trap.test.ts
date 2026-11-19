@@ -153,7 +153,7 @@ describe("installFocusTrap", () => {
     teardown();
 
     expect(document.activeElement).toBe(origin);
-    expect(origin.hasAttribute("data-writ-focus-silent")).toBe(true);
+    expect(origin.hasAttribute("data-jotra-focus-silent")).toBe(true);
     expect(origin.matches(":focus-visible")).toBe(true);
   });
 
@@ -171,7 +171,7 @@ describe("installFocusTrap", () => {
     teardown();
 
     expect(document.activeElement).toBe(origin);
-    expect(origin.hasAttribute("data-writ-focus-silent")).toBe(false);
+    expect(origin.hasAttribute("data-jotra-focus-silent")).toBe(false);
   });
 
   it("clears the silent mark on the next keydown", () => {
@@ -185,10 +185,10 @@ describe("installFocusTrap", () => {
 
     const teardown = installFocusTrap(container);
     teardown();
-    expect(origin.hasAttribute("data-writ-focus-silent")).toBe(true);
+    expect(origin.hasAttribute("data-jotra-focus-silent")).toBe(true);
 
     press(origin, "ArrowDown");
-    expect(origin.hasAttribute("data-writ-focus-silent")).toBe(false);
+    expect(origin.hasAttribute("data-jotra-focus-silent")).toBe(false);
   });
 
   it("clears the silent mark when focus moves elsewhere", () => {
@@ -203,11 +203,11 @@ describe("installFocusTrap", () => {
 
     const teardown = installFocusTrap(container);
     teardown();
-    expect(origin.hasAttribute("data-writ-focus-silent")).toBe(true);
+    expect(origin.hasAttribute("data-jotra-focus-silent")).toBe(true);
 
     other.focus();
     expect(document.activeElement).toBe(other);
-    expect(origin.hasAttribute("data-writ-focus-silent")).toBe(false);
+    expect(origin.hasAttribute("data-jotra-focus-silent")).toBe(false);
   });
 
   it("keeps the restore quiet across repeated cycles over the same origin", () => {
@@ -225,14 +225,14 @@ describe("installFocusTrap", () => {
     const teardownOne = installFocusTrap(container);
     teardownOne();
     expect(document.activeElement).toBe(origin);
-    expect(origin.hasAttribute("data-writ-focus-silent")).toBe(true);
+    expect(origin.hasAttribute("data-jotra-focus-silent")).toBe(true);
 
     const teardownTwo = installFocusTrap(container);
-    expect(origin.hasAttribute("data-writ-focus-silent")).toBe(false);
+    expect(origin.hasAttribute("data-jotra-focus-silent")).toBe(false);
 
     teardownTwo();
     expect(document.activeElement).toBe(origin);
-    expect(origin.hasAttribute("data-writ-focus-silent")).toBe(true);
+    expect(origin.hasAttribute("data-jotra-focus-silent")).toBe(true);
   });
 
   it("falls back when previouslyFocused is null/body", () => {

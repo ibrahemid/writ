@@ -8,8 +8,8 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use writ_core::recovery::QUIT_FLUSH_TIMEOUT;
-use writ_tauri_lib::quit::{QuitDecision, QuitState};
+use jotra_core::recovery::QUIT_FLUSH_TIMEOUT;
+use jotra_tauri_lib::quit::{QuitDecision, QuitState};
 
 #[test]
 fn quit_waits_for_the_frontend_confirmation_before_snapshotting() {

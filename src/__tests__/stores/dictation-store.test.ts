@@ -231,7 +231,7 @@ describe("starting", () => {
     const { store } = use(makeView(""));
     h.start.mockRejectedValueOnce({
       code: "mic_denied",
-      message: "Writ can't use the microphone.",
+      message: "Jotra can't use the microphone.",
       action: "open_mic_settings",
     });
     await store.toggle();

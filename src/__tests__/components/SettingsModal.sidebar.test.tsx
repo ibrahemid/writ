@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 import { configStore } from "../../stores/global/config";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 import { SIDEBAR_SECTIONS } from "../../lib/sidebar-sections";
 
 const TEST_CLAIMABLE_TYPE = {
@@ -32,7 +32,7 @@ const mocks = vi.hoisted(() => ({
   claimDefaultApp: vi.fn().mockResolvedValue(undefined),
   fetchDefaultAppTypes: vi.fn(),
   fetchCliStatus: vi.fn().mockResolvedValue({ installed: false }),
-  fetchStorageInfo: vi.fn().mockResolvedValue({ db_path: "/home/user/.writ/writ.db", dir: "/home/user/.writ" }),
+  fetchStorageInfo: vi.fn().mockResolvedValue({ db_path: "/home/user/.jotra/jotra.db", dir: "/home/user/.jotra" }),
   revealStoragePath: vi.fn().mockResolvedValue(undefined),
   copyStoragePath: vi.fn().mockResolvedValue(undefined),
   writeClipboardText: vi.fn().mockResolvedValue(undefined),
@@ -51,7 +51,7 @@ const mocks = vi.hoisted(() => ({
   mcpClients: vi.fn().mockResolvedValue({ approved: [], waiting: [] }),
   mcpSetClientPermission: vi.fn(),
   mcpForgetClient: vi.fn(),
-  mcpServerCommand: vi.fn().mockResolvedValue({ path: "/usr/local/bin/writ", command: "writ mcp" }),
+  mcpServerCommand: vi.fn().mockResolvedValue({ path: "/usr/local/bin/jotra", command: "jotra mcp" }),
   mcpTools: vi.fn(),
   onEvent: vi.fn().mockResolvedValue(() => {}),
   aiCheckConnection: vi.fn().mockResolvedValue({
@@ -118,11 +118,11 @@ vi.mock("../../stores/global/default-app", () => ({
 }));
 
 vi.mock("../../stores/global/cli", () => ({
-  installCli: vi.fn().mockResolvedValue({ symlink_path: "/usr/local/bin/writ", manual_command: "" }),
+  installCli: vi.fn().mockResolvedValue({ symlink_path: "/usr/local/bin/jotra", manual_command: "" }),
   fetchCliStatus: mocks.fetchCliStatus,
-  CLI_EXAMPLES: ["writ .", "git log | writ --title log"],
+  CLI_EXAMPLES: ["jotra .", "git log | jotra --title log"],
   copyCliExample: vi.fn().mockResolvedValue(undefined),
-  installFailureMessage: () => "Could not install the writ command",
+  installFailureMessage: () => "Could not install the jotra command",
 }));
 
 vi.mock("../../stores/global/notes", () => ({
@@ -180,7 +180,7 @@ vi.mock("../../stores/global/theme", () => ({
 import SettingsModal, { openSettings, closeSettings } from "../../components/SettingsModal/SettingsModal";
 import { clearDefaultAppSupport } from "../../stores/global/default-app-support";
 
-function baseConfig(): WritConfig {
+function baseConfig(): JotraConfig {
   return {
     hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
     sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false, width: 240, collapsed: [], hidden: [] },
@@ -219,7 +219,7 @@ function baseConfig(): WritConfig {
 const SIDEBAR_SETTINGS = ["sidebar_folder", "sidebar_recent"];
 
 /** The switches read and write the real store; `save` only seeds it. */
-async function seedConfig(config: WritConfig) {
+async function seedConfig(config: JotraConfig) {
   await configStore.save(config);
 }
 
@@ -255,7 +255,7 @@ describe("SettingsModal sidebar section", () => {
     mocks.claimDefaultApp.mockReset().mockResolvedValue(undefined);
     mocks.fetchDefaultAppTypes.mockReset().mockResolvedValue([TEST_CLAIMABLE_TYPE]);
     mocks.fetchCliStatus.mockReset().mockResolvedValue({ installed: false });
-    mocks.fetchStorageInfo.mockReset().mockResolvedValue({ db_path: "/home/user/.writ/writ.db", dir: "/home/user/.writ" });
+    mocks.fetchStorageInfo.mockReset().mockResolvedValue({ db_path: "/home/user/.jotra/jotra.db", dir: "/home/user/.jotra" });
     mocks.revealStoragePath.mockReset().mockResolvedValue(undefined);
     mocks.copyStoragePath.mockReset().mockResolvedValue(undefined);
     mocks.writeClipboardText.mockReset().mockResolvedValue(undefined);
@@ -265,8 +265,8 @@ describe("SettingsModal sidebar section", () => {
     mocks.setActiveTabId.mockReset();
     mocks.requestExternalReload.mockReset();
     mocks.notesFolder.mockReset().mockReturnValue({
-      path: "/home/user/Writ",
-      display_path: "~/Writ",
+      path: "/home/user/Jotra",
+      display_path: "~/Jotra",
       fallback: null,
       sync_provider: null,
     });

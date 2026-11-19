@@ -1,18 +1,18 @@
 .dictation-indicator {
   display: inline-flex;
   align-items: center;
-  gap: var(--writ-space-2);
-  padding: 0 var(--writ-space-3);
+  gap: var(--jotra-space-2);
+  padding: 0 var(--jotra-space-3);
   border: 0;
-  border-radius: var(--writ-r-control);
+  border-radius: var(--jotra-r-control);
   background: transparent;
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
   font: inherit;
   line-height: 1.4;
   white-space: nowrap;
   flex-shrink: 0;
   cursor: pointer;
-  transition: color var(--writ-motion), background var(--writ-motion);
+  transition: color var(--jotra-motion), background var(--jotra-motion);
 }
 
 .dictation-indicator-status {
@@ -29,8 +29,8 @@
 }
 
 .dictation-indicator:hover:not([aria-disabled="true"]) {
-  color: var(--writ-fg);
-  background: var(--writ-bg-hover);
+  color: var(--jotra-fg);
+  background: var(--jotra-bg-hover);
 }
 
 .dictation-indicator[aria-disabled="true"] {
@@ -43,15 +43,15 @@
 }
 
 .dictation-indicator.is-recording .dictation-indicator-icon {
-  color: var(--writ-status-error);
+  color: var(--jotra-status-error);
 }
 
 .dictation-indicator-level {
   position: relative;
   width: 24px;
   height: 3px;
-  border-radius: var(--writ-r-pill);
-  background: var(--writ-border-soft);
+  border-radius: var(--jotra-r-pill);
+  background: var(--jotra-border-soft);
   overflow: hidden;
 }
 
@@ -67,7 +67,7 @@
     opacity: 1;
     transform-origin: left center;
     transform: scaleX(var(--dictation-level, 0));
-    transition: transform var(--writ-motion-fast) var(--writ-ease-linear);
+    transition: transform var(--jotra-motion-fast) var(--jotra-ease-linear);
   }
 }
 

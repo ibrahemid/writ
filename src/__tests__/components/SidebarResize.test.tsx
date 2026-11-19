@@ -89,7 +89,7 @@ function drag(handle: HTMLElement, from: number, to: number) {
 }
 
 function liveWidth(sidebar: HTMLElement): string {
-  return sidebar.style.getPropertyValue("--writ-sidebar-live-width");
+  return sidebar.style.getPropertyValue("--jotra-sidebar-live-width");
 }
 
 beforeEach(() => {
@@ -117,7 +117,7 @@ describe("sidebar resize handle", () => {
     const { sidebar } = mount();
     expect(liveWidth(sidebar)).toBe("300px");
     expect(SIDEBAR_CSS).toContain(
-      "width: var(--writ-sidebar-live-width, var(--writ-sidebar-width));",
+      "width: var(--jotra-sidebar-live-width, var(--jotra-sidebar-width));",
     );
   });
 
@@ -139,7 +139,7 @@ describe("sidebar resize handle", () => {
     expect(inner.querySelector(".sidebar-scroll")).not.toBeNull();
     expect(sidebar.querySelector(":scope > .sidebar-resizer")).not.toBeNull();
     expect(SIDEBAR_CSS).toContain(
-      "width: var(--writ-sidebar-live-width, var(--writ-sidebar-width));\n  display: flex;",
+      "width: var(--jotra-sidebar-live-width, var(--jotra-sidebar-width));\n  display: flex;",
     );
   });
 

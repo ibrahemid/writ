@@ -2,17 +2,17 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
+use jotra_core::workspace::file_search::FileHit;
+use jotra_core::workspace::{DirListing, WorkspaceKind};
+use jotra_storage::workspace_grep::{
+    self, ContentHit, GrepLimits, GrepOutcome, GrepRequest, ScanObserver,
+};
+use jotra_storage::workspace_store;
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
 use tracing::warn;
-use writ_core::workspace::file_search::FileHit;
-use writ_core::workspace::{DirListing, WorkspaceKind};
-use writ_storage::workspace_grep::{
-    self, ContentHit, GrepLimits, GrepOutcome, GrepRequest, ScanObserver,
-};
-use writ_storage::workspace_store;
 
 use crate::commands::config::persist_config;
 use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};

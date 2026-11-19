@@ -174,14 +174,14 @@ const LABEL_HALO = 3;
 
 /** The names the drawing is painted with. Nothing here is a colour. */
 const TOKENS = {
-  ground: "--writ-bg-canvas",
-  edge: "--writ-fg-muted",
-  muted: "--writ-fg-muted",
-  label: "--writ-fg",
-  focus: "--writ-accent",
-  ring: "--writ-border",
-  nodeFill: "--writ-bg-raised",
-  faint: "--writ-fg-faint",
+  ground: "--jotra-bg-canvas",
+  edge: "--jotra-fg-muted",
+  muted: "--jotra-fg-muted",
+  label: "--jotra-fg",
+  focus: "--jotra-accent",
+  ring: "--jotra-border",
+  nodeFill: "--jotra-bg-raised",
+  faint: "--jotra-fg-faint",
 } as const;
 
 type Palette = Record<keyof typeof TOKENS, string> & {
@@ -431,7 +431,7 @@ export default function GraphCanvas(props: Props) {
       faint: read(TOKENS.faint),
       face: style.fontFamily,
       fontSize: Number.parseFloat(style.fontSize) || LABEL_MIN_SIZE,
-      dimmed: Number.parseFloat(read("--writ-icon-opacity")) || 1,
+      dimmed: Number.parseFloat(read("--jotra-icon-opacity")) || 1,
     };
   }
 

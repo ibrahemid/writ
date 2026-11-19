@@ -16,7 +16,7 @@ import {
   type SpellingEntry,
 } from "../../editor/spelling";
 
-// Singleton state — Writ is single-window: one active editor view checks at a
+// Singleton state — Jotra is single-window: one active editor view checks at a
 // time. The store owns the debounced re-lint (with a generation counter that
 // drops stale results) and exposes the live decoration set to the chip, the
 // anchored menu, and the preview overlay. A re-lint sends what was edited

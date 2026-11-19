@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 
-use writ_tauri_lib::startup::{mark_ready_and_drain, park_or_pass_opens};
+use jotra_tauri_lib::startup::{mark_ready_and_drain, park_or_pass_opens};
 
 #[test]
 fn files_opened_before_ready_wait_for_the_drain() {

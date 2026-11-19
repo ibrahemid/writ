@@ -40,10 +40,10 @@ describe("ConflictCopyBadge", () => {
     expect(tipTextAfterHover(container)).toContain("Your sync service");
   });
 
-  it("marks a copy Writ kept", () => {
-    const { container } = render(() => <ConflictCopyBadge kind="writ" provider={null} />);
+  it("marks a copy Jotra kept", () => {
+    const { container } = render(() => <ConflictCopyBadge kind="jotra" provider={null} />);
     const badge = container.querySelector(".file-tree-copy-badge")!;
-    expect(badge.textContent).toBe("Writ copy");
-    expect(tipTextAfterHover(container)).toContain("Writ kept this copy");
+    expect(badge.textContent).toBe("Jotra copy");
+    expect(tipTextAfterHover(container)).toContain("Jotra kept this copy");
   });
 });

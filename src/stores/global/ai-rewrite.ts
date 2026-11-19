@@ -17,11 +17,11 @@ import {
 } from "../../services/tauri";
 import { rewriteActionLabel } from "../../commands/rewrite-actions";
 import { aiConnectionStore } from "./ai-connection";
-import type { WritEvent } from "../../types/events";
+import type { JotraEvent } from "../../types/events";
 
 export type { AiKeyState, AiEndpointState, WordSpan };
 
-type AiRewritePayload = Extract<WritEvent, { kind: "ai:rewrite" }>["payload"];
+type AiRewritePayload = Extract<JotraEvent, { kind: "ai:rewrite" }>["payload"];
 
 export type AiStatus = "idle" | "awaiting-instruction" | "streaming" | "done" | "error";
 
@@ -44,7 +44,7 @@ interface Session {
 }
 
 
-// Singleton state — Writ is single-window. The overlay and its stream are a
+// Singleton state — Jotra is single-window. The overlay and its stream are a
 // single live session at a time.
 function createAiRewriteStore() {
   const [session, setSession] = createSignal<Session | null>(null);

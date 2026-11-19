@@ -1,6 +1,6 @@
 //! What the app does with a program's held write (ADR-053).
 //!
-//! `writ mcp` leaves the proposal in `write-reviews/` and the ask in
+//! `jotra mcp` leaves the proposal in `write-reviews/` and the ask in
 //! `open-requests/`, where the requests watcher finds it ([`crate::instance`]).
 //! The app checks that the settings still hold that program's writes for the
 //! person, shows the change in the main window and brings it forward, and
@@ -15,20 +15,20 @@ use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use jotra_core::config::mcp::McpConfig;
+use jotra_core::diff::{line_diff_exact, Hunk};
+use jotra_core::instance::{is_wait_token, ReviewAsk};
+use jotra_core::write_review::{ProposedChange, ReviewAnswer, WriteProposal, REVIEW_WAIT};
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 use tracing::warn;
-use writ_core::config::mcp::McpConfig;
-use writ_core::diff::{line_diff_exact, Hunk};
-use writ_core::instance::{is_wait_token, ReviewAsk};
-use writ_core::write_review::{ProposedChange, ReviewAnswer, WriteProposal, REVIEW_WAIT};
 
-use crate::events::{emit_event_to_main, WritFrontendEvent};
+use crate::events::{emit_event_to_main, JotraFrontendEvent};
 use crate::open_context::MAIN_WINDOW;
 use crate::poison::recover_poison;
 use crate::state::AppState;
 
-/// How much sooner than `writ mcp` the app stops taking an answer, so an
+/// How much sooner than `jotra mcp` the app stops taking an answer, so an
 /// Apply never lands in a file the program has stopped looking for.
 pub const REVIEW_MARGIN: Duration = Duration::from_secs(2);
 
@@ -121,7 +121,7 @@ pub fn is_held(config: &McpConfig, program: &str) -> bool {
 }
 
 /// What the app does with `ask`, from the settings it holds and whether the
-/// window is ready. `writ mcp` checked the setting before it asked; the app
+/// window is ready. `jotra mcp` checked the setting before it asked; the app
 /// checks it again, so a request anything else left is never shown.
 pub fn route_review(state: &AppState, ask: &ReviewAsk) -> ReviewRoute {
     if !is_wait_token(&ask.token) {
@@ -172,16 +172,16 @@ pub fn shown_review(
 /// A file as the window names it: relative to the notes folder inside it, its
 /// name alone anywhere else.
 fn spelled_for_window(notes_root: &Path, file: &Path) -> String {
-    let root = writ_core::notes::containment::resolve_for_containment(notes_root)
+    let root = jotra_core::notes::containment::resolve_for_containment(notes_root)
         .unwrap_or_else(|| notes_root.to_path_buf());
-    writ_storage::paths::relative_slug(&root, file)
+    jotra_storage::paths::relative_slug(&root, file)
         .filter(|relative| !relative.is_empty())
-        .unwrap_or_else(|| writ_storage::paths::file_name_only(&file.to_string_lossy()))
+        .unwrap_or_else(|| jotra_storage::paths::file_name_only(&file.to_string_lossy()))
 }
 
-fn answer_not_shown(writ_dir: &Path, token: &str) {
+fn answer_not_shown(jotra_dir: &Path, token: &str) {
     if let Err(error) =
-        writ_storage::write_review::write_answer(writ_dir, token, ReviewAnswer::NotShown)
+        jotra_storage::write_review::write_answer(jotra_dir, token, ReviewAnswer::NotShown)
     {
         warn!(%error, "a held write could not be answered");
     }
@@ -193,30 +193,30 @@ pub fn show_review(app: &AppHandle, ask: &ReviewAsk, sent_at_ms: i64, now_ms: i6
     let state = app.state::<AppState>();
     let wait = remaining_wait(sent_at_ms, now_ms);
     if wait.is_zero() {
-        answer_not_shown(&state.writ_dir, &ask.token);
+        answer_not_shown(&state.jotra_dir, &ask.token);
         return;
     }
     match route_review(&state, ask) {
         ReviewRoute::NotHeld => {
             warn!("a held write for a program not set to ask first was answered as not shown");
             if is_wait_token(&ask.token) {
-                answer_not_shown(&state.writ_dir, &ask.token);
+                answer_not_shown(&state.jotra_dir, &ask.token);
             }
         }
-        ReviewRoute::NotReady => answer_not_shown(&state.writ_dir, &ask.token),
+        ReviewRoute::NotReady => answer_not_shown(&state.jotra_dir, &ask.token),
         ReviewRoute::Show => {
-            let shown = writ_storage::write_review::read_proposal(&state.writ_dir, &ask.token)
+            let shown = jotra_storage::write_review::read_proposal(&state.jotra_dir, &ask.token)
                 .and_then(|proposal| shown_review(&state.notes_root(), ask, &proposal, wait));
             let Some(shown) = shown else {
-                answer_not_shown(&state.writ_dir, &ask.token);
+                answer_not_shown(&state.jotra_dir, &ask.token);
                 return;
             };
             app.state::<ReviewAsks>()
                 .hold(&ask.token, &ask.program, wait, Instant::now());
-            if let Err(error) = emit_event_to_main(app, WritFrontendEvent::ReviewAsked(shown)) {
+            if let Err(error) = emit_event_to_main(app, JotraFrontendEvent::ReviewAsked(shown)) {
                 warn!(%error, "a held write could not be shown");
                 app.state::<ReviewAsks>().take(&ask.token, Instant::now());
-                answer_not_shown(&state.writ_dir, &ask.token);
+                answer_not_shown(&state.jotra_dir, &ask.token);
                 return;
             }
             crate::instance::bring_forward(app);
@@ -253,7 +253,7 @@ pub fn answer_inner(
     } else {
         ReviewAnswer::Discard
     };
-    writ_storage::write_review::write_answer(&state.writ_dir, token, answer)
+    jotra_storage::write_review::write_answer(&state.jotra_dir, token, answer)
         .map_err(|error| ReviewAnswerError::NotWritten(error.to_string()))
 }
 
@@ -296,7 +296,7 @@ mod tests {
         let dir = tempfile::TempDir::new().expect("temp dir");
         let notes = dir.path().join("notes");
         std::fs::create_dir_all(notes.join("plans")).expect("folder");
-        let root = writ_core::notes::containment::resolve_for_containment(&notes).expect("root");
+        let root = jotra_core::notes::containment::resolve_for_containment(&notes).expect("root");
         let ask = ReviewAsk {
             token: "r-3".to_string(),
             program: "claude-code".to_string(),

@@ -4,9 +4,9 @@
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
-use writ_core::crash::DIGEST_PREFIX_LEN;
-use writ_core::hash::sha256_hex;
-use writ_tauri_lib::logging::panic_handler::install_panic_handler;
+use jotra_core::crash::DIGEST_PREFIX_LEN;
+use jotra_core::hash::sha256_hex;
+use jotra_tauri_lib::logging::panic_handler::install_panic_handler;
 
 const SENTINEL: &str = "SENTINEL-note-text-9f2c41";
 
@@ -61,7 +61,7 @@ fn a_panic_message_never_reaches_the_crash_file_or_the_log() {
     for file in &files {
         let name = file.file_name().unwrap().to_string_lossy().into_owned();
         assert!(
-            name.starts_with("writ-crash-") && name.ends_with(".log"),
+            name.starts_with("jotra-crash-") && name.ends_with(".log"),
             "{name}"
         );
         let report = std::fs::read_to_string(file).unwrap();
@@ -69,7 +69,7 @@ fn a_panic_message_never_reaches_the_crash_file_or_the_log() {
         assert!(report.contains("Location: "), "{report}");
         assert!(report.contains("Payload: String message, "), "{report}");
         assert!(report.contains(
-            "Anchor: writ_tauri_lib::logging::panic_handler::install_panic_handler at 0x"
+            "Anchor: jotra_tauri_lib::logging::panic_handler::install_panic_handler at 0x"
         ));
         assert!(report.contains("Backtrace:\n"), "{report}");
     }

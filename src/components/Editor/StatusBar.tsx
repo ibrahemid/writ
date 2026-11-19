@@ -68,7 +68,7 @@ export default function StatusBar() {
   const countsOn = createMemo(() => configStore.config().editor.status_bar_counts);
 
   // The encoding the file in front is read and saved in, or nothing for a
-  // file that has none: a hex view, or a document Writ generated (ADR-049).
+  // file that has none: a hex view, or a document Jotra generated (ADR-049).
   // A note with no file yet shows the UTF-8 it will be written in, with
   // nothing to reopen.
   const activeBuffer = useActiveBuffer();

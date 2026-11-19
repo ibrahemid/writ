@@ -1,8 +1,8 @@
-//! What the app does with a `writ://` link (ADR-052).
+//! What the app does with a `jotra://` link (ADR-052).
 //!
 //! A link reaches the app four ways: the operating system's open-URL event on
 //! macOS, the arguments of a launch on Windows and Linux, a second launch's
-//! hand-over, and a request `writ mcp` leaves (U23's open-requests folder).
+//! hand-over, and a request `jotra mcp` leaves (U23's open-requests folder).
 //! All four end in [`follow`], so one reading of the grammar decides.
 //!
 //! `open` resolves its path inside the notes folder as it stands now and goes
@@ -17,12 +17,12 @@ use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 
+use jotra_core::instance::OpenRequest;
+use jotra_core::jotra_link::{self, JotraLink, LinkRefusal};
 use tauri::{AppHandle, Manager};
 use tracing::{info, warn};
-use writ_core::instance::OpenRequest;
-use writ_core::writ_link::{self, LinkRefusal, WritLink};
 
-use crate::events::{emit_event, emit_event_to_main, WritFrontendEvent};
+use crate::events::{emit_event, emit_event_to_main, JotraFrontendEvent};
 use crate::poison::recover_poison;
 use crate::state::AppState;
 
@@ -75,16 +75,16 @@ pub struct LinkDrafts(Mutex<Vec<Option<String>>>);
 /// [`LinkError`]: the link is outside the grammar, or names no file the
 /// folder holds.
 pub fn route_link(notes_root: &Path, raw: &str) -> Result<LinkRoute, LinkError> {
-    match writ_link::parse(raw)? {
-        WritLink::Open { path, line } => {
-            let file = writ_storage::paths::file_in_folder(notes_root, &path)
+    match jotra_link::parse(raw)? {
+        JotraLink::Open { path, line } => {
+            let file = jotra_storage::paths::file_in_folder(notes_root, &path)
                 .ok_or(LinkError::NotInFolder)?;
             Ok(LinkRoute::Open {
                 path: file.to_string_lossy().into_owned(),
                 line,
             })
         }
-        WritLink::New { name } => Ok(LinkRoute::Draft(name)),
+        JotraLink::New { name } => Ok(LinkRoute::Draft(name)),
     }
 }
 
@@ -101,7 +101,7 @@ pub fn read_links(notes_root: &Path, links: &[String]) -> FollowedLinks {
                 followed.opens.paths.push(path);
             }
             Ok(LinkRoute::Draft(name)) => followed.drafts.push(name),
-            Err(error) => warn!(reason = %error, "a writ:// link was refused"),
+            Err(error) => warn!(reason = %error, "a jotra:// link was refused"),
         }
     }
     followed
@@ -127,7 +127,7 @@ pub fn follow(app: &AppHandle, links: &[String], reveal: bool) {
         if let Some(opens) = crate::instance::route_forwarded(&state, &followed.opens) {
             let _ = emit_event(
                 app,
-                WritFrontendEvent::PendingOpens {
+                JotraFrontendEvent::PendingOpens {
                     paths: opens.paths,
                     lines: opens.lines,
                 },
@@ -181,6 +181,6 @@ pub fn parked(parked: &LinkDrafts) -> Vec<Option<String>> {
 
 fn emit_drafts(app: &AppHandle, drafts: Vec<Option<String>>) {
     for name in drafts {
-        let _ = emit_event_to_main(app, WritFrontendEvent::LinkNew { name });
+        let _ = emit_event_to_main(app, JotraFrontendEvent::LinkNew { name });
     }
 }

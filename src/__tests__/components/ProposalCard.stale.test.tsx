@@ -157,7 +157,7 @@ afterEach(() => {
 });
 
 describe("a card whose note changes while it is on screen", () => {
-  it("holds Apply back after Writ saves the note", async () => {
+  it("holds Apply back after Jotra saves the note", async () => {
     const { apply, container, queryByRole } = await openCard();
     expect(apply().disabled).toBe(false);
     expect(queryByRole("button", { name: "Ask again" })).toBeNull();

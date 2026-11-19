@@ -1,7 +1,7 @@
 //! Fuzz target for the name a typed rename earns: `rename_stem` and the
 //! `sanitize_title` it ends in.
 //!
-//! Both run on whatever a person types into a tab, the sidebar, `writ rename`
+//! Both run on whatever a person types into a tab, the sidebar, `jotra rename`
 //! or an MCP client, so this target asserts over arbitrary text:
 //!
 //! 1. **No panic.** A panic here aborts the app, the CLI or the MCP server
@@ -22,7 +22,7 @@
 use std::path::Path;
 
 use libfuzzer_sys::fuzz_target;
-use writ_core::notes::{rename_stem, sanitize_title, MAX_TITLE_BYTES};
+use jotra_core::notes::{rename_stem, sanitize_title, MAX_TITLE_BYTES};
 
 fn assert_one_component(stem: &str, input: &str) {
     assert!(!stem.is_empty(), "empty name survived: input={input:?}");

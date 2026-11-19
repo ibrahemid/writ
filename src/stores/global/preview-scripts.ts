@@ -3,7 +3,7 @@ import * as api from "../../services/tauri";
 import { logFailure } from "../../lib/log";
 import { windowRegistry } from "./window-registry";
 
-// Singleton state — Writ is single-window. Each file's preview-scripts opt-in
+// Singleton state — Jotra is single-window. Each file's preview-scripts opt-in
 // as the backend last answered it (decision RC-D1/TS-D1), so what the status
 // bar shows is what the preview runs: read when the field shows a file, set by
 // the toggle, by every render's verdict, and read again when another program

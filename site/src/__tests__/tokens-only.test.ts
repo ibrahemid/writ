@@ -63,7 +63,7 @@ describe('site source carries no literal colour or length', () => {
     const css = readFileSync(SITE_CSS, 'utf8');
     const used = new Set([...css.matchAll(/@media \((?:min|max)-width: (\d+)px\)/g)].map((m) => m[1]));
     const tokens = readFileSync(TOKENS, 'utf8');
-    const declared = new Set([...tokens.matchAll(/--writ-site-bp-\w+: (\d+)px/g)].map((m) => m[1]));
+    const declared = new Set([...tokens.matchAll(/--jotra-site-bp-\w+: (\d+)px/g)].map((m) => m[1]));
     expect([...used].sort()).toEqual([...declared].sort());
   });
 

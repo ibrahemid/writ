@@ -174,7 +174,7 @@ describe("the notes folder's tree", () => {
   });
 });
 
-describe("Writ's own writes", () => {
+describe("Jotra's own writes", () => {
   it("lists the folder again when a file is written in it", async () => {
     await openTree();
 
@@ -277,7 +277,7 @@ describe("a folder that could not be read", () => {
     mockedApi.listNotesDir.mockClear();
   }
 
-  it("is read again on the next write Writ announces in it", async () => {
+  it("is read again on the next write Jotra announces in it", async () => {
     await failFirstListing(NOTES);
     expect(notesTreeStore.entriesFor(NOTES)).toBeUndefined();
 

@@ -1,6 +1,6 @@
 [
-  { "chord": "CmdOrCtrl+Q", "label": "Quit Writ" },
-  { "chord": "CmdOrCtrl+H", "label": "Hide Writ" },
+  { "chord": "CmdOrCtrl+Q", "label": "Quit Jotra" },
+  { "chord": "CmdOrCtrl+H", "label": "Hide Jotra" },
   { "chord": "CmdOrCtrl+Alt+H", "label": "Hide Others" },
   { "chord": "CmdOrCtrl+M", "label": "Minimize" },
   { "chord": "CmdOrCtrl+Z", "label": "Undo" },

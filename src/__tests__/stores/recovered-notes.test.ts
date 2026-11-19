@@ -28,7 +28,7 @@ afterEach(() => {
   stores = [];
 });
 
-const unmade = { name: "2026-10-13.txt", folder: "Writ" };
+const unmade = { name: "2026-10-13.txt", folder: "Jotra" };
 
 const restoredNote: RecoveredBuffer = {
   id: "restored",

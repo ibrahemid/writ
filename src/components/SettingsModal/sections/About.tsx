@@ -22,7 +22,7 @@ function UpdateStatus() {
     <span class="settings-update-status" data-update-status={phase().status} aria-live="polite">
       <Switch>
         <Match when={phase().status === "checking"}>Checking for updates…</Match>
-        <Match when={phase().status === "up_to_date"}>Writ is up to date.</Match>
+        <Match when={phase().status === "up_to_date"}>Jotra is up to date.</Match>
         <Match when={offered()}>{(version) => `Version ${version()} is available.`}</Match>
         <Match when={phase().status === "downloading"}>Downloading update…</Match>
         <Match when={phase().status === "installing"}>Installing update…</Match>

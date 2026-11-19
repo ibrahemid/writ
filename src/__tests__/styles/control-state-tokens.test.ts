@@ -27,8 +27,8 @@ const THEME = sheet("src/styles/generated/theme.css");
 
 describe("hover and disabled states resolve through tokens", () => {
   it("the danger primary swaps a colour on hover, as every other button does", () => {
-    const hover = declarations(BUTTON, ".writ-btn-primary.writ-btn-danger:hover:not(:disabled)");
-    expect(hover.get("background")).toBe("var(--writ-danger-hover)");
+    const hover = declarations(BUTTON, ".jotra-btn-primary.jotra-btn-danger:hover:not(:disabled)");
+    expect(hover.get("background")).toBe("var(--jotra-danger-hover)");
     expect(BUTTON).not.toContain("filter:");
   });
 
@@ -39,8 +39,8 @@ describe("hover and disabled states resolve through tokens", () => {
       ["light", light],
       ["dark", dark],
     ] as const) {
-      const base = decls.get("--writ-danger");
-      const hover = decls.get("--writ-danger-hover");
+      const base = decls.get("--jotra-danger");
+      const hover = decls.get("--jotra-danger-hover");
       expect(hover, `${scheme} danger hover`).toBeDefined();
       expect(hover).not.toBe(base);
       expect(luminance(hover!), `${scheme} hover is deeper than the fill`).toBeLessThan(
@@ -53,15 +53,15 @@ describe("hover and disabled states resolve through tokens", () => {
     // The settings controls are retokenised here. The remaining carriers (the
     // two find buttons and the spelling apply) belong to the editor's own pass
     // and still carry a literal; they join this rule when it lands.
-    expect(declarations(THEME, ":root").get("--writ-disabled-opacity")).toBe("0.5");
+    expect(declarations(THEME, ":root").get("--jotra-disabled-opacity")).toBe("0.5");
     for (const [rel, selector] of [
-      ["src/components/Button/Button.css", ".writ-btn:disabled"],
+      ["src/components/Button/Button.css", ".jotra-btn:disabled"],
       ["src/components/SettingsModal/SettingsModal.css", ".settings-select:disabled"],
       ["src/components/SettingsModal/SettingsModal.css", ".settings-accent:disabled"],
       ["src/components/SettingsModal/SettingsModal.css", ".settings-switch:disabled"],
     ] as const) {
       expect(declarations(sheet(rel), selector).get("opacity"), selector).toBe(
-        "var(--writ-disabled-opacity)",
+        "var(--jotra-disabled-opacity)",
       );
     }
     // `opacity: 1` on the button's icon is a reset to full, not a dim.

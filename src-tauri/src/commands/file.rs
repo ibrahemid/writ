@@ -8,31 +8,31 @@ use crate::security::{
     canonicalize_for_authorization, paths_equal_for_authorization, resolve_for_containment,
 };
 use crate::state::AppState;
+use jotra_core::buffer::document::BufferDocument;
+use jotra_core::buffer::manager::BufferManager;
+use jotra_core::events::bus::JotraEvent;
+use jotra_core::file_ops::{self, FileOpenMode};
+use jotra_core::notes::line_ending::LineEnding;
+use jotra_core::notes::materialise::{decide_open, OpenDecision};
+use jotra_core::serial::Turn;
+use jotra_core::text_encoding::{decode_detected_owned, TextEncoding};
+use jotra_core::watcher::change_event::ExternalChange;
+use jotra_storage::paths::file_name_only;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_dialog::DialogExt;
-use writ_core::buffer::document::BufferDocument;
-use writ_core::buffer::manager::BufferManager;
-use writ_core::events::bus::WritEvent;
-use writ_core::file_ops::{self, FileOpenMode};
-use writ_core::notes::line_ending::LineEnding;
-use writ_core::notes::materialise::{decide_open, OpenDecision};
-use writ_core::serial::Turn;
-use writ_core::text_encoding::{decode_detected_owned, TextEncoding};
-use writ_core::watcher::change_event::ExternalChange;
-use writ_storage::paths::file_name_only;
 
 const ERR_UNAUTHORIZED_PATH: &str =
-    "Writ cannot open that file from here. Use File > Open File, or drop it onto the window.";
+    "Jotra cannot open that file from here. Use File > Open File, or drop it onto the window.";
 
-/// Code an open carries when its path is in no folder Writ opens from on its
+/// Code an open carries when its path is in no folder Jotra opens from on its
 /// own and no gesture of the person's granted it. A path outside those
 /// folders answers this whether or not a file is there, so the answer never
 /// says what is on disk outside them. The frontend words it
 /// (`src/lib/open-failure.ts`); the text after the code is for logs.
 pub const ERR_OPEN_NOT_AUTHORIZED: &str = "ERR_OPEN_NOT_AUTHORIZED";
 
-/// Code an open carries when nothing is at a path inside a folder Writ opens
+/// Code an open carries when nothing is at a path inside a folder Jotra opens
 /// from on its own, such as a link to a note not written yet. Saying so there
 /// hides nothing, and it is the answer that holds: the way to open a file from
 /// elsewhere cannot open one that is not there.
@@ -46,7 +46,7 @@ pub const ERR_OPEN_FILE_MISSING: &str = "ERR_OPEN_FILE_MISSING";
 pub struct FileOpenResult {
     /// The buffer metadata row, or `None` when nothing was opened: the file
     /// waits on a confirm ([`FileOpenMode::LargeFileConfirm`]), is over the
-    /// size Writ opens ([`FileOpenMode::Refused`]), or has its bytes on
+    /// size Jotra opens ([`FileOpenMode::Refused`]), or has its bytes on
     /// another machine ([`FileOpenMode::NotDownloaded`]). Every other mode
     /// carries a row.
     pub doc: Option<BufferDocument>,
@@ -95,7 +95,7 @@ fn path_is_dataless(path: &Path) -> bool {
             return true;
         }
     }
-    writ_storage::notes_index::is_dataless(path)
+    jotra_storage::notes_index::is_dataless(path)
 }
 
 /// Authorizes one open, and says whether a one-shot token paid for it.
@@ -293,7 +293,7 @@ fn shown_tab_answer(state: &AppState, canonical: &str) -> Result<Option<FileOpen
 /// Nothing reads the file or follows it again: the tab has been followed since
 /// it opened, and an open of the tab's own path, which the frontend answers
 /// without Rust, costs nothing either. A tab restored at launch whose file
-/// Writ has not read answers through its own open, which measures the file
+/// Jotra has not read answers through its own open, which measures the file
 /// and asks first (ADR-019).
 fn open_tab_answer(state: &AppState, canonical: &str) -> Result<Option<FileOpenResult>, String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
@@ -333,9 +333,9 @@ fn unopened_answer(classification: &file_ops::FileClassification) -> Option<File
 /// An open that could not read the file, as the read code the editor's own
 /// read carries ([`crate::commands::buffer::io_read_failure_code`]) followed
 /// by the message for logs.
-fn open_failure_message(error: writ_core::errors::WritError) -> String {
+fn open_failure_message(error: jotra_core::errors::JotraError) -> String {
     match error {
-        writ_core::errors::WritError::Io(io) => io_read_failure_message(&io),
+        jotra_core::errors::JotraError::Io(io) => io_read_failure_message(&io),
         other => other.to_string(),
     }
 }
@@ -400,7 +400,7 @@ fn open_file_classified_inner(
     // The file is read, hashed once and decoded before the store is taken
     // (ADR-047); the store is held for the rows alone.
     let bytes = std::fs::read(file_path).map_err(|e| io_read_failure_message(&e))?;
-    let digest = writ_core::hash::sha256_bytes(&bytes);
+    let digest = jotra_core::hash::sha256_bytes(&bytes);
     let bytes_prefix = bytes[..bytes.len().min(file_ops::BINARY_CHECK_BYTES)].to_vec();
     let (content, line_ending, encoding) = if is_binary {
         (
@@ -438,7 +438,7 @@ fn open_file_classified_inner(
         store.restore(&history_buf.id).map_err(|e| e.to_string())?;
         // A file the row keeps as a hex view because it opened as one before
         // UTF-16 was text (ADR-049) opens as text now. A NUL is what made it
-        // binary then; a document Writ generated is read-only without one,
+        // binary then; a document Jotra generated is read-only without one,
         // and stays read-only.
         if history_buf.read_only && !is_binary && bytes_prefix.contains(&0) {
             store
@@ -493,7 +493,7 @@ fn open_file_classified_inner(
         ..new_doc
     };
 
-    // No stamp: opening a file writes nothing, so there is no write of Writ's
+    // No stamp: opening a file writes nothing, so there is no write of Jotra's
     // own for a watcher to mistake for somebody else's.
     store
         .open_from_path(&new_doc, &content)
@@ -682,11 +682,11 @@ pub fn accept_note_save_path(state: &AppState, picked: &Path) -> Result<String, 
 /// Brings an already-open buffer back in line with its file on disk.
 ///
 /// Reopening is how the user says "show me this file" — the CLI reopening a
-/// list of paths, the OS handing Writ a document, a drop onto the window — so
-/// disk wins over the copy Writ loaded earlier. The editor is told through the
+/// list of paths, the OS handing Jotra a document, a drop onto the window — so
+/// disk wins over the copy Jotra loaded earlier. The editor is told through the
 /// same event an external edit raises, which reloads a clean buffer and asks
 /// first when there are unsaved keystrokes to lose. The event only fires when
-/// the file's digest actually moved since Writ last read or wrote it: a
+/// the file's digest actually moved since Jotra last read or wrote it: a
 /// reopen of a file nothing touched is not an external change, and emitting
 /// for it anyway would reload (or prompt over) an editor that has nothing new
 /// to show.
@@ -695,13 +695,13 @@ pub fn accept_note_save_path(state: &AppState, picked: &Path) -> Result<String, 
 ///
 /// Nothing is copied. The editor reloads through `read_buffer_content`, which
 /// reads the file itself (ADR-028 §1), so the reload *is* the resync; the read
-/// here is what the watcher stamp needs to recognise those bytes as ones Writ
+/// here is what the watcher stamp needs to recognise those bytes as ones Jotra
 /// already knows about.
 ///
 /// What the file held is deliberately not recorded here. The event is an offer
 /// the editor can decline — it asks first when there are unsaved keystrokes to
 /// lose — and recording on the strength of having emitted would leave a user
-/// who said no with a tab Writ believes is current, and the next reopen
+/// who said no with a tab Jotra believes is current, and the next reopen
 /// silent. The record moves when the file is actually read, which the reload
 /// does through [`crate::commands::buffer::read_buffer_content`].
 ///
@@ -733,13 +733,13 @@ fn resync_open_buffer(state: &AppState, turn: &Turn, doc: &BufferDocument) {
             state.watcher_ignore.lock(),
             "commands::file::resync_open_buffer",
         );
-        let key = writ_core::watcher::ignore::source_key(
+        let key = jotra_core::watcher::ignore::source_key(
             &crate::watcher::handler::ignore_key_path(Path::new(path)),
         );
         ignore.record(key, &source, Instant::now());
     }
     // A change is only reportable against a record of what the file held. A
-    // note Writ has not read this launch has none, and saying it changed would
+    // note Jotra has not read this launch has none, and saying it changed would
     // be an assertion about bytes nobody looked at. It lands on the tab least
     // able to answer for itself: one restored at launch and never brought to
     // the front, whose editor is not mounted and which reads the file itself
@@ -747,7 +747,7 @@ fn resync_open_buffer(state: &AppState, turn: &Turn, doc: &BufferDocument) {
     // over a document nobody touched.
     let changed = state
         .disk_state(&doc.id)
-        .is_some_and(|known| known.hash != writ_core::hash::sha256_bytes(&source));
+        .is_some_and(|known| known.hash != jotra_core::hash::sha256_bytes(&source));
     {
         let store = recover_poison(state.store.lock(), "commands::file::resync_open_buffer");
         if let Some(text) = text.as_deref() {
@@ -774,7 +774,7 @@ fn resync_open_buffer(state: &AppState, turn: &Turn, doc: &BufferDocument) {
             }
         }
         // Another program changed the file, so an opt-in given to the bytes
-        // Writ read before goes with them (ADR-043).
+        // Jotra read before goes with them (ADR-043).
         if changed {
             crate::commands::preview::lapse_scripts_opt_in(
                 &store,
@@ -789,7 +789,7 @@ fn resync_open_buffer(state: &AppState, turn: &Turn, doc: &BufferDocument) {
         // one place the file has already been read, so leaving it out and
         // making the editor go back to disk would be an IPC round trip for an
         // answer already in hand.
-        state.event_bus.emit(WritEvent::BufferExternal {
+        state.event_bus.emit(JotraEvent::BufferExternal {
             buffer_id: doc.id.clone(),
             path: path.to_string(),
             change: ExternalChange::Modified,
@@ -804,12 +804,12 @@ fn resync_open_buffer(state: &AppState, turn: &Turn, doc: &BufferDocument) {
 /// takes under the data directory, and opens it as a source-backed,
 /// read-only buffer.
 ///
-/// A document Writ writes rather than the user must never mint a file in the
+/// A document Jotra writes rather than the user must never mint a file in the
 /// notes folder (ADR-028 §1): unlike a plain note, its path is decided here,
 /// not by [`crate::notes::attach_note_file`], and `content` is written before
 /// the buffer exists rather than on a later first keystroke. The row is
 /// read-only, so
-/// [`write_source_guarded`](writ_storage::buffer_store::BufferStore::write_source_guarded)'s
+/// [`write_source_guarded`](jotra_storage::buffer_store::BufferStore::write_source_guarded)'s
 /// existing refusal is what stops a save of it — nothing new is checked for
 /// that.
 ///
@@ -825,7 +825,7 @@ pub fn open_generated_document(
     title: &str,
     content: &str,
 ) -> Result<FileOpenResult, String> {
-    let path = crate::generated::generated_document_path(&state.writ_dir, title);
+    let path = crate::generated::generated_document_path(&state.jotra_dir, title);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -900,14 +900,14 @@ pub fn open_generated_document(
 /// somewhere else. And it must be blessed — recorded when the file was opened
 /// through the dialog, a drop, the CLI, or the OS, and rehydrated at startup
 /// from the persisted buffers — so a compromised webview cannot name an
-/// arbitrary path and have Writ write it.
+/// arbitrary path and have Jotra write it.
 ///
 /// A path that no longer exists passes, and that is deliberately not the same
 /// question as whether the file was deleted. This gate asks whether a write
 /// may be aimed at a path at all; a path resolves whether or not anything is
 /// there, which is what lets a new note be minted and a note whose folder was
 /// remade be saved. Nothing can be redirected in that case either, since
-/// [`write_atomic`](writ_storage::atomic::write_atomic) renames onto the
+/// [`write_atomic`](jotra_storage::atomic::write_atomic) renames onto the
 /// literal path rather than following a dangling link.
 ///
 /// Whether the file behind an open tab was deleted is asked one layer up, by

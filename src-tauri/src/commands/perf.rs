@@ -59,7 +59,7 @@ mod tests {
     #[test]
     fn any_other_mode_string_is_refused() {
         for forged in [
-            "\"cold\\n2026-10-14T00:00:00Z ERROR writ_tauri_lib: forged\"",
+            "\"cold\\n2026-10-14T00:00:00Z ERROR jotra_tauri_lib: forged\"",
             "\"Cold\"",
             "\"\"",
         ] {

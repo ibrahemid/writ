@@ -1,0 +1,16 @@
+{
+  "stroke": { "width": 37, "widthForm": "macos", "smallSizes": [[16, 1.5], [32, 2], [64, 3]], "proportionalFrom": 128 },
+  "primitives": [
+    {"id": "stem", "type": "polyline", "points": [[599, 243.4], [599, 760.6], [386.47, 573.99]]}
+  ],
+  "optical": [
+    {"target": "glyph", "forms": ["macos"], "sizes": [16], "translatePx": [0.48, -0.1]},
+    {"target": "glyph", "forms": ["macos"], "sizes": [32], "translatePx": [-0.21, -0.18]},
+    {"target": "glyph", "forms": ["macos"], "sizes": [64], "translatePx": [0.08, 0.14]},
+    {"target": "glyph", "forms": ["flat"], "sizes": [16], "translatePx": [0.31, 0.42]},
+    {"target": "glyph", "forms": ["flat"], "sizes": [24], "translatePx": [-0.2, 0.12]},
+    {"target": "glyph", "forms": ["flat"], "sizes": [32], "translatePx": [-0.38, 0.34]},
+    {"target": "glyph", "forms": ["flat"], "sizes": [48], "translatePx": [0.43, 0.27]},
+    {"target": "glyph", "forms": ["flat"], "sizes": [64], "translatePx": [-0.26, 0.19]}
+  ]
+}

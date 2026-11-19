@@ -1,5 +1,5 @@
-use writ_plugin::transform::builtins::register_builtins;
-use writ_plugin::transform::{TransformError, TransformRegistry};
+use jotra_plugin::transform::builtins::register_builtins;
+use jotra_plugin::transform::{TransformError, TransformRegistry};
 
 fn build_registry() -> TransformRegistry {
     let mut registry = TransformRegistry::new();

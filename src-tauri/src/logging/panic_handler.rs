@@ -1,10 +1,10 @@
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 
-use tracing::error;
-use writ_core::crash::{
+use jotra_core::crash::{
     crash_report_file_name, format_crash_report, AddressAnchor, CrashFiles, PanicSummary,
 };
+use tracing::error;
 
 /// Installs the hook that records a panic without its message (ADR-045).
 ///
@@ -49,7 +49,7 @@ pub fn install_panic_handler(logs_dir: &Path) {
 
 fn address_anchor() -> AddressAnchor {
     AddressAnchor {
-        symbol: "writ_tauri_lib::logging::panic_handler::install_panic_handler",
+        symbol: "jotra_tauri_lib::logging::panic_handler::install_panic_handler",
         address: install_panic_handler as fn(&Path) as usize,
     }
 }

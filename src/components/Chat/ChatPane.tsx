@@ -135,7 +135,7 @@ export default function ChatPane() {
       <aside
         class="chat-pane"
         classList={{ "is-open": isOpen(), "is-resizing": dragWidth() !== null }}
-        style={{ "--writ-chat-live-width": `${width()}px` }}
+        style={{ "--jotra-chat-live-width": `${width()}px` }}
         aria-labelledby="chat-pane-title"
         aria-hidden={isOpen() ? undefined : "true"}
         ref={column}

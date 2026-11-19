@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-use writ_core::file_ops::arg_paths_from_iter;
-use writ_core::startup::{classify_data_dir, DataDirVerdict, Platform};
+use jotra_core::file_ops::arg_paths_from_iter;
+use jotra_core::startup::{classify_data_dir, DataDirVerdict, Platform};
 
 use crate::security::{canonicalize_for_authorization, resolve_for_containment, AuthorizedPaths};
 
@@ -100,16 +100,16 @@ pub fn authorize_and_canonicalize(
     out
 }
 
-/// The platform table [`writ_core::startup::classify_data_dir`] is given.
+/// The platform table [`jotra_core::startup::classify_data_dir`] is given.
 ///
 /// Each host builds only its own constant; the other tables are reached from
 /// tests, which pass the variant they mean.
 #[cfg(target_os = "macos")]
 pub const HOST_PLATFORM: Platform = Platform::Macos;
-/// The platform table [`writ_core::startup::classify_data_dir`] is given.
+/// The platform table [`jotra_core::startup::classify_data_dir`] is given.
 #[cfg(target_os = "windows")]
 pub const HOST_PLATFORM: Platform = Platform::Windows;
-/// The platform table [`writ_core::startup::classify_data_dir`] is given.
+/// The platform table [`jotra_core::startup::classify_data_dir`] is given.
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub const HOST_PLATFORM: Platform = Platform::Linux;
 
@@ -135,14 +135,14 @@ pub fn stfolder_markers(dir: &Path) -> Vec<PathBuf> {
 /// The policy compares paths as given, so the adapter has to resolve them
 /// first. [`resolve_for_containment`] resolves the deepest part of the path
 /// that exists and appends the rest, which is what makes the answer honest on
-/// a first launch: the folder Writ is about to create does not exist, so
+/// a first launch: the folder Jotra is about to create does not exist, so
 /// `canonicalize` alone says nothing, and a symlinked parent would carry the
 /// database into a synced folder unseen. On macOS it also settles the
 /// `/var` against `/private/var` spelling `notes_root` arrives in.
 ///
 /// The resolved path is asked about first, so a refusal names the folder the
 /// database would land in. The path as given is asked about second, for the
-/// paths resolution has no answer for: a relative or non-UTF-8 `WRIT_DATA_DIR`
+/// paths resolution has no answer for: a relative or non-UTF-8 `JOTRA_DATA_DIR`
 /// returns `None` there, and so does a symlink whose target does not exist,
 /// which `create_dir_all` then turns down in `AppState::initialize` rather
 /// than following.
@@ -219,7 +219,7 @@ mod tests {
         let pending = Mutex::new(Vec::<String>::new());
         let authorized = AuthorizedPaths::new();
         let argv = vec![
-            os("/usr/local/bin/writ"),
+            os("/usr/local/bin/jotra"),
             OsString::from(&a),
             OsString::from(&b),
         ];
@@ -242,9 +242,9 @@ mod tests {
         let pending = Mutex::new(Vec::<String>::new());
         let authorized = AuthorizedPaths::new();
         let argv = vec![
-            os("/usr/local/bin/writ"),
+            os("/usr/local/bin/jotra"),
             OsString::from(&real),
-            os("/tmp/writ-bogus-does-not-exist.txt"),
+            os("/tmp/jotra-bogus-does-not-exist.txt"),
             os("--foo"),
             os("-v"),
         ];
@@ -275,7 +275,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let synced = dir.path().join("Sync");
         std::fs::create_dir_all(synced.join(".stfolder")).unwrap();
-        let notes = synced.join("Writ");
+        let notes = synced.join("Jotra");
         std::fs::create_dir_all(&notes).unwrap();
 
         assert_eq!(
@@ -288,7 +288,7 @@ mod tests {
     fn a_notes_folder_under_a_provider_folder_names_the_provider() {
         let dir = tempfile::TempDir::new().unwrap();
         let home = crate::security::canonicalize_root(dir.path()).unwrap();
-        let notes = home.join("Dropbox").join("Writ");
+        let notes = home.join("Dropbox").join("Jotra");
         std::fs::create_dir_all(&notes).unwrap();
 
         assert_eq!(
@@ -301,7 +301,7 @@ mod tests {
     fn a_notes_folder_outside_a_synced_tree_names_nothing() {
         let dir = tempfile::TempDir::new().unwrap();
         let home = crate::security::canonicalize_root(dir.path()).unwrap();
-        let notes = home.join("Writ");
+        let notes = home.join("Jotra");
         std::fs::create_dir_all(&notes).unwrap();
 
         assert_eq!(sync_provider_for(&notes, Some(&home)), None);
@@ -336,10 +336,10 @@ mod tests {
         let authorized = AuthorizedPaths::new();
 
         let argv: Vec<OsString> = vec![
-            os("C:\\Program Files\\Writ\\writ.exe"),
+            os("C:\\Program Files\\Jotra\\jotra.exe"),
             OsString::from(&a),
             OsString::from(&b),
-            os("/tmp/writ-not-real-1234.txt"),
+            os("/tmp/jotra-not-real-1234.txt"),
             os("--foo"),
         ];
 

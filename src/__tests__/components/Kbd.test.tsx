@@ -34,13 +34,13 @@ describe("Kbd", () => {
   });
 
   it("takes the UI face at the caption step", () => {
-    expect(CSS).toContain("font-family: var(--writ-font-ui)");
-    expect(CSS).toContain("font-size: var(--writ-ui-xs)");
-    expect(CSS).not.toContain("--writ-font-mono");
+    expect(CSS).toContain("font-family: var(--jotra-font-ui)");
+    expect(CSS).toContain("font-size: var(--jotra-ui-xs)");
+    expect(CSS).not.toContain("--jotra-font-mono");
   });
 
   it("sits on the control radius and applies no letter-spacing", () => {
-    expect(CSS).toContain("border-radius: var(--writ-r-control)");
+    expect(CSS).toContain("border-radius: var(--jotra-r-control)");
     expect(CSS).not.toContain("letter-spacing");
   });
 });

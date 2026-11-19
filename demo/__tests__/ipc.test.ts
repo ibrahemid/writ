@@ -52,12 +52,12 @@ describe("installIpc", () => {
     const bridge = installIpc(() => () => null);
     const seen: unknown[] = [];
     const unlisten = await onEvent("notes:changed", (payload) => seen.push(payload));
-    bridge.emit("writ://notes-changed", { kind: "notes:changed", payload: { path: "/n/a.md", removed: false } });
+    bridge.emit("jotra://notes-changed", { kind: "notes:changed", payload: { path: "/n/a.md", removed: false } });
     expect(seen).toEqual([{ path: "/n/a.md", removed: false }]);
 
     unlisten();
     await settle();
-    bridge.emit("writ://notes-changed", { kind: "notes:changed", payload: { path: "/n/b.md", removed: true } });
+    bridge.emit("jotra://notes-changed", { kind: "notes:changed", payload: { path: "/n/b.md", removed: true } });
     expect(seen).toHaveLength(1);
   });
 
@@ -66,7 +66,7 @@ describe("installIpc", () => {
     const seen: unknown[] = [];
     await onEvent("config:changed", (payload) => seen.push(payload));
     await internals().invoke("plugin:event|emit", {
-      event: "writ://config-changed",
+      event: "jotra://config-changed",
       payload: { kind: "config:changed", payload: { keys: ["ai"] } },
     });
     expect(seen).toEqual([{ keys: ["ai"] }]);

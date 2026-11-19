@@ -10,14 +10,15 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: write
-  pull-requests: write
+permissions: {}
 
 jobs:
   bump:
     name: Bump distribution manifests
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
 
     steps:
       - name: Checkout repo
@@ -58,10 +59,10 @@ jobs:
           cd artifacts
           gh release download "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --pattern "Writ_${VERSION}_universal.pkg" \
-            --pattern "Writ_${VERSION}_x64_en-US.msi" \
-            --pattern "Writ_${VERSION}_amd64.AppImage" \
-            --pattern "Writ_${VERSION}_amd64.deb" \
+            --pattern "Jotra_${VERSION}_universal.pkg" \
+            --pattern "Jotra_${VERSION}_x64_en-US.msi" \
+            --pattern "Jotra_${VERSION}_amd64.AppImage" \
+            --pattern "Jotra_${VERSION}_amd64.deb" \
             --pattern "SHA256SUMS.txt" \
             --pattern "latest.json" \
             --clobber
@@ -83,10 +84,10 @@ jobs:
             fi
             sha256sum "$file" | awk '{print $1}'
           }
-          SHA_UNIVERSAL=$(compute_sha "Writ_${VERSION}_universal.pkg")
-          SHA_MSI=$(compute_sha "Writ_${VERSION}_x64_en-US.msi")
-          SHA_APPIMAGE=$(compute_sha "Writ_${VERSION}_amd64.AppImage")
-          SHA_DEB=$(compute_sha "Writ_${VERSION}_amd64.deb")
+          SHA_UNIVERSAL=$(compute_sha "Jotra_${VERSION}_universal.pkg")
+          SHA_MSI=$(compute_sha "Jotra_${VERSION}_x64_en-US.msi")
+          SHA_APPIMAGE=$(compute_sha "Jotra_${VERSION}_amd64.AppImage")
+          SHA_DEB=$(compute_sha "Jotra_${VERSION}_amd64.deb")
           {
             echo "sha_pkg_universal=${SHA_UNIVERSAL}"
             echo "sha_msi=${SHA_MSI}"
@@ -113,7 +114,7 @@ jobs:
         env:
           VERSION: ${{ steps.tag.outputs.version }}
           SHA_MSI: ${{ steps.checksums.outputs.sha_msi }}
-          MSI_PATH: artifacts/Writ_${{ steps.tag.outputs.version }}_x64_en-US.msi
+          MSI_PATH: artifacts/Jotra_${{ steps.tag.outputs.version }}_x64_en-US.msi
         run: |
           set -euo pipefail
           RELEASE_DATE=$(date -u +%Y-%m-%d) \
@@ -131,6 +132,14 @@ jobs:
           set -euo pipefail
           python3 scripts/packaging_bump_aur.py
 
+      - name: Keep the bumped PKGBUILD for the Arch build
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: aur-pkgbuild
+          path: packaging/aur/writ-bin/PKGBUILD
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Create bump pull request
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1  # v8.1.1
         with:
@@ -146,7 +155,7 @@ jobs:
             Automated bump triggered by release `${{ steps.tag.outputs.tag }}`.
 
             Updated files:
-            - `packaging/homebrew/Casks/writ.rb` (version + SHA256 for the universal pkg)
+            - `packaging/homebrew/Casks/jotra.rb` (version + SHA256 for the universal pkg)
             - `packaging/winget/manifests/i/ibrahemid/Writ/${{ steps.tag.outputs.version }}/` (copied from previous version, rewritten; ProductCode read from the released MSI)
             - `packaging/aur/writ-bin/PKGBUILD` + regenerated `.SRCINFO`
 
@@ -160,3 +169,46 @@ jobs:
             packaging
             automated
           delete-branch: true
+
+  aur-build:
+    name: Build the AUR package on Arch
+    needs: bump
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    permissions: {}
+
+    steps:
+      - name: Download the bumped PKGBUILD
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: aur-pkgbuild
+          path: aur
+
+      - name: Build the package with makepkg as a non-root user
+        shell: bash
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm
+          useradd --create-home builder
+          printf 'builder ALL=(root) NOPASSWD: /usr/bin/pacman\n' > /etc/sudoers.d/builder
+          chmod 440 /etc/sudoers.d/builder
+          install -d -o builder -g builder /home/builder/package
+          install -m 644 -o builder -g builder aur/PKGBUILD /home/builder/package/PKGBUILD
+          sudo -u builder bash -c 'cd /home/builder/package && makepkg --syncdeps --noconfirm'
+
+      - name: Require both commands in the built package
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGES=(/home/builder/package/writ-bin-[0-9]*.pkg.tar.zst)
+          if [ "${#PACKAGES[@]}" -ne 1 ] || [ ! -f "${PACKAGES[0]}" ]; then
+            echo "expected one built package, found: ${PACKAGES[*]}" >&2
+            exit 1
+          fi
+          LISTING="$(pacman -Qlpq "${PACKAGES[0]}")"
+          for command in /usr/bin/jotra /usr/bin/writ; do
+            if ! grep -qxF "$command" <<<"$LISTING"; then
+              echo "${PACKAGES[0]} has no $command" >&2
+              exit 1
+            fi
+          done

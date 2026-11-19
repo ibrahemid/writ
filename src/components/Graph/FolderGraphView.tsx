@@ -33,7 +33,7 @@ import { basename } from "../../lib/path";
 import "./FolderGraphView.css";
 
 /** The token a note in the root of the notes folder is drawn in. */
-const ROOT_TOKEN = "--writ-fg-muted";
+const ROOT_TOKEN = "--jotra-fg-muted";
 
 /** The keys the drawing takes for itself rather than handing to the search. */
 const ZOOM_KEYS = new Set(["+", "=", "-"]);
@@ -100,7 +100,7 @@ export default function FolderGraphView() {
     if (!element) return;
     const style = getComputedStyle(element);
     setTokens({
-      accent: style.getPropertyValue("--writ-accent").trim(),
+      accent: style.getPropertyValue("--jotra-accent").trim(),
       root: style.getPropertyValue(ROOT_TOKEN).trim(),
     });
   }
@@ -369,7 +369,7 @@ export default function FolderGraphView() {
   return (
     <div
       class="folder-graph"
-      data-writ-focus-silent
+      data-jotra-focus-silent
       role="region"
       aria-labelledby={titleId}
       tabindex={-1}

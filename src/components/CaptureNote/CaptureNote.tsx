@@ -41,7 +41,7 @@ export default function CaptureNote(props: { note?: typeof captureNoteStore }) {
       <textarea
         ref={field}
         class="capture-note-field"
-        data-writ-focus-silent
+        data-jotra-focus-silent
         aria-label="Quick capture"
         value={note.text()}
         onInput={(event) => note.setText(event.currentTarget.value)}

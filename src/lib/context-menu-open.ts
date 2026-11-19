@@ -1,6 +1,6 @@
 import { createRoot, createSignal } from "solid-js";
 
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 const { isOpen, setOpen } = createRoot(() => {
   const [isOpen, setOpen] = createSignal(false);
   return { isOpen, setOpen };

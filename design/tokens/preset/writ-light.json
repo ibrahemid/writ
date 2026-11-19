@@ -1,7 +1,7 @@
 {
   "preset": {
     "writ-light": {
-      "$description": "Writ Light",
+      "$description": "Jotra Light",
       "polarity": {
         "$type": "other",
         "$value": "light"

@@ -8,7 +8,7 @@ import { discardShortcutDrafts, hasUnsavedShortcuts } from "../ShortcutEditor/Sh
 import { openDueApps } from "../../commands/app-surfaces";
 import { setRecordingId, WINDOW_CHORD_RECORDING } from "./recording";
 
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 
 export const DEFAULT_SECTION: SettingsSection = SECTION_ORDER[0];
 
@@ -73,7 +73,7 @@ export async function requestCloseSettings(): Promise<boolean> {
   if (hasUnsavedShortcuts()) {
     const outcome = await requestChoice({
       title: "Discard your changes?",
-      message: "Writ will put the shortcuts back the way they were.",
+      message: "Jotra will put the shortcuts back the way they were.",
       confirmLabel: "Discard",
       defaultAction: "cancel",
     });

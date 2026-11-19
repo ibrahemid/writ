@@ -35,7 +35,7 @@ function rule(css: string, selector: string): string {
   return match![1]!;
 }
 
-// --writ-fg-faint is 3.7:1 on the canvas in light and 4.2:1 in dark, under AA
+// --jotra-fg-faint is 3.7:1 on the canvas in light and 4.2:1 in dark, under AA
 // for the 12px these fields are set in, and the baseline reserves it for hung
 // markers and placeholders. A field that carries data reads as data.
 describe("the chrome's informational fields", () => {
@@ -49,16 +49,16 @@ describe("the chrome's informational fields", () => {
 
   for (const [sheet, selector] of INFORMATIONAL) {
     it(`paints ${selector} in the muted foreground`, () => {
-      expect(rule(CSS[sheet], selector)).toMatch(/color:\s*var\(--writ-fg-muted\)/);
+      expect(rule(CSS[sheet], selector)).toMatch(/color:\s*var\(--jotra-fg-muted\)/);
     });
   }
 
   it("keeps the faint foreground for placeholders", () => {
     expect(rule(CSS.find, ".find-input::placeholder")).toMatch(
-      /color:\s*var\(--writ-fg-faint\)/,
+      /color:\s*var\(--jotra-fg-faint\)/,
     );
     expect(rule(CSS.palette, ".palette-input::placeholder")).toMatch(
-      /color:\s*var\(--writ-fg-faint\)/,
+      /color:\s*var\(--jotra-fg-faint\)/,
     );
   });
 });
@@ -73,7 +73,7 @@ describe("the editor chrome's focus rings", () => {
     for (const [name, css] of Object.entries(CSS)) {
       const rings = [...css.matchAll(/outline:\s*([^;]+);/g)].map((m) => m[1].trim());
       for (const ring of rings) {
-        expect(ring, `${name} draws ${ring}`).toMatch(/^var\(--writ-focus-outline[,)]/);
+        expect(ring, `${name} draws ${ring}`).toMatch(/^var\(--jotra-focus-outline[,)]/);
       }
     }
   });
@@ -82,7 +82,7 @@ describe("the editor chrome's focus rings", () => {
     for (const [name, css] of Object.entries(CSS)) {
       const offsets = [...css.matchAll(/outline-offset:\s*([^;]+);/g)].map((m) => m[1].trim());
       for (const offset of offsets) {
-        expect(offset, `${name} offsets by ${offset}`).toMatch(/^var\(--writ-focus-offset[,)]/);
+        expect(offset, `${name} offsets by ${offset}`).toMatch(/^var\(--jotra-focus-offset[,)]/);
       }
     }
   });
@@ -108,26 +108,26 @@ describe("the find bar's targets", () => {
   });
 
   it("keeps a step of the spacing ramp between neighbours", () => {
-    expect(rule(CSS.find, ".find-row")).toMatch(/gap:\s*var\(--writ-space-2\)/);
+    expect(rule(CSS.find, ".find-row")).toMatch(/gap:\s*var\(--jotra-space-2\)/);
     expect(rule(CSS.find, ".find-toggles,\n.find-nav")).toMatch(
-      /gap:\s*var\(--writ-space-2\)/,
+      /gap:\s*var\(--jotra-space-2\)/,
     );
   });
 });
 
-// One inline --writ-ui-size on the root drives every interface step, and the
+// One inline --jotra-ui-size on the root drives every interface step, and the
 // note's own measure and code slab scale with the editor's font size. A pixel
 // written into a rule opts that one line out of both.
 describe("the editor's own measures", () => {
   it("sizes the empty state off the interface step", () => {
     const empty = rule(CSS.editorArea, ".editor-empty");
-    expect(empty).toMatch(/font-size:\s*var\(--writ-ui-md\)/);
-    expect(empty).toMatch(/line-height:\s*var\(--writ-ui-md-lh\)/);
+    expect(empty).toMatch(/font-size:\s*var\(--jotra-ui-md\)/);
+    expect(empty).toMatch(/line-height:\s*var\(--jotra-ui-md-lh\)/);
   });
 
   it("gives the first-run row the note's measure by name", () => {
     expect(rule(CSS.firstRun, ".first-run-offer")).toMatch(
-      /max-width:\s*var\(--writ-prose-measure\)/,
+      /max-width:\s*var\(--jotra-prose-measure\)/,
     );
   });
 

@@ -12,33 +12,33 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
 use chrono::Utc;
-use tempfile::TempDir;
-use writ_core::buffer::document::{BufferDocument, BufferStatus};
-use writ_core::config::WritConfig;
-use writ_core::events::bus::EventBus;
-use writ_core::notes::materialise::DownloadOutcome;
-use writ_core::preview::{ContentRendererRegistry, RenderRequest};
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
-use writ_tauri_lib::commands::preview::{
+use jotra_core::buffer::document::{BufferDocument, BufferStatus};
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::EventBus;
+use jotra_core::notes::materialise::DownloadOutcome;
+use jotra_core::preview::{ContentRendererRegistry, RenderRequest};
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::notes_index::NotesIndexStore;
+use jotra_tauri_lib::commands::preview::{
     preview_get_scripts_inner, preview_inline_image_download_inner, preview_inline_image_inner,
     preview_set_scripts_inner, preview_url_prefix, render_into_cache, CachedRender,
     InlineImageResult,
 };
-use writ_tauri_lib::preview::csp::build_document_csp;
-use writ_tauri_lib::preview::handler::{resolve_cached, RenderCache};
-use writ_tauri_lib::preview::renderers::HtmlRenderer;
-use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::AuthorizedPaths;
-use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::create_ignore_set;
+use jotra_tauri_lib::preview::csp::build_document_csp;
+use jotra_tauri_lib::preview::handler::{resolve_cached, RenderCache};
+use jotra_tauri_lib::preview::renderers::HtmlRenderer;
+use jotra_tauri_lib::quit::QuitState;
+use jotra_tauri_lib::security::AuthorizedPaths;
+use jotra_tauri_lib::state::AppState;
+use jotra_tauri_lib::watcher::handler::create_ignore_set;
+use tempfile::TempDir;
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
 
@@ -51,33 +51,33 @@ const COMMANDS: &[&str] = &[
 ];
 
 fn make_state(dir: &TempDir) -> AppState {
-    let writ_dir = dir.path().to_path_buf();
-    let buffers_dir = writ_dir.join("buffers");
+    let jotra_dir = dir.path().to_path_buf();
+    let buffers_dir = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
 
-    let notes_root = writ_dir.join("Writ");
+    let notes_root = jotra_dir.join("Jotra");
     std::fs::create_dir_all(&notes_root).expect("notes folder");
-    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+    let notes_root = jotra_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
 
     let note_history = Arc::new(
-        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+        jotra_storage::note_history::NoteHistoryStore::open(&jotra_dir).expect("version store"),
     );
 
     AppState {
         store: Mutex::new(BufferStore::new(conn, buffers_dir.clone())),
-        config_store: ConfigStore::new(writ_dir.join("config.toml")),
-        config: Mutex::new(WritConfig::default()),
-        writ_dir,
+        config_store: ConfigStore::new(jotra_dir.join("config.toml")),
+        config: Mutex::new(JotraConfig::default()),
+        jotra_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: std::sync::atomic::AtomicBool::new(false),
         menu_apps: std::sync::Mutex::new(None),
-        retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+        retitle_watch: std::sync::Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -103,7 +103,7 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
-        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+        command_usage: jotra_storage::command_usage::CommandUsageStore::new(
             open_database(&db_path).expect("usage db"),
         ),
         config_diagnostics: std::sync::Mutex::new(Vec::new()),
@@ -113,9 +113,9 @@ fn make_state(dir: &TempDir) -> AppState {
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
-        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(
-            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+            jotra_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
@@ -148,7 +148,7 @@ fn state_with(dir: &TempDir, id: &str, source_path: Option<&Path>) -> AppState {
             closed_at: None,
             read_only: false,
             size_bytes: 0,
-            line_ending: writ_core::notes::line_ending::LineEnding::Lf,
+            line_ending: jotra_core::notes::line_ending::LineEnding::Lf,
             encoding: None,
         })
         .expect("insert");
@@ -196,7 +196,7 @@ fn a_file_the_store_does_not_hold_is_refused_and_reads_off() {
 }
 
 #[test]
-fn an_opt_in_covers_the_bytes_writ_holds_and_lapses_when_it_holds_others() {
+fn an_opt_in_covers_the_bytes_jotra_holds_and_lapses_when_it_holds_others() {
     let dir = TempDir::new().expect("temp dir");
     let file = dir.path().join("report.html");
     std::fs::write(&file, "<p>read</p>").expect("write the file");
@@ -235,7 +235,7 @@ fn html_request() -> RenderRequest {
 /// The CSP the protocol handler serves a buffer's cached document under.
 fn served_csp(cache: &RenderCache, buffer_id: &str) -> String {
     let resolved = resolve_cached(
-        &format!("writ-preview://document/{buffer_id}?v=1"),
+        &format!("jotra-preview://document/{buffer_id}?v=1"),
         cache,
         &|_: &Path| false,
     );
@@ -353,7 +353,7 @@ fn every_command_is_in_the_invoke_handler() {
 fn the_navigation_guard_is_installed_on_the_app() {
     let source: String = LIB_RS.chars().filter(|c| !c.is_whitespace()).collect();
     assert!(
-        source.contains(".plugin(tauri::plugin::Builder::<tauri::Wry>::new(\"writ-navguard\")"),
+        source.contains(".plugin(tauri::plugin::Builder::<tauri::Wry>::new(\"jotra-navguard\")"),
         "the navigation guard plugin is not registered on the builder"
     );
     assert!(
@@ -398,7 +398,7 @@ fn image_beside_a_file(dir: &TempDir) -> std::path::PathBuf {
 
 /// The webview names a buffer, and the folder holding that buffer's file
 /// becomes a root images are read from. An id no open tab holds is refused,
-/// or a folder Writ was never asked to show could become a root.
+/// or a folder Jotra was never asked to show could become a root.
 #[test]
 fn an_inline_image_for_a_buffer_no_open_tab_holds_is_refused() {
     let dir = TempDir::new().expect("temp dir");
@@ -483,12 +483,12 @@ fn an_eight_megabyte_image_is_answered_with_a_url_the_scheme_serves() {
     let (url, _) = ready_of(answer);
 
     // The handler receives the native form on every platform: WebView2's
-    // `http://writ-preview.` requests reach it rewritten.
+    // `http://jotra-preview.` requests reach it rewritten.
     let route = url
         .strip_prefix(&format!("{}document/", preview_url_prefix()))
         .expect("a document-scope URL");
     let served = resolve_cached(
-        &format!("writ-preview://document/{route}"),
+        &format!("jotra-preview://document/{route}"),
         &state.preview_render_cache,
         &|_: &Path| false,
     );

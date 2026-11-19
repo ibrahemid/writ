@@ -31,7 +31,7 @@ export default function TabItem(props: Props) {
       role="listitem"
     >
       {/* The ring is drawn on the row around it, so the row reads as focused. */}
-      <button type="button" class="tab-item-main" data-writ-focus-silent onClick={props.onClick}>
+      <button type="button" class="tab-item-main" data-jotra-focus-silent onClick={props.onClick}>
         <Show when={props.icon}>
           {(name) => <Icon name={name()} />}
         </Show>

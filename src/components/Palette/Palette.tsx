@@ -307,7 +307,7 @@ export default function Palette(props: PaletteProps) {
               ref={inputRef}
               type="text"
               class="palette-input"
-              data-writ-focus-silent
+              data-jotra-focus-silent
               placeholder={props.placeholder}
               value={query()}
               onInput={(e) => setQuery(e.currentTarget.value)}

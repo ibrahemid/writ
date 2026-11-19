@@ -4,22 +4,22 @@
 use std::path::Path;
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
-use tauri::{AppHandle, Runtime};
-use tracing::{info, warn};
-use writ_core::capture::{append_entry, capture_entry};
-use writ_core::notes::guard::{is_not_downloaded, DiskState};
-use writ_core::notes::{name_is_taken, WriteOrigin};
-use writ_core::text_encoding::{decode_file, TextEncoding};
-use writ_storage::buffer_store::dataless_flags;
-use writ_storage::errors::StorageError;
-use writ_storage::guarded::{
+use jotra_core::capture::{append_entry, capture_entry};
+use jotra_core::notes::guard::{is_not_downloaded, DiskState};
+use jotra_core::notes::{name_is_taken, WriteOrigin};
+use jotra_core::text_encoding::{decode_file, TextEncoding};
+use jotra_storage::buffer_store::dataless_flags;
+use jotra_storage::errors::StorageError;
+use jotra_storage::guarded::{
     create_note_guarded, keep_versions, write_note_guarded, ConflictPolicy, CreateNote, DiskRead,
     GuardedWrite, TakenName, WriteCapture,
 };
-use writ_storage::notes_index;
-use writ_storage::paths::file_name_only;
-use writ_storage::write_lock::WriteLock;
+use jotra_storage::notes_index;
+use jotra_storage::paths::file_name_only;
+use jotra_storage::write_lock::WriteLock;
+use serde::Serialize;
+use tauri::{AppHandle, Runtime};
+use tracing::{info, warn};
 
 use crate::commands::buffer::{ignore_stamper, save_failure_message, ERR_WRITE_FAILED};
 use crate::commands::note_index::{announce_indexed, holds_own_write};
@@ -154,12 +154,12 @@ fn append_to(state: &AppState, path: &Path, entry: &str) -> Result<CaptureOutcom
     // The record the write is judged against is the read it was built from:
     // the entry goes after exactly those bytes or not at all.
     let read = DiskState {
-        hash: writ_core::hash::sha256_bytes(&bytes),
+        hash: jotra_core::hash::sha256_bytes(&bytes),
         size: bytes.len() as u64,
         mtime: std::fs::metadata(path).ok().and_then(|m| m.modified().ok()),
     };
     let keep = keep_versions(&state.note_history);
-    let lock = WriteLock::in_data_folder(&state.writ_dir);
+    let lock = WriteLock::in_data_folder(&state.jotra_dir);
     let stamp = ignore_stamper(state);
     let outcome = write_note_guarded(
         GuardedWrite {
@@ -191,7 +191,7 @@ fn append_to(state: &AppState, path: &Path, entry: &str) -> Result<CaptureOutcom
                 at,
                 Some(&written),
                 encoding,
-                Some(writ_core::notes::Writer::Writ),
+                Some(jotra_core::notes::Writer::Jotra),
             ));
     }
     reindex(state, path);
@@ -225,11 +225,11 @@ fn mint_with(
     entry: &str,
 ) -> Result<CaptureOutcome, Attempt> {
     let root = state.notes_root();
-    let stem = writ_core::notes::date_stem(now);
+    let stem = jotra_core::notes::date_stem(now);
     let extension = state.default_extension();
     let content = append_entry("", entry);
     let keep = keep_versions(&state.note_history);
-    let lock = WriteLock::in_data_folder(&state.writ_dir);
+    let lock = WriteLock::in_data_folder(&state.jotra_dir);
     let stamp = ignore_stamper(state);
     let created = create_note_guarded(
         CreateNote {

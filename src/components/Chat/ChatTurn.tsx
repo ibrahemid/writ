@@ -41,7 +41,7 @@ export function dropLine(drop: ChatDroppedProposal): string {
 const COPIED_MS = 1200;
 
 /** The schemes the renderer keeps in an untrusted reply (`WEB_SCHEMES` in
- * `writ-render`), which are the same three Writ's external path opens. A link
+ * `jotra-render`), which are the same three Jotra's external path opens. A link
  * of any other scheme was already dropped, and a click on one does nothing.
  * A kept one opens only from the confirmation that shows its whole address. */
 function isExternal(href: string): boolean {

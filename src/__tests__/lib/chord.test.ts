@@ -124,7 +124,7 @@ describe("chordForRecording", () => {
 
 describe("Option+Space on a Mac", () => {
   // Before, the no-break space Option+Space types recorded as a chord no part
-  // of Writ could read, so a chord with Option and Space could not be recorded.
+  // of Jotra could read, so a chord with Option and Space could not be recorded.
   it("records as Space", () => {
     expect(
       chordForRecording(

@@ -1,31 +1,31 @@
 //! Creating, renaming, trashing and copying notes.
 //!
-//! Notes are managed from inside Writ and the files follow (ADR-028 §3). Each
+//! Notes are managed from inside Jotra and the files follow (ADR-028 §3). Each
 //! command here moves a real file first and touches the row second, so a
 //! failure leaves the note on disk rather than leaving a row pointing at
-//! nothing. The disk half is [`writ_storage::note_ops`]; the policy half —
-//! what a typed name becomes — is [`writ_core::notes`].
+//! nothing. The disk half is [`jotra_storage::note_ops`]; the policy half —
+//! what a typed name becomes — is [`jotra_core::notes`].
 
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
+use jotra_core::buffer::document::BufferDocument;
+use jotra_core::buffer::manager::BufferManager;
+use jotra_core::config::FileExtension;
+use jotra_core::notes::guard::DiskState;
+use jotra_core::notes::links;
+use jotra_core::notes::{name_is_taken, rename_stem, NotesRootRefusal, WriteOrigin, NAME_IS_EMPTY};
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::errors::{StorageError, StorageResult};
+use jotra_storage::note_ops::{self, LinkRewrite};
+use jotra_storage::notes_index;
+use jotra_storage::notes_migration::{self, MigrationReport};
+use jotra_storage::notes_move;
+use jotra_storage::paths::file_name_only;
+use jotra_storage::workspace_store;
 use serde::Serialize;
 use tauri::{AppHandle, Runtime, State};
 use tracing::{info, warn};
-use writ_core::buffer::document::BufferDocument;
-use writ_core::buffer::manager::BufferManager;
-use writ_core::config::FileExtension;
-use writ_core::notes::guard::DiskState;
-use writ_core::notes::links;
-use writ_core::notes::{name_is_taken, rename_stem, NotesRootRefusal, WriteOrigin, NAME_IS_EMPTY};
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::errors::{StorageError, StorageResult};
-use writ_storage::note_ops::{self, LinkRewrite};
-use writ_storage::notes_index;
-use writ_storage::notes_migration::{self, MigrationReport};
-use writ_storage::notes_move;
-use writ_storage::paths::file_name_only;
-use writ_storage::workspace_store;
 
 use crate::commands::buffer::{ignore_stamper, save_failure_message, ERR_WRITE_FAILED};
 use crate::commands::note_index::{announce_indexed, holds_own_write, index_copy};
@@ -77,12 +77,12 @@ pub fn new_note_inner(state: &AppState) -> Result<BufferDocument, String> {
 /// Creates a note called `name`, file first, and opens it.
 ///
 /// `name` is a title, never a path:
-/// [`writ_core::notes::note_file_stem_from_link`] sanitises it, which maps `/`
+/// [`jotra_core::notes::note_file_stem_from_link`] sanitises it, which maps `/`
 /// and `\` to spaces, so a name carrying `..` or a separator loses what would
 /// make it walk anywhere and the note lands in the notes folder. A name
 /// nothing survives from falls back to the dated stem, so this never fails
 /// for want of a name; a name nobody typed at all is
-/// [`writ_core::notes::minted_stem`], deduped by counter.
+/// [`jotra_core::notes::minted_stem`], deduped by counter.
 ///
 /// A name ending in a text extension is minted in that format rather than the
 /// configured one: `Notes.md` asks for Markdown, and the config is the rule
@@ -94,15 +94,15 @@ pub fn new_note_inner(state: &AppState) -> Result<BufferDocument, String> {
 pub fn new_note_named_inner(state: &AppState, name: &str) -> Result<BufferDocument, String> {
     let typed = name.trim();
     let unnamed = typed.is_empty();
-    let named = writ_core::notes::explicit_extension(typed);
+    let named = jotra_core::notes::explicit_extension(typed);
     let stem = if unnamed {
-        writ_core::notes::minted_stem(Utc::now())
+        jotra_core::notes::minted_stem(Utc::now())
     } else if let Some((stem, _)) = named {
         // The extension the name spelled is already off, so the strip
         // `note_file_stem_from_link` does would take `Log.md.md` to `Log`.
-        writ_core::notes::note_file_stem(stem, Utc::now())
+        jotra_core::notes::note_file_stem(stem, Utc::now())
     } else {
-        writ_core::notes::note_file_stem_from_link(typed, Utc::now())
+        jotra_core::notes::note_file_stem_from_link(typed, Utc::now())
     };
     let extension = match named {
         Some((_, extension)) => extension,
@@ -133,7 +133,7 @@ pub fn new_note_in_folder_inner(state: &AppState, folder: &str) -> Result<Buffer
     if !state.is_within_notes(&resolved) || !target.is_dir() {
         return Err(ERR_NOT_A_NOTE.to_string());
     }
-    let stem = writ_core::notes::minted_stem(Utc::now());
+    let stem = jotra_core::notes::minted_stem(Utc::now());
     let doc = create_note_at_in(state, &target, &stem, state.default_extension().as_str())?;
     watch_for_retitle(state, &doc);
     Ok(doc)
@@ -153,7 +153,7 @@ pub async fn new_note_in_folder<R: Runtime>(
 
 /// Creates the note named for today, file first, and opens it.
 ///
-/// The file name is [`writ_core::startup::dated_note_name`] — the one date
+/// The file name is [`jotra_core::startup::dated_note_name`] — the one date
 /// rule — so the note the first launch opens and the note `Today's Note`
 /// opens are the same note.
 ///
@@ -165,15 +165,15 @@ pub fn new_dated_note_inner(
     state: &AppState,
     now: DateTime<Utc>,
 ) -> Result<BufferDocument, String> {
-    let stem = writ_core::notes::date_stem(now);
+    let stem = jotra_core::notes::date_stem(now);
     create_note_at(state, &state.notes_root(), &stem)
 }
 
 /// What Today's File answers: the dated file's path, and what opening it came
 /// to, as any open answers.
 ///
-/// A file over the size Writ opens without asking is a question the frontend
-/// asks before the confirmed open reads it, one over the size Writ opens is a
+/// A file over the size Jotra opens without asking is a question the frontend
+/// asks before the confirmed open reads it, one over the size Jotra opens is a
 /// refusal, and one whose bytes are elsewhere is downloaded first. A file a
 /// tab already shows answers that tab.
 #[derive(Debug, Clone, Serialize)]
@@ -210,25 +210,25 @@ pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<T
         .clone()
         .unwrap_or_else(|| minting.to_string_lossy().into_owned());
     let opened = crate::commands::file::FileOpenResult {
-        mode: writ_core::file_ops::classify_file(doc.size_bytes, doc.read_only),
+        mode: jotra_core::file_ops::classify_file(doc.size_bytes, doc.read_only),
         size_bytes: doc.size_bytes,
         doc: Some(doc),
     };
     Ok(TodaysFile { path, opened })
 }
 
-pub use writ_storage::note_ops::TodaysFileAt;
+pub use jotra_storage::note_ops::TodaysFileAt;
 
 /// Finds Today's File without opening or minting it
-/// ([`writ_storage::note_ops::find_todays_file`]).
+/// ([`jotra_storage::note_ops::find_todays_file`]).
 ///
 /// # Errors
 ///
 /// The configured name is already on something that is not a note file.
 pub fn find_todays_file(state: &AppState, now: DateTime<Utc>) -> Result<TodaysFileAt, String> {
-    writ_storage::note_ops::find_todays_file(&state.notes_root(), now, state.default_extension())
+    jotra_storage::note_ops::find_todays_file(&state.notes_root(), now, state.default_extension())
         .map_err(|error| match error {
-            writ_storage::errors::StorageError::NoteNameTaken { name, .. } => name_is_taken(&name),
+            jotra_storage::errors::StorageError::NoteNameTaken { name, .. } => name_is_taken(&name),
             other => other.to_string(),
         })
 }
@@ -260,13 +260,13 @@ fn watch_for_retitle(state: &AppState, doc: &BufferDocument) {
 ///
 /// `target` arrives from the editor already parsed once — no alias, no
 /// heading, the extension left on — which is the shape
-/// [`writ_core::notes::note_location_from_link`] reads.
+/// [`jotra_core::notes::note_location_from_link`] reads.
 ///
 /// The one mint that does not follow the configured format: a link resolves to
 /// Markdown, so the note it makes is Markdown (ADR-041 §2).
 pub fn new_note_from_link_inner(state: &AppState, target: &str) -> Result<BufferDocument, String> {
     let now = Utc::now();
-    let location = writ_core::notes::note_location_from_link(target, now);
+    let location = jotra_core::notes::note_location_from_link(target, now);
     let root = state.notes_root();
     let mut folder = root.clone();
     for part in &location.folder {
@@ -349,7 +349,7 @@ fn create_note_at_in(
     state.follow_note_file(&doc);
 
     // The write is stamped into the watcher's ignore set, so the watcher never
-    // reports the file Writ itself just made and the index would not hear of
+    // reports the file Jotra itself just made and the index would not hear of
     // the note until the next walk of the folder. It is indexed here instead,
     // after the lock on the note rows has gone, and announced for the same
     // reason: nothing else tells the sidebar the file exists.
@@ -397,7 +397,7 @@ pub async fn new_note_from_link<R: Runtime>(
 /// Renames a note's file and the row that points at it.
 ///
 /// The move goes through the same guard a save does, so a rename cannot carry
-/// a file another process rewrote out from under Writ
+/// a file another process rewrote out from under Jotra
 /// ([`note_ops::rename_note`]). The row's file and title are then written
 /// together, and the tab keeps its content, cursor and undo history because
 /// the note's id never changes and the editor is never reloaded.
@@ -499,7 +499,7 @@ pub fn rename_note_recording(
         state.authorized_paths.record_blessed_source(canonical);
     }
     // The bytes did not move, so the digest still describes the file; only the
-    // metadata around it is re-read. Nothing is recorded for a note Writ has
+    // metadata around it is re-read. Nothing is recorded for a note Jotra has
     // not read this launch, which leaves its first save to read the file.
     if let Some(previous) = state.disk_state(id) {
         state.record_disk_state(id, &to, previous.hash, previous.size);
@@ -837,7 +837,7 @@ fn rename_and_propagate(
             .map(|file| in_folder_key(&file))
             .collect();
     let renamed = rename_note_at(state, from, new_name)?;
-    let new_name = writ_core::notes::note_display_name(&path_text(&renamed));
+    let new_name = jotra_core::notes::note_display_name(&path_text(&renamed));
 
     let stamp = ignore_stamper(state);
     let mut updated_paths = Vec::new();
@@ -931,16 +931,16 @@ fn rename_note_at(state: &AppState, from: &Path, new_name: &str) -> Result<PathB
         return Ok(PathBuf::from(note_path(&renamed)?));
     }
     let stem =
-        writ_core::notes::rename_stem(from, new_name).ok_or_else(|| NAME_IS_EMPTY.to_string())?;
+        jotra_core::notes::rename_stem(from, new_name).ok_or_else(|| NAME_IS_EMPTY.to_string())?;
     let stamp = ignore_stamper(state);
     note_ops::rename_note(from, &stem, None, WriteOrigin::Editor, Some(&stamp))
         .map_err(|e| note_failure_message(&e))
 }
 
-/// What Writ last saw `path` hold, for a note it has open.
+/// What Jotra last saw `path` hold, for a note it has open.
 ///
-/// A file nothing has opened has no record, and "has this changed since Writ
-/// last looked" has no answer for a file Writ has not looked at.
+/// A file nothing has opened has no record, and "has this changed since Jotra
+/// last looked" has no answer for a file Jotra has not looked at.
 fn recorded_disk_state(state: &AppState, path: &Path) -> Option<DiskState> {
     let store = state.store.lock().ok()?;
     let doc = store.find_active_by_source_path(&path_text(path)).ok()??;
@@ -1019,7 +1019,7 @@ const FOLDER_MOVED_SINCE: &str = "Your folder has moved since, so the file stays
 pub const TRASH_UNDO_MAX_BYTES: u64 = 8 * 1024 * 1024;
 
 /// The row goes only after the file has gone, so a platform that will not take
-/// the file leaves the note both on disk and in Writ rather than leaving a row
+/// the file leaves the note both on disk and in Jotra rather than leaving a row
 /// pointing at a file nobody can reach. A note with no file yet has nothing to
 /// trash and only loses its row.
 ///
@@ -1143,7 +1143,7 @@ pub fn save_note_copy_inner(state: &AppState, id: &str, content: &str) -> Result
     let default_extension = state.default_extension();
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(id).map_err(|e| e.to_string())?;
-    let stem = writ_core::notes::note_file_stem(&copy_stem(&doc), chrono::Utc::now());
+    let stem = jotra_core::notes::note_file_stem(&copy_stem(&doc), chrono::Utc::now());
     let extension = copy_extension(&doc, default_extension);
 
     let stamp = ignore_stamper(state);
@@ -1226,7 +1226,7 @@ pub fn get_notes_root(state: State<'_, AppState>) -> String {
 pub fn list_notes_dir_inner(
     state: &AppState,
     dir_path: &str,
-) -> Result<writ_core::workspace::DirListing, String> {
+) -> Result<jotra_core::workspace::DirListing, String> {
     workspace_store::list_notes_dir(&state.notes_root(), Path::new(dir_path))
         .map_err(|e| e.to_string())
 }
@@ -1236,7 +1236,7 @@ pub fn list_notes_dir_inner(
 pub async fn list_notes_dir<R: Runtime>(
     app: AppHandle<R>,
     dir_path: String,
-) -> Result<writ_core::workspace::DirListing, String> {
+) -> Result<jotra_core::workspace::DirListing, String> {
     run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
         list_notes_dir_inner(state, &dir_path)
     })
@@ -1317,7 +1317,7 @@ pub struct NotesFolderInfo {
     /// startup fell back to the default. `None` on every ordinary launch.
     pub fallback: Option<NotesRootFallback>,
     /// The sync service whose folder the notes are in, as the user knows it,
-    /// or `None` when they are not in one. Writ syncs nothing itself, so this
+    /// or `None` when they are not in one. Jotra syncs nothing itself, so this
     /// is the whole answer to "are my notes on my other machine".
     pub sync_provider: Option<String>,
 }
@@ -1327,7 +1327,7 @@ pub fn notes_folder_info(state: &AppState) -> NotesFolderInfo {
     let root = state.notes_root();
     let home = dirs::home_dir();
     NotesFolderInfo {
-        display_path: writ_core::notes::display_path(&root, home.as_deref()),
+        display_path: jotra_core::notes::display_path(&root, home.as_deref()),
         sync_provider: crate::startup::sync_provider_for(&root, home.as_deref()),
         path: root.to_string_lossy().into_owned(),
         fallback: state.notes_root_fallback(),
@@ -1364,41 +1364,49 @@ pub struct MoveNotesOutcome {
     pub left_behind: Vec<String>,
 }
 
-/// What Writ says when the folder picked would swallow its own data folder.
-const WOULD_HOLD_WRIT_DATA: &str =
-    "Writ keeps its own data in that folder, so it cannot also hold your files.";
+/// What Jotra says when the folder picked would swallow its own data folder.
+const WOULD_HOLD_JOTRA_DATA: &str =
+    "Jotra keeps its own data in that folder, so it cannot also hold your files.";
 
-/// What Writ says when the folder picked is inside the one being moved.
+/// What Jotra says when the folder picked is inside the one being moved.
 const WOULD_HOLD_ITSELF: &str = "Pick a folder outside your current one.";
 
-/// What Writ says when the folder picked cannot be resolved to a path it can
+/// What Jotra says when the folder picked cannot be resolved to a path it can
 /// ask questions about: it is written relative to a working directory, or it
 /// ends in a `..` that names no folder. The OS folder dialog yields neither.
 const CANNOT_BE_CHECKED: &str = "That folder cannot hold your files.";
 
-/// Writ's own data folder in the spelling a canonical path can be compared
+/// Jotra's own data folder in the spelling a canonical path can be compared
 /// against.
 ///
-/// `writ_dir` is kept as it was configured, which on macOS means `/var/...`
+/// `jotra_dir` is kept as it was configured, which on macOS means `/var/...`
 /// where the resolved path is `/private/var/...`. Comparing the two forms
 /// answers "no" for a folder that does hold the database, so the refusal below
 /// would never fire. A folder that cannot be resolved falls back to its own
 /// spelling: it does not exist yet, so it holds nothing either way.
-fn canonical_writ_dir(state: &AppState) -> PathBuf {
-    crate::security::canonicalize_root(&state.writ_dir).unwrap_or_else(|_| state.writ_dir.clone())
+fn canonical_jotra_dir(state: &AppState) -> PathBuf {
+    crate::security::canonicalize_root(&state.jotra_dir).unwrap_or_else(|_| state.jotra_dir.clone())
 }
 
-/// Applies [`writ_core::notes::refuse_notes_root`] and puts the answer in the
-/// words Settings shows.
+/// Applies [`jotra_core::notes::refuse_notes_root`] and puts the answer in the
+/// words Settings shows. The home folder is canonical for the same reason the
+/// data folder is.
 fn refuse_destination(state: &AppState, from: &Path, candidate: &Path) -> Result<(), String> {
-    match writ_core::notes::refuse_notes_root(candidate, from, &canonical_writ_dir(state)) {
-        Some(NotesRootRefusal::HoldsWritData) => Err(WOULD_HOLD_WRIT_DATA.to_string()),
+    let in_force = canonical_jotra_dir(state);
+    let home =
+        dirs::home_dir().map(|home| crate::security::canonicalize_root(&home).unwrap_or(home));
+    let guard = jotra_core::notes::DataFolderGuard {
+        in_force: &in_force,
+        home: home.as_deref(),
+    };
+    match jotra_core::notes::refuse_notes_root(candidate, from, guard) {
+        Some(NotesRootRefusal::HoldsJotraData) => Err(WOULD_HOLD_JOTRA_DATA.to_string()),
         Some(NotesRootRefusal::InsideNotesFolder) => Err(WOULD_HOLD_ITSELF.to_string()),
         None => Ok(()),
     }
 }
 
-/// Moves the notes folder to `destination` and points Writ at it.
+/// Moves the notes folder to `destination` and points Jotra at it.
 ///
 /// One operation, in the order that leaves nothing half done: the files move
 /// first, then the config and this process learn where they went, then every
@@ -1422,7 +1430,7 @@ pub fn move_notes_folder_to(
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let from = state.notes_root();
 
-    // Asked first of the folder the pick will resolve to, so a pick Writ turns
+    // Asked first of the folder the pick will resolve to, so a pick Jotra turns
     // down does not leave an empty folder behind at the path it named. A path
     // that will not resolve is turned down here rather than created and asked
     // about afterwards: the answer would arrive one folder too late.
@@ -1482,7 +1490,7 @@ pub fn move_notes_folder_to(
 
 /// One move of the notes folder at a time: two would each hold open notes'
 /// turns and each stop the other's watcher.
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 static NOTES_MOVE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// What Settings shows for a move that did not happen.
@@ -1501,11 +1509,11 @@ fn move_failure(error: &StorageError) -> String {
 /// Every open note's turn, taken one at a time in one order
 /// ([`crate::commands::buffer::close_buffers_inner`] takes them the same way),
 /// with the store let go first.
-fn open_note_turns(state: &AppState) -> Result<Vec<writ_core::serial::Turn>, String> {
+fn open_note_turns(state: &AppState) -> Result<Vec<jotra_core::serial::Turn>, String> {
     let mut ids: Vec<String> = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         store
-            .list_by_status(writ_core::buffer::document::BufferStatus::Active)
+            .list_by_status(jotra_core::buffer::document::BufferStatus::Active)
             .map_err(|e| e.to_string())?
             .into_iter()
             .map(|doc| doc.id)
@@ -1571,20 +1579,20 @@ fn start_notes_watcher_at(state: &AppState, root: &Path) {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
             // Assigning drops the old handle, which closes its channel and
-            // ends the thread watching the folder Writ left.
+            // ends the thread watching the folder Jotra left.
             *slot = Some(handle);
         }
         Err(e) => warn!(error = %e, "notes watcher could not start"),
     }
 }
 
-/// Stamps where each open note's file lands with what Writ last recorded it
+/// Stamps where each open note's file lands with what Jotra last recorded it
 /// holding, so a watcher still covering the destination reads the arrival as
-/// Writ's own. Only notes Writ holds a record of: reading a file to stamp it
+/// Jotra's own. Only notes Jotra holds a record of: reading a file to stamp it
 /// would download it.
 fn stamp_moving_notes(state: &AppState, from: &Path, to: &Path) {
     let docs = match state.store.lock() {
-        Ok(store) => store.list_by_status(writ_core::buffer::document::BufferStatus::Active),
+        Ok(store) => store.list_by_status(jotra_core::buffer::document::BufferStatus::Active),
         Err(_) => return,
     };
     let Ok(docs) = docs else {
@@ -1605,7 +1613,7 @@ fn stamp_moving_notes(state: &AppState, from: &Path, to: &Path) {
         let Some(disk) = state.disk_state(&doc.id) else {
             continue;
         };
-        let key = writ_core::watcher::ignore::source_key(
+        let key = jotra_core::watcher::ignore::source_key(
             &crate::watcher::handler::ignore_key_path(&to.join(inside)),
         );
         ignore.record_digest(key, disk.hash, now);
@@ -1614,14 +1622,14 @@ fn stamp_moving_notes(state: &AppState, from: &Path, to: &Path) {
 
 /// Writes the new folder into the config and into this process.
 ///
-/// The config is written first: a folder Writ forgets on the next launch is
+/// The config is written first: a folder Jotra forgets on the next launch is
 /// worse than one it has not started using yet, and every note is already in
 /// it by the time this runs. It is written while the launch holds values it
 /// could not read too, as the one value in the file that changes.
 fn adopt_notes_root(state: &AppState, root: &Path, text: &str) -> Result<(), String> {
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
-    let next = writ_core::config::WritConfig {
-        notes: writ_core::config::NotesConfig {
+    let next = jotra_core::config::JotraConfig {
+        notes: jotra_core::config::NotesConfig {
             root: Some(text.to_string()),
         },
         ..config.clone()
@@ -1642,7 +1650,7 @@ fn adopt_notes_root(state: &AppState, root: &Path, text: &str) -> Result<(), Str
     Ok(())
 }
 
-/// Brings the notes index and the watchers to the folder Writ now uses.
+/// Brings the notes index and the watchers to the folder Jotra now uses.
 ///
 /// Nothing here can fail the move: the files are already in their new home, so
 /// a failure is logged and left to the walk this spawns. The order matters.
@@ -1666,13 +1674,13 @@ fn follow_notes_root(state: &AppState, from: &Path, to: &Path) {
     crate::commands::workspace::rewatch_workspace(state);
 
     // The walk goes through the gate every other walk of the notes folder
-    // takes (`crate::spawn_notes_reconcile`), which reads the folder Writ
+    // takes (`crate::spawn_notes_reconcile`), which reads the folder Jotra
     // holds now when it starts. A walk still running against the old folder
     // retires on the generation bumped above, and the one it owes reads this
     // one.
     state
         .event_bus
-        .emit(writ_core::events::bus::WritEvent::NotesSwept {
+        .emit(jotra_core::events::bus::JotraEvent::NotesSwept {
             root: path_text(to),
         });
 }
@@ -1689,7 +1697,7 @@ fn refollow_open_tabs(state: &AppState) {
             warn!("open tabs could not follow the folder: the store is unreachable");
             return;
         };
-        store.list_by_status(writ_core::buffer::document::BufferStatus::Active)
+        store.list_by_status(jotra_core::buffer::document::BufferStatus::Active)
     };
     match docs {
         Ok(docs) => {
@@ -1713,7 +1721,7 @@ fn repoint_notes(state: &AppState, from: &Path, to: &Path) -> Result<(), String>
         if let Ok(canonical) = canonicalize_for_authorization(&path) {
             state.authorized_paths.record_blessed_source(canonical);
         }
-        // Only a note Writ has read or written this launch has a record to
+        // Only a note Jotra has read or written this launch has a record to
         // move. Reading every file in the folder to make one would be the one
         // thing this operation must not do: in a sync folder it pulls down
         // every note that is not on this machine (ADR-028 section 7).
@@ -1726,7 +1734,7 @@ fn repoint_notes(state: &AppState, from: &Path, to: &Path) -> Result<(), String>
         // program before the move, and no tab has them: the old record stays,
         // for the tab's next save and its switch back to find the change.
         if let Ok(bytes) = std::fs::read(&path) {
-            let digest = writ_core::hash::sha256_bytes(&bytes);
+            let digest = jotra_core::hash::sha256_bytes(&bytes);
             if digest == previous.hash {
                 state.record_disk_state(&row.id, &path, digest, bytes.len() as u64);
             } else {
@@ -1801,7 +1809,7 @@ pub struct MoveArchiveOutcome {
 
 /// [`move_archived_notes`] without the IPC wrapper.
 pub fn move_archived_notes_inner(state: &AppState) -> Result<MoveArchiveOutcome, String> {
-    let archive = state.writ_dir.join("archive");
+    let archive = state.jotra_dir.join("archive");
     let notes = state.notes_root();
 
     let store = state.store.lock().map_err(|e| e.to_string())?;

@@ -10,6 +10,31 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::EventBus;
+use jotra_core::hash::comparison_digest_hex;
+use jotra_core::notes::line_ending::LineEnding;
+use jotra_core::preview::ContentRendererRegistry;
+use jotra_core::text_encoding::TextEncoding;
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::notes_index::NotesIndexStore;
+use jotra_tauri_lib::commands::buffer::{
+    note_disk_state_inner, read_buffer_content_inner, NoteDiskAnswer, ERR_CHANGES_INVALID,
+    ERR_CHANGES_STALE, ERR_FILE_CHANGED_ON_DISK, ERR_SAVE_BODY, NOTE_ID_HEADER,
+};
+use jotra_tauri_lib::commands::file::open_file_from_path;
+use jotra_tauri_lib::preview::handler::RenderCache;
+use jotra_tauri_lib::quit::QuitState;
+use jotra_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
+use jotra_tauri_lib::state::{restore_unsaved_text, AppState};
+use jotra_tauri_lib::watcher::handler::create_ignore_set;
 use serde_json::{json, Value};
 use tauri::http::{HeaderMap, HeaderValue};
 use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponse, InvokeResponseBody};
@@ -17,41 +42,16 @@ use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_K
 use tauri::webview::InvokeRequest;
 use tauri::{Manager, WebviewWindow};
 use tempfile::TempDir;
-use writ_core::config::WritConfig;
-use writ_core::events::bus::EventBus;
-use writ_core::hash::comparison_digest_hex;
-use writ_core::notes::line_ending::LineEnding;
-use writ_core::preview::ContentRendererRegistry;
-use writ_core::text_encoding::TextEncoding;
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
-use writ_tauri_lib::commands::buffer::{
-    note_disk_state_inner, read_buffer_content_inner, NoteDiskAnswer, ERR_CHANGES_INVALID,
-    ERR_CHANGES_STALE, ERR_FILE_CHANGED_ON_DISK, ERR_SAVE_BODY, NOTE_ID_HEADER,
-};
-use writ_tauri_lib::commands::file::open_file_from_path;
-use writ_tauri_lib::preview::handler::RenderCache;
-use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
-use writ_tauri_lib::state::{restore_unsaved_text, AppState};
-use writ_tauri_lib::watcher::handler::create_ignore_set;
 
 fn make_state(dir: &TempDir) -> AppState {
-    let writ_dir = dir.path().join("data");
-    let buffers_dir = writ_dir.join("buffers");
+    let jotra_dir = dir.path().join("data");
+    let buffers_dir = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
-    let notes_root = dir.path().join("Writ");
+    let notes_root = dir.path().join("Jotra");
     std::fs::create_dir_all(&notes_root).expect("notes folder");
-    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+    let notes_root = jotra_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
     let notes_index = Arc::new(NotesIndexStore::open(&db_path).expect("notes index db"));
@@ -59,23 +59,23 @@ fn make_state(dir: &TempDir) -> AppState {
     store.set_notes_root(notes_root.clone());
     store.set_notes_index(Arc::clone(&notes_index));
     let note_history = Arc::new(
-        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+        jotra_storage::note_history::NoteHistoryStore::open(&jotra_dir).expect("version store"),
     );
     let mut registry = ContentRendererRegistry::new();
-    writ_tauri_lib::preview::renderers::register_builtins(&mut registry, Arc::clone(&notes_index))
+    jotra_tauri_lib::preview::renderers::register_builtins(&mut registry, Arc::clone(&notes_index))
         .expect("renderers");
 
     AppState {
         store: Mutex::new(store),
-        config_store: ConfigStore::new(writ_dir.join("config.toml")),
-        config: Mutex::new(WritConfig::default()),
-        writ_dir,
+        config_store: ConfigStore::new(jotra_dir.join("config.toml")),
+        config: Mutex::new(JotraConfig::default()),
+        jotra_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: AtomicBool::new(false),
         menu_apps: Mutex::new(None),
-        retitle_watch: Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+        retitle_watch: Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -101,7 +101,7 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(registry)),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
-        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+        command_usage: jotra_storage::command_usage::CommandUsageStore::new(
             open_database(&db_path).expect("usage db"),
         ),
         config_diagnostics: Mutex::new(Vec::new()),
@@ -111,9 +111,9 @@ fn make_state(dir: &TempDir) -> AppState {
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
-        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(
-            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+            jotra_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
@@ -126,9 +126,9 @@ fn mock_app(state: AppState) -> (tauri::App<MockRuntime>, WebviewWindow<MockRunt
     let app = mock_builder()
         .manage(state)
         .invoke_handler(tauri::generate_handler![
-            writ_tauri_lib::commands::buffer::save_buffer_content,
-            writ_tauri_lib::commands::buffer::save_buffer_changes,
-            writ_tauri_lib::commands::buffer::set_buffer_view_position,
+            jotra_tauri_lib::commands::buffer::save_buffer_content,
+            jotra_tauri_lib::commands::buffer::save_buffer_changes,
+            jotra_tauri_lib::commands::buffer::set_buffer_view_position,
         ])
         .build(mock_context(noop_assets()))
         .expect("mock app");
@@ -427,7 +427,7 @@ fn a_change_set_save_for_a_note_with_no_file_asks_for_the_whole_text() {
     let dir = TempDir::new().unwrap();
     let (app, window) = mock_app(make_state(&dir));
     let state = app.state::<AppState>();
-    let doc = writ_core::buffer::manager::BufferManager::new()
+    let doc = jotra_core::buffer::manager::BufferManager::new()
         .create_buffer(None)
         .expect("mint");
     state.store.lock().unwrap().insert(&doc).expect("insert");
@@ -450,7 +450,7 @@ fn a_change_set_save_for_a_note_with_no_file_asks_for_the_whole_text() {
 fn as_editor_holds(bytes: Vec<u8>) -> String {
     let text = String::from_utf8(bytes).expect("the read hands over UTF-8");
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
-    String::from_utf8(writ_core::hash::normalise_line_endings(text.as_bytes()).into_owned())
+    String::from_utf8(jotra_core::hash::normalise_line_endings(text.as_bytes()).into_owned())
         .expect("UTF-8")
 }
 
@@ -601,7 +601,7 @@ fn the_first_save_after_the_open_of_a_large_file_is_its_changes() {
     let path = dir.path().join("big.log");
     let mut text = String::new();
     let mut line = 0;
-    while text.len() as u64 <= writ_core::file_ops::THRESHOLD_NORMAL_BYTES {
+    while text.len() as u64 <= jotra_core::file_ops::THRESHOLD_NORMAL_BYTES {
         text.push_str(&format!("line {line} · café 😀\n"));
         line += 1;
     }
@@ -619,7 +619,7 @@ fn the_first_save_after_a_relaunch_lands_on_the_text_the_journal_gave_back() {
     let dir = TempDir::new().unwrap();
     let (app, window) = mock_app(make_state(&dir));
     let state = app.state::<AppState>();
-    let doc = writ_core::buffer::manager::BufferManager::new()
+    let doc = jotra_core::buffer::manager::BufferManager::new()
         .create_buffer(None)
         .expect("mint");
     state.store.lock().unwrap().insert(&doc).expect("insert");
@@ -728,7 +728,7 @@ fn a_file_changed_between_the_opens_read_and_its_digest_refuses_the_first_change
 }
 
 #[test]
-fn a_change_set_for_a_file_writ_holds_no_record_of_asks_for_the_whole_text() {
+fn a_change_set_for_a_file_jotra_holds_no_record_of_asks_for_the_whole_text() {
     let dir = TempDir::new().unwrap();
     let (app, window) = mock_app(make_state(&dir));
     let path = dir.path().join("note.md");

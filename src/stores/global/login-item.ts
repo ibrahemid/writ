@@ -3,7 +3,7 @@ import * as api from "../../services/tauri";
 import { logFailure } from "../../lib/log";
 import { showToast } from "./notifications";
 
-// Singleton state — Writ is single-window. Whether the OS starts Writ at
+// Singleton state — Jotra is single-window. Whether the OS starts Jotra at
 // login, as the OS has it.
 
 export function createLoginItemStore() {
@@ -14,11 +14,11 @@ export function createLoginItemStore() {
     try {
       setEnabled((await api.launchAtLoginStatus()).enabled);
     } catch {
-      logFailure("whether Writ opens at login could not be read");
+      logFailure("whether Jotra opens at login could not be read");
     }
   }
 
-  /** Asks the OS to start Writ at login, or to stop. A refusal leaves the
+  /** Asks the OS to start Jotra at login, or to stop. A refusal leaves the
    * switch where it was and says so. */
   async function set(on: boolean): Promise<void> {
     if (busy()) return;
@@ -27,7 +27,7 @@ export function createLoginItemStore() {
       setEnabled((await api.setLaunchAtLogin(on)).enabled);
     } catch {
       logFailure("open at login could not be changed");
-      showToast(on ? "Couldn't add Writ to your login items" : "Couldn't remove Writ from your login items", "error");
+      showToast(on ? "Couldn't add Jotra to your login items" : "Couldn't remove Jotra from your login items", "error");
     } finally {
       setBusy(false);
     }

@@ -7,7 +7,7 @@
 //!
 //! A restore is a write like any other, so it goes through
 //! [`write_note_guarded`] with the guard's answer intact: a note that changed
-//! under Writ is refused and the text being restored is written beside it
+//! under Jotra is refused and the text being restored is written beside it
 //! (ADR-028 §5). It stays unstamped, but the tab holding the note hears
 //! about it from here rather than from the folder watcher: a restore that
 //! landed tells the tab what it wrote, in the watcher's own event, so the
@@ -19,22 +19,22 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
-use writ_core::activity::{ActivityRecord, Actor, Decision};
-use writ_core::diff::{line_diff, Hunk};
-use writ_core::hash::{digest_hex, Sha256Digest};
-use writ_core::note_history::{no_versions_reason, NoVersionsReason};
-use writ_core::notes::guard::DiskState;
-use writ_core::notes::{WriteOrigin, Writer};
-use writ_storage::buffer_store::BeforeWrite;
-use writ_storage::errors::StorageError;
-use writ_storage::guarded::{
+use jotra_core::activity::{ActivityRecord, Actor, Decision};
+use jotra_core::diff::{line_diff, Hunk};
+use jotra_core::hash::{digest_hex, Sha256Digest};
+use jotra_core::note_history::{no_versions_reason, NoVersionsReason};
+use jotra_core::notes::guard::DiskState;
+use jotra_core::notes::{WriteOrigin, Writer};
+use jotra_storage::buffer_store::BeforeWrite;
+use jotra_storage::errors::StorageError;
+use jotra_storage::guarded::{
     keep_versions, write_note_guarded, write_recovered_copy, ConflictPolicy, DiskRead,
     GuardedWrite, WriteCapture,
 };
-use writ_storage::note_history::NoteHistoryStore;
-use writ_storage::paths::file_name_only;
-use writ_storage::write_lock::WriteLock;
+use jotra_storage::note_history::NoteHistoryStore;
+use jotra_storage::paths::file_name_only;
+use jotra_storage::write_lock::WriteLock;
+use serde::Serialize;
 
 use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};
 use crate::state::AppState;
@@ -49,7 +49,7 @@ pub struct NoteVersion {
     pub at_ms: i64,
     /// What the text costs in bytes.
     pub bytes: u64,
-    /// What left the text in the file, or `None` when Writ does not know.
+    /// What left the text in the file, or `None` when Jotra does not know.
     pub writer: Option<Writer>,
 }
 
@@ -74,13 +74,13 @@ pub struct RestoredVersion {
     pub replaced: Option<i64>,
     /// What the write left on the file, for the caller holding the tab: the
     /// tab's record of the file has to describe the restore the way it
-    /// describes a save, or the next write reads Writ's own text as somebody
+    /// describes a save, or the next write reads Jotra's own text as somebody
     /// else's. The panel has no use for it, so it is not sent.
     #[serde(skip)]
     pub disk_state: DiskState,
     /// The text that was put back, for the caller telling the tab about it.
     /// The digest the tab compares its document against is taken over line
-    /// endings ([`writ_core::hash::comparison_digest_hex`]) and the one in
+    /// endings ([`jotra_core::hash::comparison_digest_hex`]) and the one in
     /// `disk_state` is not, so the bytes themselves are what carries. The
     /// panel has no use for them either, so they are not sent.
     #[serde(skip)]
@@ -165,7 +165,7 @@ pub fn compare_note_version_inner(
 
 /// A file's bytes as the editor reads them (ADR-049).
 fn as_text(bytes: &[u8]) -> String {
-    match writ_core::text_encoding::decode_file(bytes) {
+    match jotra_core::text_encoding::decode_file(bytes) {
         Some(decoded) => decoded.text.into_owned(),
         None => String::from_utf8_lossy(bytes).into_owned(),
     }
@@ -193,18 +193,18 @@ pub fn note_version_content_inner(
 /// tab's record of the file to describe this write, which is the caller's:
 /// [`restore_note_version_for_tab`] is the one that has a tab.
 ///
-/// `last_known` is what Writ last read from the file, from the tab holding it.
+/// `last_known` is what Jotra last read from the file, from the tab holding it.
 /// A note nothing has open passes `None` and the write proceeds: nothing stale
 /// was put in front of anybody.
 ///
 /// # Errors
 ///
 /// The entry is not in the index, its text cannot be read, or the note changed
-/// on disk since Writ last read it — which names the copy the text went into
+/// on disk since Jotra last read it — which names the copy the text went into
 /// instead.
 pub fn restore_note_version_inner(
     notes_root: &Path,
-    writ_dir: &Path,
+    jotra_dir: &Path,
     store: &NoteHistoryStore,
     version_id: i64,
     last_known: Option<DiskState>,
@@ -212,7 +212,7 @@ pub fn restore_note_version_inner(
     let (file, note) = note_file_of(notes_root, store, version_id)?;
     let bytes = store.content(version_id).map_err(|e| unreadable(&e))?;
     let keep = keep_versions(store);
-    let lock = WriteLock::in_data_folder(writ_dir);
+    let lock = WriteLock::in_data_folder(jotra_dir);
     let written = write_note_guarded(
         GuardedWrite {
             target: &file,
@@ -234,7 +234,7 @@ pub fn restore_note_version_inner(
     match written {
         Ok(written) => {
             record(
-                writ_dir,
+                jotra_dir,
                 "restore_note_version",
                 &note,
                 Decision::Allow,
@@ -252,7 +252,7 @@ pub fn restore_note_version_inner(
         }
         Err(error) => {
             record(
-                writ_dir,
+                jotra_dir,
                 "restore_note_version",
                 &note,
                 Decision::Refuse,
@@ -279,7 +279,7 @@ pub fn restore_note_version_inner(
 /// the file beside the note cannot be written.
 pub fn copy_note_version_inner(
     notes_root: &Path,
-    writ_dir: &Path,
+    jotra_dir: &Path,
     store: &NoteHistoryStore,
     version_id: i64,
     now: DateTime<Utc>,
@@ -288,13 +288,13 @@ pub fn copy_note_version_inner(
     let (file, note) = note_file_of(notes_root, store, version_id)?;
     let bytes = store.content(version_id).map_err(|e| unreadable(&e))?;
     let length = bytes.len() as u64;
-    let text = writ_core::text_encoding::decode_file(&bytes)
+    let text = jotra_core::text_encoding::decode_file(&bytes)
         .ok_or_else(|| format!("{note} is not text."))?
         .text;
     match write_recovered_copy(&file, &text, now, stamp) {
         Ok(copy) => {
             record(
-                writ_dir,
+                jotra_dir,
                 "copy_note_version",
                 &note,
                 Decision::Allow,
@@ -306,7 +306,13 @@ pub fn copy_note_version_inner(
             })
         }
         Err(_) => {
-            record(writ_dir, "copy_note_version", &note, Decision::Refuse, None);
+            record(
+                jotra_dir,
+                "copy_note_version",
+                &note,
+                Decision::Refuse,
+                None,
+            );
             Err(format!("The copy of {note} could not be written."))
         }
     }
@@ -327,19 +333,19 @@ fn version_holding(store: &NoteHistoryStore, file: &Path, hash: Sha256Digest) ->
 
 /// Appends one line to the activity log for a write this module made.
 ///
-/// The record is Writ acting on the person's own request (`Actor::App`), and
+/// The record is Jotra acting on the person's own request (`Actor::App`), and
 /// it carries the note's folder-relative name and the length of the text and
 /// nothing else: `ActivityRecord` has no field a note's text fits in, so rule
 /// 1.7 holds by construction.
 ///
 /// A log that cannot be written is not fatal. The write it describes has
 /// already happened, and losing the line does not undo it.
-fn record(writ_dir: &Path, action: &str, note: &str, decision: Decision, bytes: Option<u64>) {
+fn record(jotra_dir: &Path, action: &str, note: &str, decision: Decision, bytes: Option<u64>) {
     let mut line = ActivityRecord::now(Actor::App, action, decision).with_path(note);
     if let Some(bytes) = bytes {
         line = line.with_bytes(bytes);
     }
-    if let Err(error) = writ_storage::activity_log::append(writ_dir, &line) {
+    if let Err(error) = jotra_storage::activity_log::append(jotra_dir, &line) {
         tracing::warn!(error = %error, "the activity log did not take a version record");
     }
 }
@@ -361,7 +367,7 @@ pub fn note_file_of(
     let candidate = root.join(&slug);
     let outside = || format!("{note} is not in your folder.");
     let resolved = crate::security::resolve_for_containment(&candidate).ok_or_else(outside)?;
-    if !writ_core::notes::containment::is_inside(&root, Path::new(&resolved)) {
+    if !jotra_core::notes::containment::is_inside(&root, Path::new(&resolved)) {
         return Err(outside());
     }
     Ok((PathBuf::from(resolved), note))
@@ -400,7 +406,7 @@ fn unreadable(error: &StorageError) -> String {
 /// What the panel shows when a restore does not happen.
 ///
 /// `StorageError`'s own Display is written for logs and names the absolute
-/// path (`crates/writ-storage/src/errors.rs`). The panel names notes the way
+/// path (`crates/jotra-storage/src/errors.rs`). The panel names notes the way
 /// the folder does, and the one thing a person needs from a refusal is where
 /// the text they asked for went instead.
 fn refusal(note: &str, error: &StorageError) -> String {
@@ -457,7 +463,7 @@ pub async fn compare_note_version<R: tauri::Runtime>(
 /// [`restore_note_version_inner`] for the tab that has the note open.
 ///
 /// The write itself is the inner function's. What is here is the tab: what
-/// Writ last read from the file goes in as `last_known`.
+/// Jotra last read from the file goes in as `last_known`.
 ///
 /// # Errors
 ///
@@ -480,7 +486,7 @@ pub fn restore_note_version_for_tab(
     let last_known = tab.as_deref().and_then(|id| state.disk_state(id));
     let restored = restore_note_version_inner(
         &notes_root,
-        &state.writ_dir,
+        &state.jotra_dir,
         &state.note_history,
         version_id,
         last_known,
@@ -488,7 +494,7 @@ pub fn restore_note_version_for_tab(
     // What a save does with what it wrote (`commands::buffer`). Without it
     // the tab's record still describes the text the restore replaced, and the
     // next restore — the row above, which is how a restore is undone — reads
-    // Writ's own write as a change somebody else made and refuses it into a
+    // Jotra's own write as a change somebody else made and refuses it into a
     // dated copy. A note nothing has open has no record to keep.
     if let Some(id) = tab {
         state.set_disk_state(&id, restored.disk_state);
@@ -511,7 +517,7 @@ pub fn restore_note_version_for_tab(
                 &file,
                 Some(&restored.content),
                 crate::watcher::moves::encoding_of_note(state, &id),
-                Some(Writer::Writ),
+                Some(Writer::Jotra),
             ));
     }
     Ok(restored)
@@ -548,7 +554,7 @@ pub fn copy_note_version_and_index(
     let stamp = crate::commands::buffer::ignore_stamper(state);
     let copy = copy_note_version_inner(
         &notes_root,
-        &state.writ_dir,
+        &state.jotra_dir,
         &state.note_history,
         version_id,
         Utc::now(),

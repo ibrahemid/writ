@@ -1,22 +1,22 @@
 //! Reading the notes index: resolving a link, and what a note says about
 //! itself.
 //!
-//! The rules are `writ_core::notes::links` and the rows are
-//! `writ_storage::notes_index` (ADR-034). This module is the adapter between
+//! The rules are `jotra_core::notes::links` and the rows are
+//! `jotra_storage::notes_index` (ADR-034). This module is the adapter between
 //! them and the editor: it spells incoming paths through
-//! [`writ_storage::notes_index::index_key`], so a path that reaches Rust from a
+//! [`jotra_storage::notes_index::index_key`], so a path that reaches Rust from a
 //! tab keys the same rows the walk wrote, and it hands the editor an
 //! `Ambiguous` result whole rather than picking one of the candidates.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
+use jotra_core::events::bus::{EventBus, JotraEvent};
+use jotra_core::notes::links::{self, Resolution};
+use jotra_storage::notes_index::{self, NotesIndexStore, ReconcileOutcome};
+use jotra_storage::paths::file_name_only;
 use serde::Serialize;
 use tauri::State;
-use writ_core::events::bus::{EventBus, WritEvent};
-use writ_core::notes::links::{self, Resolution};
-use writ_storage::notes_index::{self, NotesIndexStore, ReconcileOutcome};
-use writ_storage::paths::file_name_only;
 
 use crate::state::AppState;
 
@@ -154,10 +154,10 @@ pub struct NoteFolderHit {
     pub notes: u32,
 }
 
-/// Tells everything holding a read of the index that Writ wrote rows for
+/// Tells everything holding a read of the index that Jotra wrote rows for
 /// `paths` itself (ADR-036 section 4).
 ///
-/// The notes watcher drops every write Writ makes, so a save, a new file, a
+/// The notes watcher drops every write Jotra makes, so a save, a new file, a
 /// rename, a delete, a restore or a copy reaches a surface showing the index
 /// only through this. It is called after the index call returns, so a surface
 /// that reads again on the event reads the new rows.
@@ -177,10 +177,10 @@ where
     if paths.is_empty() {
         return;
     }
-    bus.emit(WritEvent::NotesIndexed { paths });
+    bus.emit(JotraEvent::NotesIndexed { paths });
 }
 
-/// Whether a file Writ wrote at `path` has rows in the notes index: it is in
+/// Whether a file Jotra wrote at `path` has rows in the notes index: it is in
 /// the notes folder, under no name the walk of that folder skips
 /// ([`notes_index::notes_walk_skips`]).
 pub(crate) fn holds_own_write(state: &AppState, path: &Path) -> bool {
@@ -188,7 +188,7 @@ pub(crate) fn holds_own_write(state: &AppState, path: &Path) -> bool {
         && !notes_index::notes_walk_skips(&state.notes_root(), path)
 }
 
-/// Writes the rows of a copy Writ just wrote beside a file, and returns the
+/// Writes the rows of a copy Jotra just wrote beside a file, and returns the
 /// path to announce it under ([`announce_indexed`]).
 ///
 /// Every such copy is stamped for the watcher, which therefore never reports
@@ -215,7 +215,7 @@ pub fn index_copy(state: &AppState, path: &Path) -> Option<String> {
 /// [`announce_indexed`] for a walk of the notes folder, which names the folder
 /// itself, and only when the walk changed a row.
 ///
-/// A walk changes rows nobody named: a file added while Writ was closed, a
+/// A walk changes rows nobody named: a file added while Jotra was closed, a
 /// database deleted and rebuilt, a sync client catching up past the watcher.
 /// A walk that found the index already right says nothing, so a launch over
 /// an unchanged folder costs no re-read.

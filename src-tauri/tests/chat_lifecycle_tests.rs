@@ -11,15 +11,15 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::{Duration, Instant};
 
-use tempfile::TempDir;
-use writ_core::chat::{ChatTurn, Role};
-use writ_core::config::{AiChatConfig, AiConfig};
-use writ_storage::chat_store::ChatStore;
-use writ_tauri_lib::commands::chat::{
+use jotra_core::chat::{ChatTurn, Role};
+use jotra_core::config::{AiChatConfig, AiConfig};
+use jotra_storage::chat_store::ChatStore;
+use jotra_tauri_lib::commands::chat::{
     begin_request, chat_delete_inner, prepare_chat, run_reply, stop_live_chats, ChatState,
     LiveGuard, CHAT_SHUTDOWN_BUDGET, REPLY_IN_FLIGHT,
 };
-use writ_tauri_lib::events::WritFrontendEvent;
+use jotra_tauri_lib::events::JotraFrontendEvent;
+use tempfile::TempDir;
 
 const C1: &str = "0b7d6b7a-1111-4b6a-9d5e-000000000001";
 const C2: &str = "0b7d6b7a-2222-4b6a-9d5e-000000000002";
@@ -138,7 +138,7 @@ fn delete_cancels_the_live_request() {
     // Without the cancel the task streams on into a file that is gone: every
     // chunk reaches a pane with nowhere to put it and the save at the end
     // fails with a warning nobody sees.
-    let dir = TempDir::new().expect("temp writ dir");
+    let dir = TempDir::new().expect("temp jotra dir");
     let store = ChatStore::new(dir.path());
     let conversation = store
         .create("openai", "gpt-4o-mini")
@@ -231,7 +231,7 @@ fn a_live_reply_is_recorded_as_stopped_on_shutdown() {
     // ends. A quit that took the process down without stopping the reply left
     // the conversation ending on the question, with every word that had
     // arrived gone.
-    let dir = TempDir::new().expect("temp writ dir");
+    let dir = TempDir::new().expect("temp jotra dir");
     let store = ChatStore::new(dir.path());
     let conversation = store.create("custom", "a-model").expect("a conversation");
     let prepared = prepare_chat(
@@ -251,12 +251,12 @@ fn a_live_reply_is_recorded_as_stopped_on_shutdown() {
 
     let frames = Arc::new(AtomicUsize::new(0));
     let streaming = frames.clone();
-    let writ_dir = dir.path().to_path_buf();
+    let jotra_dir = dir.path().to_path_buf();
     let id = conversation.id.clone();
     let task = std::thread::spawn(move || {
         let _live = guard;
-        let store = ChatStore::new(&writ_dir);
-        let client = writ_tauri_lib::commands::ai::build_client().expect("the shared client");
+        let store = ChatStore::new(&jotra_dir);
+        let client = jotra_tauri_lib::commands::ai::build_client().expect("the shared client");
         tauri::async_runtime::block_on(run_reply(
             &client,
             &prepared,
@@ -318,7 +318,7 @@ fn a_stop_before_the_first_byte_frees_the_conversation_at_once() {
     // The stop used to be read only when a chunk arrived, so a host that had
     // not answered kept the conversation live, and every send refused, until
     // its first byte or the two-minute read timeout.
-    let dir = TempDir::new().expect("temp writ dir");
+    let dir = TempDir::new().expect("temp jotra dir");
     let store = ChatStore::new(dir.path());
     let conversation = store.create("custom", "a-model").expect("a conversation");
     let prepared = prepare_chat(
@@ -338,12 +338,12 @@ fn a_stop_before_the_first_byte_frees_the_conversation_at_once() {
 
     let kinds = Arc::new(Mutex::new(Vec::<String>::new()));
     let sink = kinds.clone();
-    let writ_dir = dir.path().to_path_buf();
+    let jotra_dir = dir.path().to_path_buf();
     let id = conversation.id.clone();
     let task = std::thread::spawn(move || {
         let _live = guard;
-        let store = ChatStore::new(&writ_dir);
-        let client = writ_tauri_lib::commands::ai::build_client().expect("the shared client");
+        let store = ChatStore::new(&jotra_dir);
+        let client = jotra_tauri_lib::commands::ai::build_client().expect("the shared client");
         tauri::async_runtime::block_on(run_reply(
             &client,
             &prepared,
@@ -352,7 +352,7 @@ fn a_stop_before_the_first_byte_frees_the_conversation_at_once() {
             &id,
             "r-1",
             |event| {
-                if let WritFrontendEvent::AiChat { kind, .. } = event {
+                if let JotraFrontendEvent::AiChat { kind, .. } = event {
                     sink.lock().expect("kinds").push(kind);
                 }
             },

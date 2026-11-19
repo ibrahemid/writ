@@ -76,7 +76,7 @@ describe("the crash screen", () => {
     await waitFor(() => expect(h.copyText).toHaveBeenCalledTimes(1));
     const copied: string = h.copyText.mock.calls[0][0];
     expect(copied).toContain(LONG);
-    expect(copied).toContain(`Writ ${APP_VERSION}`);
+    expect(copied).toContain(`Jotra ${APP_VERSION}`);
     expect(copied).toContain("Platform: win");
   });
 
@@ -101,7 +101,7 @@ describe("the crash screen", () => {
         <Throws />
       </ErrorBoundary>
     ));
-    expect(log.mock.calls.some(([line]) => String(line).startsWith("[writ] "))).toBe(true);
+    expect(log.mock.calls.some(([line]) => String(line).startsWith("[jotra] "))).toBe(true);
   });
 
   it("draws the caption buttons on Windows and drags the window from its bar", () => {
@@ -140,7 +140,7 @@ describe("the crash screen's own sheet", () => {
   }
 
   it("paints its own surface on a transparent window", () => {
-    expect(rule(".failure-screen")).toMatch(/background:\s*var\(--writ-bg-canvas\)/);
+    expect(rule(".failure-screen")).toMatch(/background:\s*var\(--jotra-bg-canvas\)/);
   });
 
   it("wraps a single-token error rather than scrolling it sideways", () => {
@@ -151,6 +151,6 @@ describe("the crash screen's own sheet", () => {
   });
 
   it("leaves the destructive red to a destructive action", () => {
-    expect(rule(".failure-screen-title")).not.toContain("--writ-danger");
+    expect(rule(".failure-screen-title")).not.toContain("--jotra-danger");
   });
 });

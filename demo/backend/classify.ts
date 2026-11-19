@@ -1,6 +1,6 @@
 import type { FileOpenMode } from "../../src/types/buffer";
 
-// writ_core::file_ops, which decides how an open answers: the size tiers, the
+// jotra_core::file_ops, which decides how an open answers: the size tiers, the
 // binary sniff and the hex dump a binary file is shown as. The page answers
 // from these copies; demo/__tests__/rust-tables.test.ts holds them to the
 // Rust source.
@@ -31,7 +31,7 @@ function formatBinaryBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
-/** file_ops::classify_size: classify_file with the refusal past the size Writ opens. */
+/** file_ops::classify_size: classify_file with the refusal past the size Jotra opens. */
 export function classifySize(sizeBytes: number, isBinary: boolean): FileOpenMode {
   if (sizeBytes > THRESHOLD_MAX_BYTES) {
     return {

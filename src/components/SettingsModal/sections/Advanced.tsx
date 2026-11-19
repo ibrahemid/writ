@@ -9,18 +9,18 @@ import Button from "../../Button/Button";
 import { PathText, SectionLabel, clamp, parseFloatSafe, patchConfig } from "../controls";
 import { SettingsRow } from "../SettingsRow";
 
-/** What Writ keeps of a file's earlier versions. */
+/** What Jotra keeps of a file's earlier versions. */
 function VersionsRow() {
   return (
     <SettingsRow id="notes.versions">
       <span class="settings-notes-note" data-notes-retention>
-        Writ keeps a version each time a file is saved, for up to 30 days or 200 versions.
+        Jotra keeps a version each time a file is saved, for up to 30 days or 200 versions.
       </span>
     </SettingsRow>
   );
 }
 
-/** The row naming the folder Writ keeps its own files in. */
+/** The row naming the folder Jotra keeps its own files in. */
 function DataFolderRow() {
   const [info, setInfo] = createSignal<StorageInfo | null>(null);
 
@@ -70,7 +70,7 @@ function DataFolderRow() {
 }
 
 /**
- * How an HTML file opens, the two preview size limits, where Writ keeps its
+ * How an HTML file opens, the two preview size limits, where Jotra keeps its
  * own data and how long versions are kept. Running a file's own scripts is a
  * per-file choice ("Preview: Toggle scripts for this file"), not a switch.
  */
@@ -82,7 +82,7 @@ export default function AdvancedSection() {
     void patchConfig((prev) => ({ ...prev, preview: { ...prev.preview, default_layout_html: layout } }));
   }
 
-  // A live threshold above the refuse threshold describes a file Writ renders
+  // A live threshold above the refuse threshold describes a file Jotra renders
   // live and refuses to render, so each value is held under the other.
   function onLiveLimitChange(raw: string) {
     const ceiling = Math.min(100, preview().render_refuse_threshold_mb);

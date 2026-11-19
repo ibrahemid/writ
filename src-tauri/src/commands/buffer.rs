@@ -7,26 +7,26 @@ use crate::commands::offload::{note_ticket, run_blocking, run_in_turn, ERR_COMMA
 use crate::fts_scheduler::{PollOutcome, FTS_REINDEX_DEBOUNCE};
 use crate::poison::recover_poison;
 use crate::state::AppState;
+use jotra_core::buffer::document::{BufferDocument, BufferStatus};
+use jotra_core::buffer::manager::BufferManager;
+use jotra_core::notes::guard::is_not_downloaded;
+use jotra_core::notes::line_ending::LineEnding;
+use jotra_core::notes::reload::{apply_choice, Action, ChangeChoice, Side};
+use jotra_core::recovery::{journal_step, JournalStep, SaveLanding};
+use jotra_core::serial::Turn;
+use jotra_core::text_encoding::TextEncoding;
+use jotra_core::watcher::pending::HoldAnswer;
+use jotra_storage::buffer_store::{dataless_flags, BufferStore, NoteFileState, SourceWrite};
+use jotra_storage::errors::StorageError;
+use jotra_storage::guarded::write_conflict_copy;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime, State};
-use writ_core::buffer::document::{BufferDocument, BufferStatus};
-use writ_core::buffer::manager::BufferManager;
-use writ_core::notes::guard::is_not_downloaded;
-use writ_core::notes::line_ending::LineEnding;
-use writ_core::notes::reload::{apply_choice, Action, ChangeChoice, Side};
-use writ_core::recovery::{journal_step, JournalStep, SaveLanding};
-use writ_core::serial::Turn;
-use writ_core::text_encoding::TextEncoding;
-use writ_core::watcher::pending::HoldAnswer;
-use writ_storage::buffer_store::{dataless_flags, BufferStore, NoteFileState, SourceWrite};
-use writ_storage::errors::StorageError;
-use writ_storage::guarded::write_conflict_copy;
 
 /// The one place a change from outside a write reaches the version store.
 ///
 /// A reload is not a write, so it never reaches the facade's hook
-/// (`writ_storage::guarded::history_hook`), and neither does a conflict
-/// resolution or a file another program overwrote while Writ had it open.
+/// (`jotra_storage::guarded::history_hook`), and neither does a conflict
+/// resolution or a file another program overwrote while Jotra had it open.
 /// Those are this seam, and between them the two are the whole set: nothing
 /// captures inside the editor, inside a store, or at a third writer.
 ///
@@ -34,9 +34,9 @@ use writ_storage::guarded::write_conflict_copy;
 /// (spec 481): the text a note held before something else wrote over it is
 /// kept, and it is kept before the tab takes the new one.
 ///
-/// The merge window never applies here. It exists to collapse a run of Writ's
+/// The merge window never applies here. It exists to collapse a run of Jotra's
 /// own saves, each of which leaves its text in the file for the next one to
-/// replace; every text this seam sees is one Writ did not write and cannot
+/// replace; every text this seam sees is one Jotra did not write and cannot
 /// produce again, and two of them inside ten seconds is two programs writing,
 /// not one person typing. There is no storm to collapse either: a text the
 /// store already holds is deduped by its digest, so a tab reopened on a file
@@ -53,14 +53,14 @@ pub(crate) fn keep_what_was_seen(state: &AppState, path: &Path, bytes: &[u8]) {
     let now = std::time::SystemTime::now();
     if let Err(e) = state.note_history.capture_replaced(&note, bytes, now) {
         tracing::warn!(
-            note = %writ_storage::paths::file_name_only(&path.to_string_lossy()),
+            note = %jotra_storage::paths::file_name_only(&path.to_string_lossy()),
             error = %e,
             "this version of the note could not be kept"
         );
     }
 }
 
-/// Code a save carries when the file changed under Writ and the write was
+/// Code a save carries when the file changed under Jotra and the write was
 /// stopped.
 ///
 /// The frontend reads the code and writes its own sentence, so no wording a
@@ -215,15 +215,15 @@ pub fn read_failure_message(error: &StorageError) -> String {
 /// that (ADR-049): UTF-8's own, or the one for every other encoding.
 /// `InvalidData` is what a reader that wanted UTF-8 reports for bytes that
 /// are not. A file past the size
-/// Writ opens carries the code an open of it answers with
-/// ([`writ_core::file_ops::ERR_OPEN_TOO_LARGE`]); the size the editor states
+/// Jotra opens carries the code an open of it answers with
+/// ([`jotra_core::file_ops::ERR_OPEN_TOO_LARGE`]); the size the editor states
 /// is on the row, which [`read_buffer_content_inner`] records.
 pub fn read_failure_code(error: &StorageError) -> &'static str {
     match error {
         StorageError::NotInEncoding { encoding } if encoding.name() == "UTF-8" => ERR_READ_NOT_UTF8,
         StorageError::NotInEncoding { .. } => ERR_READ_NOT_IN_ENCODING,
         StorageError::Io(io) => io_read_failure_code(io.kind()),
-        StorageError::FileTooLarge { .. } => writ_core::file_ops::ERR_OPEN_TOO_LARGE,
+        StorageError::FileTooLarge { .. } => jotra_core::file_ops::ERR_OPEN_TOO_LARGE,
         _ => ERR_READ_FAILED,
     }
 }
@@ -319,9 +319,9 @@ pub fn get_buffer(state: State<'_, AppState>, id: String) -> Result<BufferDocume
 /// keystroke loop (ADR-020). The bytes on disk are durable on return; only
 /// search freshness lags, bounded by the idle window and the shutdown flush.
 ///
-/// A write that would land over a change Writ never read is stopped and the
+/// A write that would land over a change Jotra never read is stopped and the
 /// text it was carrying is written beside the note instead
-/// ([`writ_storage::buffer_store::BufferStore::write_source_guarded`]). What
+/// ([`jotra_storage::buffer_store::BufferStore::write_source_guarded`]). What
 /// it compares against is this process's record for the tab, so a note whose
 /// tab was closed and reopened is measured against its file rather than
 /// against a record of what the file used to hold. Such a failure comes back
@@ -355,7 +355,7 @@ pub fn save_in_turn(
     write_note_source(state, turn, content, RemovedFile::Refuse)
 }
 
-/// What a write does about a note whose file was deleted outside Writ.
+/// What a write does about a note whose file was deleted outside Jotra.
 ///
 /// A keystroke must not recreate it and an explicit request to put it back
 /// must not be refused. Both are the same write with opposite answers to that
@@ -457,7 +457,7 @@ fn write_note_source_unannounced(
 
 /// Records or clears the unsaved-text journal entry of note `id`'s tab, as the
 /// outcome of a write that carried `content` decides
-/// ([`writ_core::recovery::journal_step`], ADR-044).
+/// ([`jotra_core::recovery::journal_step`], ADR-044).
 ///
 /// Runs after the write has let go of the store, and a journal that cannot be
 /// written is a line in the log rather than a second error for the frontend:
@@ -602,7 +602,7 @@ fn land_note_source(
     // The digest the editor compares its document against, not the guard's
     // raw one: the bytes just written are the document, so this is the answer
     // that makes the tab read clean.
-    Ok(Some(writ_core::hash::comparison_digest_hex(
+    Ok(Some(jotra_core::hash::comparison_digest_hex(
         content.as_bytes(),
     )))
 }
@@ -625,7 +625,7 @@ fn plan_note_write<'a>(
     id: &str,
     content: &'a str,
     removed: RemovedFile,
-    default_extension: writ_core::config::FileExtension,
+    default_extension: jotra_core::config::FileExtension,
 ) -> Result<Option<PlannedNoteWrite<'a>>, SaveRefused> {
     let store = state
         .store
@@ -734,8 +734,9 @@ fn wait_out_a_held_removal(state: &AppState, id: &str, removed: RemovedFile) -> 
 /// carrying beside the note, and that file lands in the same watched folder.
 pub(crate) fn ignore_stamper(state: &AppState) -> impl Fn(&Path, &[u8]) + '_ {
     move |path: &Path, bytes: &[u8]| {
-        let key =
-            writ_core::watcher::ignore::source_key(&crate::watcher::handler::ignore_key_path(path));
+        let key = jotra_core::watcher::ignore::source_key(
+            &crate::watcher::handler::ignore_key_path(path),
+        );
         let mut ignore = recover_poison(
             state.watcher_ignore.lock(),
             "commands::buffer::ignore_stamper",
@@ -748,8 +749,9 @@ pub(crate) fn ignore_stamper(state: &AppState) -> impl Fn(&Path, &[u8]) + '_ {
 /// so the watcher reports the file a different writer put under that name.
 pub(crate) fn ignore_unstamper(state: &AppState) -> impl Fn(&Path) + '_ {
     move |path: &Path| {
-        let key =
-            writ_core::watcher::ignore::source_key(&crate::watcher::handler::ignore_key_path(path));
+        let key = jotra_core::watcher::ignore::source_key(
+            &crate::watcher::handler::ignore_key_path(path),
+        );
         recover_poison(
             state.watcher_ignore.lock(),
             "commands::buffer::ignore_unstamper",
@@ -776,7 +778,7 @@ fn attach_new_note_file(
     state: &AppState,
     store: &BufferStore,
     doc: &BufferDocument,
-    default_extension: writ_core::config::FileExtension,
+    default_extension: jotra_core::config::FileExtension,
 ) -> Result<String, String> {
     let path = crate::notes::attach_note_file(
         store,
@@ -791,7 +793,7 @@ fn attach_new_note_file(
 }
 
 /// The request header a raw-body save names its note in.
-pub const NOTE_ID_HEADER: &str = "writ-note-id";
+pub const NOTE_ID_HEADER: &str = "jotra-note-id";
 
 /// Code a raw-body save carries when the request is not a note's text: no
 /// note named, a body that is not bytes, or bytes that are not UTF-8.
@@ -863,7 +865,7 @@ pub async fn save_buffer_content<R: Runtime>(
 }
 
 /// Code a change-set save carries when the note's file no longer holds the
-/// text the changes were made against, or holds none Writ can read without
+/// text the changes were made against, or holds none Jotra can read without
 /// asking. The editor sends the whole text instead.
 pub const ERR_CHANGES_STALE: &str = "ERR_CHANGES_STALE";
 
@@ -887,8 +889,8 @@ pub enum ChangesRefused {
 
 /// Saves note `id` as `changes` applied to the text its file holds, when that
 /// text is the one whose comparison digest is `base`
-/// ([`writ_core::hash::comparison_digest_hex`]), the file's bytes are the ones
-/// Writ last read or wrote of it, and `length` is the length in UTF-16 code
+/// ([`jotra_core::hash::comparison_digest_hex`]), the file's bytes are the ones
+/// Jotra last read or wrote of it, and `length` is the length in UTF-16 code
 /// units of the document the editor holds after them.
 ///
 /// The editor's large tiers save this way (ADR-022): `base` is the digest
@@ -902,7 +904,7 @@ pub fn save_buffer_changes_inner(
     state: &AppState,
     id: &str,
     base: &str,
-    changes: &writ_core::buffer::change_set::ChangeSet,
+    changes: &jotra_core::buffer::change_set::ChangeSet,
     length: usize,
 ) -> Result<Option<String>, String> {
     let turn = state.buffer_writes.turn(id);
@@ -913,7 +915,7 @@ fn save_changes_in_turn(
     state: &AppState,
     turn: &Turn,
     base: &str,
-    changes: &writ_core::buffer::change_set::ChangeSet,
+    changes: &jotra_core::buffer::change_set::ChangeSet,
     length: usize,
 ) -> Result<Option<String>, String> {
     let text = base_text_of_file(state, turn.key(), base).map_err(|e| e.to_string())?;
@@ -934,7 +936,7 @@ fn save_changes_in_turn(
 /// The text the editor would hold for note `id`'s file as it stands, decoded
 /// in the note's encoding with its line breaks as `\n`, when that text is the
 /// one whose comparison digest is `base` and the file's bytes are the ones
-/// Writ last read or wrote of it.
+/// Jotra last read or wrote of it.
 ///
 /// The digest alone is not enough. The open's digest comes from a read of its
 /// own, after the read the tab's text came from, so a file another program
@@ -943,7 +945,7 @@ fn save_changes_in_turn(
 /// The write guard's record names the bytes the tab's text came from.
 ///
 /// Read without the store. A note with no file, a read-only one, a file whose
-/// bytes are not on this machine, a file that cannot be read and a file Writ
+/// bytes are not on this machine, a file that cannot be read and a file Jotra
 /// holds no record of all answer [`ChangesRefused::Stale`]: the whole-text
 /// save that follows is the one that says what is wrong with them.
 fn base_text_of_file(state: &AppState, id: &str, base: &str) -> Result<String, ChangesRefused> {
@@ -960,9 +962,9 @@ fn base_text_of_file(state: &AppState, id: &str, base: &str) -> Result<String, C
         return Err(ChangesRefused::Stale);
     }
     let read =
-        writ_storage::buffer_store::read_doc_text(&doc).map_err(|_| ChangesRefused::Stale)?;
+        jotra_storage::buffer_store::read_doc_text(&doc).map_err(|_| ChangesRefused::Stale)?;
     let bytes = read.bytes().ok_or(ChangesRefused::Stale)?;
-    let sha256 = writ_core::hash::sha256_bytes(bytes);
+    let sha256 = jotra_core::hash::sha256_bytes(bytes);
     if state.disk_state(id).map(|known| known.hash) != Some(sha256) {
         return Err(ChangesRefused::Stale);
     }
@@ -972,7 +974,7 @@ fn base_text_of_file(state: &AppState, id: &str, base: &str) -> Result<String, C
     }
     let text = read.text;
     Ok(
-        match writ_core::hash::normalise_line_endings(text.as_bytes()) {
+        match jotra_core::hash::normalise_line_endings(text.as_bytes()) {
             Cow::Borrowed(_) => text,
             Cow::Owned(bytes) => String::from_utf8(bytes).map_err(|_| ChangesRefused::Stale)?,
         },
@@ -986,7 +988,7 @@ pub async fn save_buffer_changes<R: Runtime>(
     app: AppHandle<R>,
     id: String,
     base: String,
-    changes: writ_core::buffer::change_set::ChangeSet,
+    changes: jotra_core::buffer::change_set::ChangeSet,
     length: usize,
 ) -> Result<Option<String>, String> {
     let ticket = note_ticket(&app, &id);
@@ -1015,7 +1017,7 @@ fn schedule_reindex<R: Runtime>(app: &AppHandle<R>, state: &AppState, id: &str) 
     }
 }
 
-/// Writes a note whose file was deleted outside Writ back to the path it
+/// Writes a note whose file was deleted outside Jotra back to the path it
 /// names.
 ///
 /// [`save_buffer_content_inner`] refuses that write, and has to: the tab's
@@ -1082,10 +1084,10 @@ pub async fn restore_note_file<R: Runtime>(
 /// the row records the resolved spelling.
 ///
 /// A file already at `path` was there when the person chose it, and the save
-/// panel asked before replacing it. Writ holds no record of that file, so the
+/// panel asked before replacing it. Jotra holds no record of that file, so the
 /// guard lets the write through and keeps the text it replaces as a version,
 /// as for any write it lets through against no record
-/// ([`writ_core::notes::guard::decide_save`]). A file whose bytes are not on
+/// ([`jotra_core::notes::guard::decide_save`]). A file whose bytes are not on
 /// this machine is refused by the guard without being read.
 ///
 /// The write is the one every save lands through ([`restore_note_file_inner`]),
@@ -1243,7 +1245,7 @@ fn reindex_buffer_now(state: &AppState, id: &str) -> Option<String> {
             None
         }
     }?;
-    let content = writ_storage::buffer_store::read_indexable_text(&target);
+    let content = jotra_storage::buffer_store::read_indexable_text(&target);
     let indexed = {
         let store = state.store.lock().ok()?;
         match store.get(id) {
@@ -1260,7 +1262,7 @@ fn reindex_buffer_now(state: &AppState, id: &str) -> Option<String> {
     };
     let path = indexed?;
     holds_own_write(state, Path::new(&path))
-        .then(|| writ_storage::notes_index::index_key(Path::new(&path)))
+        .then(|| jotra_storage::notes_index::index_key(Path::new(&path)))
 }
 
 /// Reads a note's text from its file, recording what the file held.
@@ -1278,7 +1280,7 @@ fn reindex_buffer_now(state: &AppState, id: &str) -> Option<String> {
 ///
 /// A note with no file yet has nothing on disk to record.
 ///
-/// A file past the size Writ opens is measured and not read
+/// A file past the size Jotra opens is measured and not read
 /// ([`BufferStore::read_content`]). The size found goes on the row: the
 /// editor states it from there, and the index, which picks files by the row's
 /// size, leaves the file alone. The record of what the file held does not
@@ -1293,19 +1295,19 @@ pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, 
 }
 
 /// Note `id`'s row and the text of its file, read with the store let go
-/// (ADR-047). A file past the size Writ opens is measured, and the size found
+/// (ADR-047). A file past the size Jotra opens is measured, and the size found
 /// goes on the row.
 fn read_note_text(
     state: &AppState,
     id: &str,
-) -> Result<(BufferDocument, writ_storage::buffer_store::ReadText), String> {
+) -> Result<(BufferDocument, jotra_storage::buffer_store::ReadText), String> {
     let doc = state
         .store
         .lock()
         .map_err(|e| format!("{ERR_READ_FAILED}: {e}"))?
         .get(id)
         .map_err(|e| read_failure_message(&e))?;
-    match writ_storage::buffer_store::read_doc_text(&doc) {
+    match jotra_storage::buffer_store::read_doc_text(&doc) {
         Ok(read) => Ok((doc, read)),
         Err(error) => {
             if let StorageError::FileTooLarge { size_bytes } = error {
@@ -1326,7 +1328,7 @@ pub fn read_in_turn(state: &AppState, turn: &Turn) -> Result<Vec<u8>, String> {
     let content = read.text.as_str();
     if let (Some(source_path), Some(bytes)) = (doc.source_path.as_deref(), read.bytes()) {
         let path = Path::new(source_path);
-        let digest = writ_core::hash::sha256_bytes(bytes);
+        let digest = jotra_core::hash::sha256_bytes(bytes);
         let size = bytes.len() as u64;
         if doc.read_only {
             state.record_disk_state(id, path, digest, size);
@@ -1348,9 +1350,9 @@ pub fn read_in_turn(state: &AppState, turn: &Turn) -> Result<Vec<u8>, String> {
                     state.record_disk_state(id, path, digest, size);
                 }
             }
-            // A file that gained or lost its carriage returns while Writ had
+            // A file that gained or lost its carriage returns while Jotra had
             // it open is followed rather than written back the old way.
-            let ending = writ_core::notes::line_ending::LineEnding::detect(content);
+            let ending = jotra_core::notes::line_ending::LineEnding::detect(content);
             if ending != doc.line_ending {
                 if let Err(e) = store.set_line_ending(id, ending) {
                     tracing::debug!(buffer_id = %id, error = %e, "the file's line ending could not be recorded");
@@ -1370,7 +1372,7 @@ pub fn read_in_turn(state: &AppState, turn: &Turn) -> Result<Vec<u8>, String> {
             // [`note_file_unchanged`] holds the file against both.
             state.refresh_source_identity(id, path);
             // The text the tab is about to be given is kept. The text it is
-            // replacing was kept when Writ read or wrote it, which is what
+            // replacing was kept when Jotra read or wrote it, which is what
             // puts the pre-overwrite text in the store before the reload
             // lands.
             keep_what_was_seen(state, path, bytes);
@@ -1405,7 +1407,7 @@ pub async fn read_buffer_content<R: Runtime>(
 /// switched back to; [`read_buffer_content_inner`] would move them to bytes
 /// the tab never holds.
 ///
-/// A file past the size Writ opens is measured and refused as that read is.
+/// A file past the size Jotra opens is measured and refused as that read is.
 pub fn peek_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, String> {
     let turn = state.buffer_writes.turn(id);
     peek_in_turn(state, &turn)
@@ -1435,7 +1437,7 @@ pub async fn peek_buffer_content<R: Runtime>(
 /// `hash` is the only field a decision may rest on; `size` and `mtime_ms` are
 /// carried for the same diagnostic reasons [`DiskState`] carries them.
 ///
-/// It is the comparison digest ([`writ_core::hash::comparison_digest_hex`]),
+/// It is the comparison digest ([`jotra_core::hash::comparison_digest_hex`]),
 /// not the write guard's raw one: this is the number the editor holds the
 /// document up against, and the document's line endings are CodeMirror's
 /// rather than the file's.
@@ -1461,7 +1463,7 @@ impl From<NoteFileState> for DiskStateDto {
     }
 }
 
-/// What Writ can say about the file behind a note.
+/// What Jotra can say about the file behind a note.
 ///
 /// The three answers are kept apart because the editor acts on them
 /// differently and collapsing them loses text. A note with no file yet is a
@@ -1500,7 +1502,7 @@ fn note_file_answer_of(
         return Ok((NoteDiskAnswer::Undescribed, None));
     }
     Ok(
-        match writ_storage::buffer_store::read_note_file(path, encoding)
+        match jotra_storage::buffer_store::read_note_file(path, encoding)
             .map_err(|e| e.to_string())?
         {
             Some((state, bytes)) => (
@@ -1517,7 +1519,7 @@ fn note_file_answer_of(
 /// IPC: what the file behind note `id` holds now.
 ///
 /// The tab whose save was stopped is the caller: the reason it was stopped is
-/// a difference between the file and what Writ last read, and this is how the
+/// a difference between the file and what Jotra last read, and this is how the
 /// tab reads that difference again after the person has looked at it. The
 /// editor also asks on open, to take the file's digest from the side that
 /// read the file.
@@ -1560,7 +1562,7 @@ fn note_disk_state_in_turn(state: &AppState, turn: &Turn) -> Result<NoteDiskAnsw
     let path = Path::new(&source_path);
     let (answer, bytes) = note_file_answer_of(
         path,
-        writ_storage::buffer_store::dataless_flags(path),
+        jotra_storage::buffer_store::dataless_flags(path),
         encoding,
     )?;
     // This is what a tab asks after it is told its file changed, and the
@@ -1569,14 +1571,14 @@ fn note_disk_state_in_turn(state: &AppState, turn: &Turn) -> Result<NoteDiskAnsw
     // second change over the top of the first does not take the first with
     // it. Nothing is kept for a file the store would refuse anyway.
     if let (NoteDiskAnswer::Described { disk }, Some(bytes)) = (&answer, bytes) {
-        if !read_only && writ_core::note_history::is_versionable(disk.size) {
+        if !read_only && jotra_core::note_history::is_versionable(disk.size) {
             keep_what_was_seen(state, path, &bytes);
         }
     }
     Ok(answer)
 }
 
-/// IPC: whether note `id`'s file is still the file Writ last read or wrote,
+/// IPC: whether note `id`'s file is still the file Jotra last read or wrote,
 /// told from its size, modification time and file id without reading it.
 ///
 /// A tab switched back to keeps the editor it left when this answers `true`.
@@ -1639,7 +1641,7 @@ fn note_file_unchanged_in_turn(state: &AppState, turn: &Turn) -> bool {
     }
 }
 
-/// What resolving a change outside Writ left behind.
+/// What resolving a change outside Jotra left behind.
 ///
 /// `conflict_copy_path` names the file the losing text was written to. It is
 /// `None` only when the two texts turned out to be the same text, which the
@@ -1661,7 +1663,7 @@ pub struct ResolveOutcome {
 ///
 /// The text the choice does not keep is written beside the note first, and the
 /// note is only touched once that copy is on disk
-/// ([`writ_core::notes::reload::apply_choice`]). A copy that cannot be written
+/// ([`jotra_core::notes::reload::apply_choice`]). A copy that cannot be written
 /// stops the whole thing, because the alternative is a write that lands over
 /// a text nothing else holds.
 ///
@@ -1841,7 +1843,7 @@ fn answer_external_change_at(
         .into_owned();
 
     let disk_hash = encoding.comparison_digest_hex(&disk_bytes);
-    let mine_hash = writ_core::hash::comparison_digest_hex(content.as_bytes());
+    let mine_hash = jotra_core::hash::comparison_digest_hex(content.as_bytes());
 
     // The two texts are the same text. Writing a copy would put a duplicate
     // in the notes folder for a difference nobody can see, and writing the
@@ -1895,7 +1897,7 @@ fn answer_external_change_at(
         Action::WriteMine => {
             // What the file holds is beside the note now, so the write guard
             // has nothing left to protect and the save may land. Recording it
-            // is also what makes the record true: Writ has read this file.
+            // is also what makes the record true: Jotra has read this file.
             state.record_disk_state_bytes(id, path, &disk_bytes);
             write_note_source_unannounced(state, turn, content, RemovedFile::Refuse, &mut set_aside)
                 .map(|written| {
@@ -1951,7 +1953,7 @@ pub struct UnsavedNote {
 /// unsaved-text journal (ADR-044; spec S2, the quit-with-a-failed-save case).
 ///
 /// Called on the way out: when a tab closes, when the window closes and when
-/// Writ quits, with whatever the editor holds that is not known to be on disk.
+/// Jotra quits, with whatever the editor holds that is not known to be on disk.
 /// Called too while a bar holds a note's saves, on the autosave's debounce,
 /// with the text the editor is holding back. A save that failed has journaled
 /// its text already. What this adds is text the editor held back while a bar
@@ -2030,7 +2032,7 @@ pub async fn list_active_buffers<R: Runtime>(
 /// The tabs the last session left open, each file measured before anything
 /// reads it.
 ///
-/// A file can change size while Writ is closed, and the row is where the
+/// A file can change size while Jotra is closed, and the row is where the
 /// editor and the index read its tier from. Each file is measured with a
 /// stat, outside the store's lock and never with a read, and a size that
 /// moved is recorded on the row without the stamp a read leaves.
@@ -2090,7 +2092,7 @@ fn forget_ignore_stamp(state: &AppState, doc: &BufferDocument, context: &'static
     let Some(path) = doc.source_path.as_deref() else {
         return;
     };
-    let key = writ_core::watcher::ignore::source_key(&crate::watcher::handler::ignore_key_path(
+    let key = jotra_core::watcher::ignore::source_key(&crate::watcher::handler::ignore_key_path(
         Path::new(path),
     ));
     let mut ignore = recover_poison(state.watcher_ignore.lock(), context);
@@ -2115,7 +2117,7 @@ pub(crate) fn released_source(store: &BufferStore, source_path: Option<String>) 
 }
 
 /// Takes away the write permission of every file in `released`, and answers
-/// every `writ --wait` that waited on them.
+/// every `jotra --wait` that waited on them.
 ///
 /// A closed tab's file is one the person has put away, and only an open tab
 /// may write a file from outside the notes folder; reopening it blesses it
@@ -2124,14 +2126,14 @@ pub(crate) fn revoke_released(state: &AppState, released: &[String]) {
     for path in released {
         state.authorized_paths.revoke_blessed_source(path);
     }
-    // A file put away is one a waiting `writ --wait` is answered for.
+    // A file put away is one a waiting `jotra --wait` is answered for.
     crate::instance::tabs_closed(state, released);
 }
 
 /// IPC: closes one tab.
 ///
 /// What the file held is forgotten with the tab. The record exists to answer
-/// "did this change since Writ last looked", and after a close Writ has not
+/// "did this change since Jotra last looked", and after a close Jotra has not
 /// looked; keeping it would let a note edited elsewhere while its tab was
 /// closed reopen without a word. So is the permission to write the file.
 ///
@@ -2260,7 +2262,7 @@ pub fn set_buffer_language_inner(
     id: &str,
     language: Option<&str>,
 ) -> Result<BufferDocument, String> {
-    writ_core::buffer::language::validate_language_choice(language).map_err(|e| e.to_string())?;
+    jotra_core::buffer::language::validate_language_choice(language).map_err(|e| e.to_string())?;
     let store = state.store.lock().map_err(|e| e.to_string())?;
     store
         .update_language(id, language)
@@ -2307,7 +2309,7 @@ pub async fn set_buffer_view_position<R: Runtime>(
     .await
 }
 
-/// Code a reopen carries when the encoding asked for is not one Writ reads.
+/// Code a reopen carries when the encoding asked for is not one Jotra reads.
 pub const ERR_UNKNOWN_ENCODING: &str = "ERR_UNKNOWN_ENCODING";
 
 /// Reads note `id`'s file in `encoding` and keeps that encoding for it: Reopen
@@ -2346,8 +2348,8 @@ pub fn reopen_with_encoding_inner(
     let size_bytes = std::fs::metadata(&source_path)
         .map_err(|e| format!("{}: {e}", io_read_failure_code(e.kind())))?
         .len();
-    if let writ_core::file_ops::FileOpenMode::Refused { .. } =
-        writ_core::file_ops::classify_size(size_bytes, false)
+    if let jotra_core::file_ops::FileOpenMode::Refused { .. } =
+        jotra_core::file_ops::classify_size(size_bytes, false)
     {
         return Err(read_failure_message(&StorageError::FileTooLarge {
             size_bytes,
@@ -2390,8 +2392,8 @@ pub async fn reopen_with_encoding<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use jotra_core::notes::guard::{DiskState, SF_DATALESS};
     use std::time::SystemTime;
-    use writ_core::notes::guard::{DiskState, SF_DATALESS};
 
     fn io(kind: std::io::ErrorKind) -> StorageError {
         StorageError::Io(std::io::Error::new(kind, "from the filesystem"))
@@ -2411,7 +2413,7 @@ mod tests {
                 StorageError::FileTooLarge {
                     size_bytes: 600_000_000,
                 },
-                writ_core::file_ops::ERR_OPEN_TOO_LARGE,
+                jotra_core::file_ops::ERR_OPEN_TOO_LARGE,
             ),
             (
                 StorageError::Consistency {
@@ -2451,7 +2453,7 @@ mod tests {
 
     #[test]
     fn a_file_that_is_not_there_is_undescribed_rather_than_fileless() {
-        // Undescribed, not `NoFile`: the note names a file and Writ cannot
+        // Undescribed, not `NoFile`: the note names a file and Jotra cannot
         // say what it holds, which is the answer the editor has to fail
         // closed on. `NoFile` means a new note, and reads clean.
         let dir = tempfile::tempdir().unwrap();
@@ -2475,7 +2477,7 @@ mod tests {
                 .unwrap()
                 .0,
         );
-        assert_eq!(state.hash, writ_core::hash::sha256_hex(b"one line\n"));
+        assert_eq!(state.hash, jotra_core::hash::sha256_hex(b"one line\n"));
         assert_eq!(state.size, 9);
         assert!(state.mtime_ms.is_some());
     }
@@ -2509,8 +2511,8 @@ mod tests {
                 .unwrap()
                 .0,
         );
-        assert_eq!(state.hash, writ_core::hash::sha256_hex(b"one\ntwo\n"));
-        assert_ne!(state.hash, writ_core::hash::sha256_hex(b"one\r\ntwo\r\n"));
+        assert_eq!(state.hash, jotra_core::hash::sha256_hex(b"one\ntwo\n"));
+        assert_ne!(state.hash, jotra_core::hash::sha256_hex(b"one\r\ntwo\r\n"));
         // The length is the file's, not the normalised text's.
         assert_eq!(state.size, 10);
     }
@@ -2543,12 +2545,12 @@ mod tests {
     }
 
     fn file_state(
-        hash: writ_core::hash::Sha256Digest,
+        hash: jotra_core::hash::Sha256Digest,
         size: u64,
         mtime: Option<SystemTime>,
     ) -> NoteFileState {
         NoteFileState {
-            comparison_hash: writ_core::hash::digest_hex(hash),
+            comparison_hash: jotra_core::hash::digest_hex(hash),
             disk: DiskState { hash, size, mtime },
         }
     }
@@ -2556,11 +2558,11 @@ mod tests {
     #[test]
     fn the_dto_renders_the_digest_as_hex_and_the_time_in_milliseconds() {
         let dto = DiskStateDto::from(file_state(
-            writ_core::hash::sha256_bytes(b"writ"),
+            jotra_core::hash::sha256_bytes(b"jotra"),
             4,
             Some(UNIX_EPOCH + std::time::Duration::from_millis(1_500)),
         ));
-        assert_eq!(dto.hash, writ_core::hash::sha256_hex(b"writ"));
+        assert_eq!(dto.hash, jotra_core::hash::sha256_hex(b"jotra"));
         assert_eq!(dto.size, 4);
         assert_eq!(dto.mtime_ms, Some(1_500));
     }
@@ -2616,7 +2618,7 @@ mod tests {
 
     #[test]
     fn a_time_the_filesystem_could_not_report_is_carried_as_none() {
-        let dto = DiskStateDto::from(file_state(writ_core::hash::sha256_bytes(b""), 0, None));
+        let dto = DiskStateDto::from(file_state(jotra_core::hash::sha256_bytes(b""), 0, None));
         assert_eq!(dto.mtime_ms, None);
     }
 }

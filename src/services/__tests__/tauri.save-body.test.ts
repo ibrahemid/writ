@@ -23,7 +23,7 @@ describe("saveBufferContent", () => {
     expect(command).toBe("save_buffer_content");
     expect(ArrayBuffer.isView(body)).toBe(true);
     expect(new TextDecoder().decode(body as Uint8Array)).toBe(text);
-    expect(options).toEqual({ headers: { "writ-note-id": "note-1" } });
+    expect(options).toEqual({ headers: { "jotra-note-id": "note-1" } });
   });
 });
 

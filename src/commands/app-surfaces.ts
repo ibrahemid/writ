@@ -43,7 +43,7 @@ export function canOpenApp(app: AppId): boolean {
   return app !== "rewrite" && app !== "dictation";
 }
 
-// Singleton state — Writ is single-window. The apps switched on for the first
+// Singleton state — Jotra is single-window. The apps switched on for the first
 // time from Settings, opened once Settings closes.
 const [due, setDue] = createSignal<readonly AppId[]>([]);
 

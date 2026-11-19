@@ -53,9 +53,9 @@ describe("no document lookup in components or stores", () => {
   it("catches a lookup written into a component", () => {
     const source = [
       "export function Panel() {",
-      '  const node = document.querySelector(".writ-panel");',
-      '  const list = document.querySelectorAll(".writ-row");',
-      '  const byId = document.getElementById("writ-root");',
+      '  const node = document.querySelector(".jotra-panel");',
+      '  const list = document.querySelectorAll(".jotra-row");',
+      '  const byId = document.getElementById("jotra-root");',
       "  return [node, list, byId];",
       "}",
     ].join("\n");

@@ -19,7 +19,7 @@ import {
 } from "./selection-geometry";
 
 /** The class of the layer that paints the selection. */
-export const SELECTION_LAYER_CLASS = "cm-writ-selection";
+export const SELECTION_LAYER_CLASS = "cm-jotra-selection";
 /** The class of each piece, shared with CodeMirror's own selection styling. */
 export const SELECTION_PIECE_CLASS = "cm-selectionBackground";
 
@@ -260,7 +260,7 @@ export function selectionMarkers(view: EditorView): LayerMarker[] {
   );
 }
 
-const writSelectionLayer = layer({
+const jotraSelectionLayer = layer({
   above: true,
   class: SELECTION_LAYER_CLASS,
   markers: selectionMarkers,
@@ -318,6 +318,6 @@ const selectionFocusGuard: Extension = [
  * with one layer painting the selected characters' boxes per visual row.
  * Selecting and typing reach the note only while focus is in it.
  */
-export function writSelection(): Extension {
-  return [drawSelection(), writSelectionLayer, selectionStructure, selectionFocusGuard];
+export function jotraSelection(): Extension {
+  return [drawSelection(), jotraSelectionLayer, selectionStructure, selectionFocusGuard];
 }

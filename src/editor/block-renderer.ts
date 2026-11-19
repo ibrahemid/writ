@@ -166,7 +166,7 @@ class DiagramDrawer {
       });
       this.theme = theme;
     }
-    const id = `writ-diagram-${++this.drawn}`;
+    const id = `jotra-diagram-${++this.drawn}`;
     try {
       await mermaid.parse(source);
       const { svg } = await mermaid.render(id, source);

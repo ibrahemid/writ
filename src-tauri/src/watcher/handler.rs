@@ -1,6 +1,13 @@
 use crate::poison::recover_poison;
 use crate::watcher::moves::FileTracking;
 use crate::watcher::open_files::{answer_held_removals, open_delivery, OpenNotes, VanishedContext};
+use jotra_core::events::bus::{EventBus, JotraEvent};
+use jotra_core::watcher::budget::{Emission, EmissionBudget};
+use jotra_core::watcher::ignore::{IgnoreStamps, SuppressDecision, DEFAULT_IGNORE_TTL};
+use jotra_core::watcher::pending::{hold_window, PendingRemovals};
+use jotra_core::watcher::sighting::{FileSighting, LastSeen, DEFAULT_SIGHTING_TTL};
+use jotra_core::workspace::WorkspaceKind;
+use jotra_storage::paths::file_name_only;
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 use std::cell::RefCell;
@@ -9,17 +16,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{error, info};
-use writ_core::events::bus::{EventBus, WritEvent};
-use writ_core::watcher::budget::{Emission, EmissionBudget};
-use writ_core::watcher::ignore::{IgnoreStamps, SuppressDecision, DEFAULT_IGNORE_TTL};
-use writ_core::watcher::pending::{hold_window, PendingRemovals};
-use writ_core::watcher::sighting::{FileSighting, LastSeen, DEFAULT_SIGHTING_TTL};
-use writ_core::workspace::WorkspaceKind;
-use writ_storage::paths::file_name_only;
 
 /// The window the notes watcher coalesces a burst of changes into, and what a
 /// removal's wait is measured in
-/// ([`writ_core::watcher::pending::hold_window`]).
+/// ([`jotra_core::watcher::pending::hold_window`]).
 pub const NOTES_DEBOUNCE_WINDOW: Duration = Duration::from_millis(500);
 
 pub type IgnoreSet = Arc<Mutex<IgnoreStamps>>;
@@ -54,7 +54,7 @@ pub(crate) fn ignore_key_path(path: &Path) -> PathBuf {
 /// event for it, and the read a watcher does to classify one event is what
 /// delivers the next. Stat raises nothing, which is why every watcher here
 /// asks this before it opens anything
-/// ([`writ_core::watcher::sighting`]).
+/// ([`jotra_core::watcher::sighting`]).
 pub(crate) fn look_at(path: &Path) -> Option<FileSighting> {
     let metadata = std::fs::metadata(path).ok()?;
     Some(FileSighting {
@@ -65,7 +65,7 @@ pub(crate) fn look_at(path: &Path) -> Option<FileSighting> {
 
 /// How a watcher reads a file it is classifying.
 ///
-/// A change is read only when a stamp for its path says Writ may have written
+/// A change is read only when a stamp for its path says Jotra may have written
 /// it, and a file whose bytes are not on this machine is never read: in an
 /// iCloud Drive folder under Optimize Mac Storage that read is a download of
 /// every file another device touched (TS-11). A test supplies its own to count
@@ -94,16 +94,16 @@ fn read_bytes(path: &Path) -> Option<Vec<u8>> {
 }
 
 fn is_dataless(path: &Path) -> bool {
-    writ_core::notes::guard::is_not_downloaded(writ_storage::buffer_store::dataless_flags(path))
+    jotra_core::notes::guard::is_not_downloaded(jotra_storage::buffer_store::dataless_flags(path))
 }
 
-/// Whether the change at `path` is a write Writ made, by the stamp keyed
+/// Whether the change at `path` is a write Jotra made, by the stamp keyed
 /// `key`.
 ///
 /// The stamp is looked up before anything is read: with no stamp the answer is
 /// no, whatever the file holds. With one, the file is read to compare against
 /// the fingerprint, unless its bytes are somewhere else, which no write of
-/// Writ's leaves behind, so the change is reported and the stamp dropped.
+/// Jotra's leaves behind, so the change is reported and the stamp dropped.
 fn is_writs_own_write(
     key: &str,
     path: &Path,
@@ -138,7 +138,7 @@ pub struct WatcherHandle {
 /// through the folder that holds them.
 ///
 /// The folder is watched, never the file, for the reason
-/// [`super::open_files`] gives: Writ writes `config.toml` by renaming a temp
+/// [`super::open_files`] gives: Jotra writes `config.toml` by renaming a temp
 /// file over it (`ConfigStore::write_serialized`), and on backends that bind a
 /// watch to an inode that rename ends a watch on the file. The config does not
 /// have to exist yet either, so an edit that creates it is heard.
@@ -152,8 +152,8 @@ pub struct WatcherHandle {
 /// where it sits. Either way the path is resolved once, when the watcher
 /// starts.
 ///
-/// `mcp-pending.json` sits beside the config in Writ's data folder and is
-/// written by another process, the `writ mcp` server a program launched. Its
+/// `mcp-pending.json` sits beside the config in Jotra's data folder and is
+/// written by another process, the `jotra mcp` server a program launched. Its
 /// changes go through [`report_pending_event`]. When the config was followed
 /// to a folder of its own, the waiting file's folder is watched as well.
 ///
@@ -173,7 +173,7 @@ pub fn start_file_watcher(
     let pending_path = ignore_key_path(&pending_path);
     let folder = parent_of(&config_path)?;
     let pending_folder = parent_of(&pending_path)?;
-    let off_call_path = writ_storage::off_calls::path(&pending_folder);
+    let off_call_path = jotra_storage::off_calls::path(&pending_folder);
     let (tx, rx) = mpsc::channel::<DebounceEventResult>();
 
     let mut debouncer = new_debouncer(Duration::from_millis(500), tx)?;
@@ -244,18 +244,18 @@ fn parent_of(path: &Path) -> Result<PathBuf, std::io::Error> {
 }
 
 /// Starts a recursive watcher on the workspace `root`, emitting
-/// [`WritEvent::WorkspaceChanged`] for the paths the tree of a `kind` folder
+/// [`JotraEvent::WorkspaceChanged`] for the paths the tree of a `kind` folder
 /// shows ([`classify_workspace_event`]).
 ///
 /// Two listeners hear it: the file-name index, which patches the one path, and
 /// the frontend, where each event is an IPC message and a directory reload.
 /// So the watcher has the notes watcher's [`EmissionBudget`]: a `pip install`
 /// or a build writing thousands of files inside one window names nine and then
-/// says once that the folder moved ([`WritEvent::WorkspaceSwept`]), and the
+/// says once that the folder moved ([`JotraEvent::WorkspaceSwept`]), and the
 /// tree and the index read it again instead (TS-12). A sweep that was owed
 /// when the folder fell quiet is sent then, so the last change is never lost.
 ///
-/// Saving a buffer writes the file it was opened from, so Writ's own writes
+/// Saving a buffer writes the file it was opened from, so Jotra's own writes
 /// do land inside a watched workspace. They are not suppressed: the index
 /// patches the one path in place, and an upsert of a path it already holds
 /// changes nothing. Fingerprinting every event to skip a no-op would cost a
@@ -315,14 +315,14 @@ pub fn start_workspace_watcher(
 
 /// What one delivered batch of workspace events is worth saying, within
 /// `budget`: each change the tree shows, by name, until the window's budget is
-/// spent, then one [`WritEvent::WorkspaceSwept`].
+/// spent, then one [`JotraEvent::WorkspaceSwept`].
 pub fn report_workspace_batch(
     paths: &[PathBuf],
     root: &Path,
     kind: WorkspaceKind,
     budget: &mut EmissionBudget,
     now: Instant,
-) -> Vec<WritEvent> {
+) -> Vec<JotraEvent> {
     let mut said = Vec::new();
     for path in paths {
         let Some(domain_event) = classify_workspace_event(path, root, kind) else {
@@ -345,19 +345,19 @@ pub fn report_workspace_batch(
 
 /// The event that stands for "more changed in the workspace folder than is
 /// worth listing".
-pub fn workspace_swept(root: &Path) -> WritEvent {
-    WritEvent::WorkspaceSwept {
+pub fn workspace_swept(root: &Path) -> JotraEvent {
+    JotraEvent::WorkspaceSwept {
         root: root.to_string_lossy().into_owned(),
     }
 }
 
 /// Starts a recursive watcher on the inbox `root`, emitting
-/// [`WritEvent::InboxFileArrived`] for qualifying files created after the
+/// [`JotraEvent::InboxFileArrived`] for qualifying files created after the
 /// watcher started (ADR-018).
 ///
 /// Saving a buffer writes the file it was opened from, so an inbox file the
 /// user is editing is written inside the watched tree: the ignore set is
-/// consulted to keep Writ's own saves from arriving as new files, which would
+/// consulted to keep Jotra's own saves from arriving as new files, which would
 /// reopen the tab and pull the window forward mid-keystroke.
 pub fn start_inbox_watcher(
     bus: Arc<EventBus>,
@@ -451,18 +451,18 @@ pub fn report_inbox_event(
     seen: &mut LastSeen,
     ttl: Duration,
     now: Instant,
-) -> Option<WritEvent> {
+) -> Option<JotraEvent> {
     if !seen.is_news(path, look_at(path), now, DEFAULT_SIGHTING_TTL) {
         return None;
     }
     classify_inbox_event(path, root, preexisting, ignore_set, ttl, now)
 }
 
-/// Classifies an inbox file-system event into [`WritEvent::InboxFileArrived`],
+/// Classifies an inbox file-system event into [`JotraEvent::InboxFileArrived`],
 /// or suppresses it.
 ///
 /// Mechanism only: reads file metadata, then defers the auto-open decision
-/// to `writ_core::inbox::qualifies_for_auto_open` (containment, ignore set,
+/// to `jotra_core::inbox::qualifies_for_auto_open` (containment, ignore set,
 /// snapshot membership) and `file_ops::classify_path`. Only files that
 /// classify as [`FileOpenMode::Normal`] auto-open: large-file-mode and binary
 /// (hex) buffers disable the rendered view the inbox exists to show. The
@@ -470,7 +470,7 @@ pub fn report_inbox_event(
 /// at watch start is the discriminator: an event for a path in the snapshot
 /// is a pre-existing file (possibly modified) and is suppressed (ADR-024).
 ///
-/// A file Writ has just saved is its own write, not an arrival: the ignore
+/// A file Jotra has just saved is its own write, not an arrival: the ignore
 /// set is keyed by the file's canonical path under the source namespace and
 /// fingerprints the bytes, so suppression here cannot swallow someone else's
 /// edit to the same file, nor a change to a file of the same name in another
@@ -482,7 +482,7 @@ pub fn classify_inbox_event(
     ignore_set: &IgnoreSet,
     ttl: Duration,
     now: Instant,
-) -> Option<WritEvent> {
+) -> Option<JotraEvent> {
     classify_inbox_event_with(
         path,
         root,
@@ -506,35 +506,35 @@ pub fn classify_inbox_event_with(
     ttl: Duration,
     now: Instant,
     reads: FileReads<'_>,
-) -> Option<WritEvent> {
+) -> Option<JotraEvent> {
     let metadata = std::fs::metadata(path).ok()?;
     if !metadata.is_file() {
         return None;
     }
-    if !writ_core::inbox::qualifies_for_auto_open(root, path, preexisting) {
+    if !jotra_core::inbox::qualifies_for_auto_open(root, path, preexisting) {
         return None;
     }
     if (reads.dataless)(path) {
         info!(file = %file_name_only(&path.to_string_lossy()), "inbox file is not downloaded; left unopened");
         return None;
     }
-    let key = writ_core::watcher::ignore::source_key(&ignore_key_path(path));
+    let key = jotra_core::watcher::ignore::source_key(&ignore_key_path(path));
     if is_writs_own_write(&key, path, ignore_set, ttl, now, reads) {
         return None;
     }
-    match writ_core::file_ops::classify_path(path) {
-        Ok(c) if c.mode == writ_core::file_ops::FileOpenMode::Normal => {}
+    match jotra_core::file_ops::classify_path(path) {
+        Ok(c) if c.mode == jotra_core::file_ops::FileOpenMode::Normal => {}
         _ => return None,
     }
     info!(file = %file_name_only(&path.to_string_lossy()), "inbox file arrived");
-    Some(WritEvent::InboxFileArrived {
+    Some(JotraEvent::InboxFileArrived {
         path: path.to_string_lossy().into_owned(),
     })
 }
 
 /// Starts a recursive watcher on the notes `root`, emitting
-/// [`WritEvent::NotesChanged`] for a file another program created, changed or
-/// removed there, and [`WritEvent::BufferExternal`] as well when that file is
+/// [`JotraEvent::NotesChanged`] for a file another program created, changed or
+/// removed there, and [`JotraEvent::BufferExternal`] as well when that file is
 /// open in a tab.
 ///
 /// This keeps the index honest about a folder the user also edits from
@@ -545,16 +545,16 @@ pub fn classify_inbox_event_with(
 /// function: which folder a file happens to sit in must not change what its
 /// tab is told.
 ///
-/// Writ's own saves are stamped into `ignore_set` before they land, so they do
+/// Jotra's own saves are stamped into `ignore_set` before they land, so they do
 /// not arrive back here as somebody else's edit; the store indexes them itself.
 ///
 /// How much one window may say about the folder is capped ([`EmissionBudget`]).
 /// A sync client catching up, or a plugin another editor left running,
 /// rewrites hundreds of files inside a single debounce window; naming each one
 /// is a message the frontend has to receive and act on. Over the cap the
-/// watcher stops naming files and emits [`WritEvent::NotesSwept`] once, and
+/// watcher stops naming files and emits [`JotraEvent::NotesSwept`] once, and
 /// every listener re-checks what it holds. The budget is spent only on changes
-/// that survived classification, so a burst of Writ's own saves cannot make the
+/// that survived classification, so a burst of Jotra's own saves cannot make the
 /// folder look like it moved.
 ///
 /// Telling an open tab is outside that cap and bounded another way: by how many
@@ -716,12 +716,12 @@ pub fn start_notes_watcher(
 /// it testable without a filesystem: the caller supplies the lookup and the
 /// batch state.
 pub fn route_notes_change_to_open_tab(
-    event: &WritEvent,
+    event: &JotraEvent,
     open_notes: &dyn OpenNotes,
     told: &mut HashSet<String>,
     vanished: &VanishedContext<'_>,
-) -> Option<WritEvent> {
-    let WritEvent::NotesChanged { path, removed } = event else {
+) -> Option<JotraEvent> {
+    let JotraEvent::NotesChanged { path, removed } = event else {
         return None;
     };
     let path = Path::new(path);
@@ -736,7 +736,7 @@ pub fn route_notes_change_to_open_tab(
 /// a tab holds that exact path.
 ///
 /// [`classify_notes_event`] answers `None` for a path outside the root, a name
-/// another client owns, a write Writ made, and a path holding something other
+/// another client owns, a write Jotra made, and a path holding something other
 /// than a regular file. Only the last is the tab's business, and only where a
 /// tab is on it: a note's file replaced by a folder of the same name is a file
 /// that went, and dropping the event left the tab carrying the dead file's id
@@ -750,8 +750,8 @@ pub fn route_replaced_note_to_open_tab(
     open_notes: &dyn OpenNotes,
     told: &mut HashSet<String>,
     vanished: &VanishedContext<'_>,
-) -> Option<WritEvent> {
-    if !path.starts_with(root) || writ_core::workspace::path_has_notes_ignored_name(root, path) {
+) -> Option<JotraEvent> {
+    if !path.starts_with(root) || jotra_core::workspace::path_has_notes_ignored_name(root, path) {
         return None;
     }
     // A path holding nothing is already a change the classifier reports, and a
@@ -768,8 +768,8 @@ pub fn route_replaced_note_to_open_tab(
 
 /// The event that stands for "more changed in the notes folder than is worth
 /// listing".
-pub fn notes_swept(root: &Path) -> WritEvent {
-    WritEvent::NotesSwept {
+pub fn notes_swept(root: &Path) -> JotraEvent {
+    JotraEvent::NotesSwept {
         root: root.to_string_lossy().into_owned(),
     }
 }
@@ -786,18 +786,18 @@ pub enum NotesReport {
     /// the echo of a read of its own and nothing reads it again.
     NothingNew,
     /// Nothing [`classify_notes_event`] will name: a path outside the root, a
-    /// name another client owns, a write Writ made, or a path holding
+    /// name another client owns, a write Jotra made, or a path holding
     /// something other than a regular file. Only a tab sitting on that exact
     /// path still has business with it
     /// ([`route_replaced_note_to_open_tab`]).
     Suppressed,
     /// A change to the notes folder, to name.
-    Change(WritEvent),
+    Change(JotraEvent),
 }
 
 impl NotesReport {
     /// The change to emit, where the event was one.
-    pub fn change(self) -> Option<WritEvent> {
+    pub fn change(self) -> Option<JotraEvent> {
         match self {
             NotesReport::Change(event) => Some(event),
             NotesReport::NothingNew | NotesReport::Suppressed => None,
@@ -812,7 +812,7 @@ impl NotesReport {
 /// looked at cannot be skipped by the caller that matters. An event describing
 /// the file exactly as this watcher last found it is dropped before anything
 /// opens it, which is what keeps a classification's own read from arriving
-/// back as the next change on Linux ([`writ_core::watcher::sighting`]).
+/// back as the next change on Linux ([`jotra_core::watcher::sighting`]).
 pub fn report_notes_event(
     path: &Path,
     root: &Path,
@@ -834,10 +834,10 @@ pub fn report_notes_event(
 ///
 /// Suppressed: a path outside `root`, a path under `.git` or a folder another
 /// client left behind (`.obsidian`, `.trash`, `.stfolder`, `.stversions`),
-/// Finder's `.DS_Store`, a name `writ_core::workspace::is_notes_ignored_name`
+/// Finder's `.DS_Store`, a name `jotra_core::workspace::is_notes_ignored_name`
 /// answers for — the temp file every atomic write creates beside its target, a
 /// sync client's in-flight file, an undownloaded placeholder, an editor swap
-/// file — and a write Writ itself made, which the ignore set recognises by
+/// file — and a write Jotra itself made, which the ignore set recognises by
 /// canonical path and content fingerprint under the source namespace (ADR-028
 /// section 6). A note under `vendor/` or `build/` is a note like any other
 /// (section 7).
@@ -845,7 +845,7 @@ pub fn report_notes_event(
 /// Filtering those names is a correctness rule rather than a tidiness one:
 /// `write_atomic` persists through a `NamedTempFile` created beside its target,
 /// so every internal save fans out into a create-and-delete pair for a `.tmp`
-/// path, and a watcher over a folder Writ writes into has to drop them before
+/// path, and a watcher over a folder Jotra writes into has to drop them before
 /// it emits anything. A sync client catching up fans out the same way over its
 /// own temp names.
 pub fn classify_notes_event(
@@ -854,12 +854,12 @@ pub fn classify_notes_event(
     ignore_set: &IgnoreSet,
     ttl: Duration,
     now: Instant,
-) -> Option<WritEvent> {
+) -> Option<JotraEvent> {
     classify_notes_event_with(path, root, ignore_set, ttl, now, FileReads::platform())
 }
 
 /// [`classify_notes_event`] with the reads supplied. A note is read only when a
-/// stamp says Writ may have written it and its bytes are on this machine
+/// stamp says Jotra may have written it and its bytes are on this machine
 /// ([`FileReads`]); the index skips a placeholder it is told about without
 /// reading it either.
 pub fn classify_notes_event_with(
@@ -869,11 +869,11 @@ pub fn classify_notes_event_with(
     ttl: Duration,
     now: Instant,
     reads: FileReads<'_>,
-) -> Option<WritEvent> {
+) -> Option<JotraEvent> {
     if !path.starts_with(root) {
         return None;
     }
-    if writ_core::workspace::path_has_notes_ignored_name(root, path) {
+    if jotra_core::workspace::path_has_notes_ignored_name(root, path) {
         return None;
     }
     // A path with no file name is the root itself, which is not a change to a
@@ -885,12 +885,12 @@ pub fn classify_notes_event_with(
         return None;
     }
 
-    let key = writ_core::watcher::ignore::source_key(&ignore_key_path(path));
+    let key = jotra_core::watcher::ignore::source_key(&ignore_key_path(path));
     if is_writs_own_write(&key, path, ignore_set, ttl, now, reads) {
         return None;
     }
 
-    Some(WritEvent::NotesChanged {
+    Some(JotraEvent::NotesChanged {
         path: path.to_string_lossy().into_owned(),
         removed,
     })
@@ -903,14 +903,14 @@ pub fn classify_workspace_event(
     path: &Path,
     root: &Path,
     kind: WorkspaceKind,
-) -> Option<WritEvent> {
+) -> Option<JotraEvent> {
     if !path.starts_with(root) {
         return None;
     }
     if kind.hides_change(root, path) {
         return None;
     }
-    Some(WritEvent::WorkspaceChanged {
+    Some(JotraEvent::WorkspaceChanged {
         path: path.to_string_lossy().into_owned(),
         removed: !path.exists(),
     })
@@ -930,7 +930,7 @@ pub fn report_config_event(
     seen: &mut LastSeen,
     ttl: Duration,
     now: Instant,
-) -> Option<WritEvent> {
+) -> Option<JotraEvent> {
     if path != config_path {
         return None;
     }
@@ -951,14 +951,14 @@ pub fn report_pending_event(
     seen: &mut LastSeen,
     ttl: Duration,
     now: Instant,
-) -> Option<WritEvent> {
+) -> Option<JotraEvent> {
     if path != pending_path {
         return None;
     }
     if !seen.is_news(path, look_at(path), now, DEFAULT_SIGHTING_TTL) {
         return None;
     }
-    let key = writ_core::watcher::ignore::data_key(&ignore_key_path(pending_path));
+    let key = jotra_core::watcher::ignore::data_key(&ignore_key_path(pending_path));
     let current_bytes = std::fs::read(path).ok();
     let decision = {
         let mut set = recover_poison(ignore_set.lock(), "watcher::handler::pending_event");
@@ -968,11 +968,11 @@ pub fn report_pending_event(
         return None;
     }
     info!("the waiting programs changed");
-    Some(WritEvent::McpPendingChanged)
+    Some(JotraEvent::McpPendingChanged)
 }
 
 /// `mcp-off-call.json` sits beside the waiting file and is written by a
-/// `writ mcp` process that answered while Connected programs was off. The app
+/// `jotra mcp` process that answered while Connected programs was off. The app
 /// never writes it, so nothing of its own is held back; the sighting check
 /// absorbs the `IN_OPEN` the app's read of it raises on Linux, and a removal
 /// is not a call.
@@ -981,7 +981,7 @@ pub fn report_off_call_event(
     off_call_path: &Path,
     seen: &mut LastSeen,
     now: Instant,
-) -> Option<WritEvent> {
+) -> Option<JotraEvent> {
     if path != off_call_path {
         return None;
     }
@@ -990,7 +990,7 @@ pub fn report_off_call_event(
         return None;
     }
     info!("a program called while Connected programs was off");
-    Some(WritEvent::McpCalledWhileOff)
+    Some(JotraEvent::McpCalledWhileOff)
 }
 
 /// Classifies a single file-system event into a domain event, or suppresses
@@ -998,16 +998,16 @@ pub fn report_off_call_event(
 /// the ignore set; callers test it directly with a tempdir.
 ///
 /// The config file has its own key namespace: a note named `config.toml` that
-/// Writ saves must not suppress a real config reload (ADR-028 section 6).
+/// Jotra saves must not suppress a real config reload (ADR-028 section 6).
 ///
 /// Only the config file qualifies. Anything else is dropped, and dropping it
 /// early is a correctness rule rather than a tidiness one: `write_atomic`
 /// persists through a `NamedTempFile` created beside its target, so every
 /// internal save emits a create-and-delete pair for a `.tmp*` path. Turning
 /// one of those into a change event makes the frontend reload the document
-/// registry, which tears down and recreates an open `writ-preview://` iframe
+/// registry, which tears down and recreates an open `jotra-preview://` iframe
 /// mid-edit, and removing a loaded one hard-freezes the macOS webview. Any
-/// watcher added over a folder Writ writes into has to filter its own temp
+/// watcher added over a folder Jotra writes into has to filter its own temp
 /// files before it emits anything.
 ///
 /// [`report_config_event`] is what the watcher thread calls; this is the
@@ -1018,12 +1018,12 @@ pub fn classify_watch_event(
     ignore_set: &IgnoreSet,
     ttl: Duration,
     now: Instant,
-) -> Option<WritEvent> {
+) -> Option<JotraEvent> {
     if path != config_path {
         return None;
     }
 
-    let key = writ_core::watcher::ignore::config_key(&ignore_key_path(config_path));
+    let key = jotra_core::watcher::ignore::config_key(&ignore_key_path(config_path));
 
     let current_bytes = std::fs::read(path).ok();
     let decision = {
@@ -1036,7 +1036,7 @@ pub fn classify_watch_event(
     }
 
     info!("config file changed");
-    Some(WritEvent::ConfigChanged {
+    Some(JotraEvent::ConfigChanged {
         keys: vec!["*".to_string()],
     })
 }
@@ -1061,12 +1061,12 @@ mod tests {
     /// The key a save of `path` records, built the way the command layer
     /// builds it.
     fn source_stamp_key(path: &Path) -> String {
-        writ_core::watcher::ignore::source_key(&ignore_key_path(path))
+        jotra_core::watcher::ignore::source_key(&ignore_key_path(path))
     }
 
     /// The key a config write records.
     fn config_stamp_key(path: &Path) -> String {
-        writ_core::watcher::ignore::config_key(&ignore_key_path(path))
+        jotra_core::watcher::ignore::config_key(&ignore_key_path(path))
     }
 
     /// Inbox classification with an empty ignore set — the case where every
@@ -1075,7 +1075,7 @@ mod tests {
         path: &Path,
         root: &Path,
         preexisting: &std::collections::HashSet<PathBuf>,
-    ) -> Option<WritEvent> {
+    ) -> Option<JotraEvent> {
         classify_inbox_event(
             path,
             root,
@@ -1155,7 +1155,7 @@ mod tests {
         );
 
         let mut seen = LastSeen::new();
-        let reported: Vec<WritEvent> = (0..11)
+        let reported: Vec<JotraEvent> = (0..11)
             .filter_map(|_| {
                 report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
                     .change()
@@ -1212,7 +1212,7 @@ mod tests {
         let ignore = make_set();
         let mut seen = LastSeen::new();
         let now = Instant::now();
-        let reported: Vec<WritEvent> = (0..11)
+        let reported: Vec<JotraEvent> = (0..11)
             .filter_map(|_| {
                 report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
                     .change()
@@ -1221,7 +1221,7 @@ mod tests {
 
         assert_eq!(reported.len(), 1, "saw {reported:?}");
         match &reported[0] {
-            WritEvent::NotesChanged { removed, .. } => assert!(removed),
+            JotraEvent::NotesChanged { removed, .. } => assert!(removed),
             other => panic!("expected NotesChanged, got {other:?}"),
         }
     }
@@ -1260,7 +1260,7 @@ mod tests {
         );
 
         let mut seen = LastSeen::new();
-        let reported: Vec<WritEvent> = (0..11)
+        let reported: Vec<JotraEvent> = (0..11)
             .filter_map(|_| {
                 report_inbox_event(
                     &arrival,
@@ -1279,7 +1279,7 @@ mod tests {
             1,
             "one arrival must open its tab once, saw {reported:?}"
         );
-        assert!(matches!(reported[0], WritEvent::InboxFileArrived { .. }));
+        assert!(matches!(reported[0], JotraEvent::InboxFileArrived { .. }));
     }
 
     #[test]
@@ -1342,7 +1342,7 @@ mod tests {
         );
 
         let mut seen = LastSeen::new();
-        let reported: Vec<WritEvent> = (0..11)
+        let reported: Vec<JotraEvent> = (0..11)
             .filter_map(|_| {
                 report_config_event(&cfg, &cfg, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
             })
@@ -1353,7 +1353,7 @@ mod tests {
             1,
             "one config edit must reload the config once, saw {reported:?}"
         );
-        assert!(matches!(reported[0], WritEvent::ConfigChanged { .. }));
+        assert!(matches!(reported[0], JotraEvent::ConfigChanged { .. }));
     }
 
     #[test]
@@ -1387,7 +1387,7 @@ mod tests {
         let root = dir.path();
 
         match notes_swept(root) {
-            WritEvent::NotesSwept { root: named } => {
+            JotraEvent::NotesSwept { root: named } => {
                 assert_eq!(named, root.to_string_lossy());
             }
             other => panic!("expected NotesSwept, got {other:?}"),
@@ -1424,7 +1424,7 @@ mod tests {
         let note = dir.path().join("today.md");
         fs::write(&note, b"rewritten by another program").unwrap();
 
-        let change = WritEvent::NotesChanged {
+        let change = JotraEvent::NotesChanged {
             path: note.to_string_lossy().into_owned(),
             removed: false,
         };
@@ -1440,7 +1440,7 @@ mod tests {
                 tracking: &FileTracking::untracked(),
             },
         ) {
-            Some(WritEvent::BufferExternal {
+            Some(JotraEvent::BufferExternal {
                 buffer_id,
                 path,
                 change,
@@ -1452,12 +1452,12 @@ mod tests {
                 assert_eq!(path, note.to_string_lossy());
                 assert_eq!(
                     change,
-                    writ_core::watcher::change_event::ExternalChange::Modified
+                    jotra_core::watcher::change_event::ExternalChange::Modified
                 );
                 assert_eq!(
                     disk_hash.as_deref(),
                     Some(
-                        writ_core::hash::comparison_digest_hex(b"rewritten by another program")
+                        jotra_core::hash::comparison_digest_hex(b"rewritten by another program")
                             .as_str()
                     ),
                     "the tab compares its document against this digest, so it has to be the file's"
@@ -1476,7 +1476,7 @@ mod tests {
         fs::write(&note, b"x").unwrap();
         fs::write(&unopened, b"x").unwrap();
 
-        let change = WritEvent::NotesChanged {
+        let change = JotraEvent::NotesChanged {
             path: unopened.to_string_lossy().into_owned(),
             removed: false,
         };
@@ -1500,7 +1500,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let note = dir.path().join("today.md");
 
-        let change = WritEvent::NotesChanged {
+        let change = JotraEvent::NotesChanged {
             path: note.to_string_lossy().into_owned(),
             removed: true,
         };
@@ -1516,7 +1516,7 @@ mod tests {
                 tracking: &FileTracking::untracked(),
             },
         ) {
-            Some(WritEvent::BufferExternal {
+            Some(JotraEvent::BufferExternal {
                 buffer_id,
                 change,
                 disk_hash,
@@ -1525,7 +1525,7 @@ mod tests {
                 assert_eq!(buffer_id, "note-1");
                 assert_eq!(
                     change,
-                    writ_core::watcher::change_event::ExternalChange::Removed
+                    jotra_core::watcher::change_event::ExternalChange::Removed
                 );
                 assert_eq!(disk_hash, None, "there is nothing left to hash");
             }
@@ -1541,7 +1541,7 @@ mod tests {
         let note = dir.path().join("today.md");
         fs::write(&note, b"x").unwrap();
 
-        let change = WritEvent::NotesChanged {
+        let change = JotraEvent::NotesChanged {
             path: note.to_string_lossy().into_owned(),
             removed: false,
         };
@@ -1639,13 +1639,13 @@ mod tests {
         );
 
         match routed {
-            Some(WritEvent::BufferExternal {
+            Some(JotraEvent::BufferExternal {
                 buffer_id, change, ..
             }) => {
                 assert_eq!(buffer_id, "note-1");
                 assert_eq!(
                     change,
-                    writ_core::watcher::change_event::ExternalChange::Removed
+                    jotra_core::watcher::change_event::ExternalChange::Removed
                 );
             }
             other => panic!("expected the tab to be told its file went, got {other:?}"),
@@ -1690,7 +1690,7 @@ mod tests {
         let ignore = make_set();
         let mut seen = LastSeen::new();
         let now = Instant::now();
-        let reported: Vec<WritEvent> = (0..11)
+        let reported: Vec<JotraEvent> = (0..11)
             .filter_map(|_| {
                 let mut told = HashSet::new();
                 match report_notes_event(&note, root, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now) {
@@ -1761,24 +1761,24 @@ mod tests {
     }
 
     fn pending_stamp_key(path: &Path) -> String {
-        writ_core::watcher::ignore::data_key(&ignore_key_path(path))
+        jotra_core::watcher::ignore::data_key(&ignore_key_path(path))
     }
 
     #[test]
     fn a_call_while_the_server_is_off_is_reported() {
         let dir = tempdir().unwrap();
-        let record = writ_storage::off_calls::path(dir.path());
+        let record = jotra_storage::off_calls::path(dir.path());
         fs::write(&record, b"{\"name\":\"claude-code\"}").unwrap();
 
         let event = report_off_call_event(&record, &record, &mut LastSeen::new(), Instant::now());
 
-        assert!(matches!(event, Some(WritEvent::McpCalledWhileOff)));
+        assert!(matches!(event, Some(JotraEvent::McpCalledWhileOff)));
     }
 
     #[test]
     fn the_off_call_record_seen_again_unchanged_is_reported_once() {
         let dir = tempdir().unwrap();
-        let record = writ_storage::off_calls::path(dir.path());
+        let record = jotra_storage::off_calls::path(dir.path());
         fs::write(&record, b"{\"name\":\"claude-code\"}").unwrap();
         let mut seen = LastSeen::new();
         let now = Instant::now();
@@ -1790,7 +1790,7 @@ mod tests {
     #[test]
     fn a_removed_off_call_record_is_not_a_call() {
         let dir = tempdir().unwrap();
-        let record = writ_storage::off_calls::path(dir.path());
+        let record = jotra_storage::off_calls::path(dir.path());
 
         let event = report_off_call_event(&record, &record, &mut LastSeen::new(), Instant::now());
 
@@ -1800,7 +1800,7 @@ mod tests {
     #[test]
     fn another_file_beside_the_off_call_record_is_not_a_call() {
         let dir = tempdir().unwrap();
-        let record = writ_storage::off_calls::path(dir.path());
+        let record = jotra_storage::off_calls::path(dir.path());
         let temp = dir.path().join("mcp-off-call.json.tmp");
         fs::write(&temp, b"{}").unwrap();
 
@@ -1825,7 +1825,7 @@ mod tests {
             Instant::now(),
         );
 
-        assert!(matches!(event, Some(WritEvent::McpPendingChanged)));
+        assert!(matches!(event, Some(JotraEvent::McpPendingChanged)));
     }
 
     #[test]
@@ -1913,7 +1913,7 @@ mod tests {
             now,
         );
 
-        assert!(matches!(event, Some(WritEvent::McpPendingChanged)));
+        assert!(matches!(event, Some(JotraEvent::McpPendingChanged)));
     }
 
     #[test]
@@ -2105,7 +2105,7 @@ mod tests {
             ".git/notes.md",
             ".obsidian/workspace.md",
             ".trash/old.md",
-            ".writ-tmp-a1b2c3",
+            ".jotra-tmp-a1b2c3",
             "Report.md.crdownload",
             ".DS_Store",
             "vendor/.DS_Store",
@@ -2129,7 +2129,7 @@ mod tests {
         let event =
             classify_watch_event(&cfg, &cfg, &make_set(), DEFAULT_IGNORE_TTL, Instant::now());
 
-        assert!(matches!(event, Some(WritEvent::ConfigChanged { .. })));
+        assert!(matches!(event, Some(JotraEvent::ConfigChanged { .. })));
     }
 
     #[test]
@@ -2169,7 +2169,7 @@ mod tests {
         let event = classify_watch_event(&cfg, &cfg, &set, DEFAULT_IGNORE_TTL, now);
 
         assert!(
-            matches!(event, Some(WritEvent::ConfigChanged { .. })),
+            matches!(event, Some(JotraEvent::ConfigChanged { .. })),
             "an external config edit must surface as ConfigChanged"
         );
     }
@@ -2181,7 +2181,7 @@ mod tests {
         fs::write(&file, b"x").unwrap();
 
         match classify_workspace_event(&file, dir.path(), WorkspaceKind::Code) {
-            Some(WritEvent::WorkspaceChanged { path, removed }) => {
+            Some(JotraEvent::WorkspaceChanged { path, removed }) => {
                 assert_eq!(path, file.to_string_lossy());
                 assert!(!removed);
             }
@@ -2190,7 +2190,7 @@ mod tests {
 
         fs::remove_file(&file).unwrap();
         match classify_workspace_event(&file, dir.path(), WorkspaceKind::Code) {
-            Some(WritEvent::WorkspaceChanged { removed, .. }) => assert!(removed),
+            Some(JotraEvent::WorkspaceChanged { removed, .. }) => assert!(removed),
             other => panic!("expected WorkspaceChanged removed, got {:?}", other),
         }
     }
@@ -2211,7 +2211,7 @@ mod tests {
 
         assert!(matches!(
             classify_workspace_event(&note, dir.path(), WorkspaceKind::Notes),
-            Some(WritEvent::WorkspaceChanged { .. })
+            Some(JotraEvent::WorkspaceChanged { .. })
         ));
         assert!(classify_workspace_event(&note, dir.path(), WorkspaceKind::Code).is_none());
         assert!(classify_workspace_event(&kept, dir.path(), WorkspaceKind::Notes).is_none());
@@ -2237,16 +2237,16 @@ mod tests {
 
         assert_eq!(
             said.len(),
-            writ_core::watcher::budget::DEFAULT_EVENTS_PER_WINDOW
+            jotra_core::watcher::budget::DEFAULT_EVENTS_PER_WINDOW
         );
         assert_eq!(
             said.iter()
-                .filter(|event| matches!(event, WritEvent::WorkspaceSwept { .. }))
+                .filter(|event| matches!(event, JotraEvent::WorkspaceSwept { .. }))
                 .count(),
             1
         );
         assert!(
-            matches!(said.last(), Some(WritEvent::WorkspaceSwept { root: named }) if named == "/repo")
+            matches!(said.last(), Some(JotraEvent::WorkspaceSwept { root: named }) if named == "/repo")
         );
     }
 
@@ -2304,7 +2304,7 @@ mod tests {
         fs::write(&file, b"# done").unwrap();
 
         match classify_inbox(&file, dir.path(), &preexisting) {
-            Some(WritEvent::InboxFileArrived { path }) => {
+            Some(JotraEvent::InboxFileArrived { path }) => {
                 assert_eq!(path, file.to_string_lossy());
             }
             other => panic!("expected InboxFileArrived, got {:?}", other),
@@ -2370,7 +2370,7 @@ mod tests {
         // Above the normal-open threshold the file would open in large-file mode
         // (syntax and rendered preview disabled), which defeats the inbox's
         // render-on-arrival purpose, so it must not auto-open.
-        let big = vec![b'a'; (writ_core::file_ops::THRESHOLD_NORMAL_BYTES + 1) as usize];
+        let big = vec![b'a'; (jotra_core::file_ops::THRESHOLD_NORMAL_BYTES + 1) as usize];
         fs::write(&file, &big).unwrap();
 
         assert!(
@@ -2425,7 +2425,7 @@ mod tests {
 
         assert!(matches!(
             event,
-            Some(WritEvent::NotesChanged { removed: false, .. })
+            Some(JotraEvent::NotesChanged { removed: false, .. })
         ));
         assert_eq!(*reads.lock().unwrap(), 0);
     }
@@ -2462,12 +2462,12 @@ mod tests {
     fn a_stamped_note_is_read_once_to_recognise_writs_own_save() {
         let dir = tempdir().unwrap();
         let note = dir.path().join("saved.md");
-        fs::write(&note, "what writ wrote").unwrap();
+        fs::write(&note, "what jotra wrote").unwrap();
         let set = make_set();
         let now = Instant::now();
         set.lock()
             .unwrap()
-            .record(source_stamp_key(&note), b"what writ wrote", now);
+            .record(source_stamp_key(&note), b"what jotra wrote", now);
         let (reads, bytes, dataless) = counting_reads(false);
 
         let event = classify_notes_event_with(
@@ -2511,11 +2511,11 @@ mod tests {
     }
 
     #[test]
-    fn inbox_event_for_a_save_writ_just_made_is_suppressed() {
+    fn inbox_event_for_a_save_jotra_just_made_is_suppressed() {
         let dir = tempdir().unwrap();
         let preexisting = std::collections::HashSet::new();
         let file = dir.path().join("agent-output.md");
-        let bytes = b"# edited in writ";
+        let bytes = b"# edited in jotra";
         fs::write(&file, bytes).unwrap();
 
         // Saving a buffer writes the file it was opened from. Without the
@@ -2549,7 +2549,7 @@ mod tests {
         let now = Instant::now();
         {
             let mut guard = set.lock().unwrap();
-            guard.record(source_stamp_key(&file), b"# edited in writ", now);
+            guard.record(source_stamp_key(&file), b"# edited in jotra", now);
         }
         fs::write(&file, b"# rewritten by the agent").unwrap();
 

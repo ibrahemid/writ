@@ -17,7 +17,7 @@ import {
   parseStoredTarget,
 } from "../backend/links";
 
-// Vectors ported from the Rust test modules of writ_core::notes::{links, facts,
+// Vectors ported from the Rust test modules of jotra_core::notes::{links, facts,
 // snippet, rename}, so the page reads a note the way the index does.
 
 const targets = (text: string) => scanLinks(text).map((l) => l.target);

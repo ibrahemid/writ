@@ -1,11 +1,11 @@
 //! Shared preview theme — the fallback stylesheet, inlined.
 //!
 //! Renderers inline the base theme as a `<style>` block in the served
-//! document rather than linking to `writ-preview://chrome/preview-base.css`.
+//! document rather than linking to `jotra-preview://chrome/preview-base.css`.
 //! Two reasons:
 //!
 //! 1. **It always applies.** A cross-scope `<link>` from the
-//!    `writ-preview://document` iframe to the `writ-preview://chrome` scope
+//!    `jotra-preview://document` iframe to the `jotra-preview://chrome` scope
 //!    is a separate sub-request that can silently fail to apply (and did, in
 //!    L4 smoke — Markdown rendered unstyled). An inline `<style>` is covered
 //!    by the document CSP's `style-src 'unsafe-inline'` and needs no second
@@ -18,19 +18,19 @@
 //! (Mermaid in L5, KaTeX in L6) — those stay external scripts. Only the
 //! small, styling-critical base CSS is inlined.
 //!
-//! That CSS is two files: the `--writ-preview-*` token layer generated from
+//! That CSS is two files: the `--jotra-preview-*` token layer generated from
 //! `design/tokens` into `assets/generated/preview-tokens.css`, and the rules
 //! in `assets/preview-base.css` that read it. They are inlined in that order,
 //! and this module is the only thing that knows they are separate.
 
-use writ_core::preview::ThemePolarity;
+use jotra_core::preview::ThemePolarity;
 
 /// The bundled fallback stylesheet's rules, compiled into the binary.
 pub const PREVIEW_BASE_CSS: &str = include_str!("../../../assets/preview-base.css");
 
-/// The generated `--writ-preview-*` token layer the rules read, compiled into
+/// The generated `--jotra-preview-*` token layer the rules read, compiled into
 /// the binary. Light on `:root`, and each polarity again under its own
-/// `[data-writ-theme]` block so a live switch can select either one.
+/// `[data-jotra-theme]` block so a live switch can select either one.
 pub const PREVIEW_TOKENS_CSS: &str = include_str!("../../../assets/generated/preview-tokens.css");
 
 /// The base theme as an inline `<style>` element: tokens first, then the rules
@@ -43,7 +43,7 @@ pub fn style_tag() -> String {
 /// buffer), where the polarity cannot be carried as an attribute on the root.
 /// The dark palette is re-declared on `:root`, spliced in directly after the
 /// layer's own `:root` block: it has to outrank the light default without
-/// outranking the two `[data-writ-theme]` blocks, because the bridge flips an
+/// outranking the two `[data-jotra-theme]` blocks, because the bridge flips an
 /// already-loaded document by setting that attribute. Light is the default and
 /// needs no splice.
 pub fn style_tag_for(polarity: ThemePolarity) -> String {
@@ -60,9 +60,9 @@ pub fn style_tag_for(polarity: ThemePolarity) -> String {
     }
 }
 
-/// The `{ ... }` body of the `[data-writ-theme="dark"]` rule in the token layer.
+/// The `{ ... }` body of the `[data-jotra-theme="dark"]` rule in the token layer.
 fn dark_palette_block() -> Option<&'static str> {
-    block_body(PREVIEW_TOKENS_CSS.find("[data-writ-theme=\"dark\"] {")?)
+    block_body(PREVIEW_TOKENS_CSS.find("[data-jotra-theme=\"dark\"] {")?)
 }
 
 /// One past the closing brace of the token layer's `:root` block.
@@ -81,9 +81,9 @@ fn block_body(start: usize) -> Option<&'static str> {
 }
 
 /// Root-relative URL of the bundled first-party preview bridge runtime. It is
-/// relative, not absolute `writ-preview://…`, so it resolves against whatever
-/// origin the document was served from — `writ-preview://document` on macOS and
-/// Linux, `http://writ-preview.document` on Windows (TS-03/DS-03).
+/// relative, not absolute `jotra-preview://…`, so it resolves against whatever
+/// origin the document was served from — `jotra-preview://document` on macOS and
+/// Linux, `http://jotra-preview.document` on Windows (TS-03/DS-03).
 pub const BRIDGE_URL: &str = "/_assets/preview/bridge.js";
 
 /// The first-party bridge as a `<script>` element loaded same-origin.
@@ -126,7 +126,7 @@ pub fn wrap_document(body_fragment: &str) -> String {
 /// stylesheet `<link>`) and extra content immediately before `</body>` (e.g. a
 /// runtime `<script>`). Renderers that enhance the document with a bundled
 /// runtime (Mermaid in L5, KaTeX in L6) use this to load those runtimes from
-/// the same-origin `writ-preview://document/_assets/` route.
+/// the same-origin `jotra-preview://document/_assets/` route.
 pub fn wrap_document_with(
     head_extra: &str,
     body_fragment: &str,
@@ -136,7 +136,7 @@ pub fn wrap_document_with(
 ) -> String {
     let mut attrs = String::new();
     if let ThemePolarity::Dark = polarity {
-        attrs.push_str(" data-writ-theme=\"dark\"");
+        attrs.push_str(" data-jotra-theme=\"dark\"");
     }
     if let Some(z) = css_zoom(zoom) {
         attrs.push_str(&format!(" style=\"zoom:{z}\""));
@@ -154,7 +154,7 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
-    /// The `--writ-preview-*` palette ADR-030 puts on the reading surface,
+    /// The `--jotra-preview-*` palette ADR-030 puts on the reading surface,
     /// captured from the built token layer and committed separately from it.
     /// The served palette is compared against it so a change to the token
     /// sources cannot silently repaint the reading surface.
@@ -171,11 +171,11 @@ mod tests {
     ];
 
     fn light(css: &str) -> BTreeMap<String, String> {
-        palette(css, &[":root", "[data-writ-theme=\"light\"]"])
+        palette(css, &[":root", "[data-jotra-theme=\"light\"]"])
     }
 
     fn dark(css: &str) -> BTreeMap<String, String> {
-        palette(css, &[":root", "[data-writ-theme=\"dark\"]"])
+        palette(css, &[":root", "[data-jotra-theme=\"dark\"]"])
     }
 
     fn strip_comments(css: &str) -> String {
@@ -192,9 +192,9 @@ mod tests {
         out
     }
 
-    /// The `--writ-preview-*` declarations that survive the cascade when
+    /// The `--jotra-preview-*` declarations that survive the cascade when
     /// `selectors` all match the document root. `:root` and
-    /// `[data-writ-theme="…"]` carry the same specificity, so source order
+    /// `[data-jotra-theme="…"]` carry the same specificity, so source order
     /// settles a name both declare.
     fn palette(css: &str, selectors: &[&str]) -> BTreeMap<String, String> {
         let stripped = strip_comments(css);
@@ -213,7 +213,7 @@ mod tests {
                         continue;
                     };
                     let name = name.trim();
-                    if name.starts_with("--writ-preview-") {
+                    if name.starts_with("--jotra-preview-") {
                         resolved.insert(name.to_string(), value.trim().to_string());
                     }
                 }
@@ -230,7 +230,7 @@ mod tests {
     }
 
     /// The palette a served document actually paints: its `:root` layer plus
-    /// whichever `data-writ-theme` layer its `<html>` element opts into.
+    /// whichever `data-jotra-theme` layer its `<html>` element opts into.
     fn served_palette(document: &str) -> BTreeMap<String, String> {
         // Read the attribute off the <html> open tag only: the inlined sheet
         // names the same attribute in its own selectors.
@@ -241,10 +241,10 @@ mod tests {
             + open_tag_at;
         let open_tag = &document[open_tag_at..open_tag_end];
         let mut selectors = vec![":root".to_string()];
-        if let Some(at) = open_tag.find("data-writ-theme=\"") {
-            let rest = &open_tag[at + "data-writ-theme=\"".len()..];
+        if let Some(at) = open_tag.find("data-jotra-theme=\"") {
+            let rest = &open_tag[at + "data-jotra-theme=\"".len()..];
             let end = rest.find('"').expect("a closed attribute value");
-            selectors.push(format!("[data-writ-theme=\"{}\"]", &rest[..end]));
+            selectors.push(format!("[data-jotra-theme=\"{}\"]", &rest[..end]));
         }
         let refs: Vec<&str> = selectors.iter().map(String::as_str).collect();
         palette(&style_block(document), &refs)
@@ -300,14 +300,14 @@ mod tests {
         for (polarity, canvas, ink) in APP_CANVAS_AND_INK {
             let resolved = served(polarity);
             assert_eq!(
-                resolved.get("--writ-preview-bg").map(String::as_str),
+                resolved.get("--jotra-preview-bg").map(String::as_str),
                 Some(canvas),
-                "{polarity} background must be --writ-bg-canvas"
+                "{polarity} background must be --jotra-bg-canvas"
             );
             assert_eq!(
-                resolved.get("--writ-preview-fg").map(String::as_str),
+                resolved.get("--jotra-preview-fg").map(String::as_str),
                 Some(ink),
-                "{polarity} foreground must be --writ-fg"
+                "{polarity} foreground must be --jotra-fg"
             );
         }
     }
@@ -316,7 +316,7 @@ mod tests {
     fn dark_palette_block_is_found() {
         let block = dark_palette_block().expect("the token layer declares a dark block");
         assert!(block.starts_with('{') && block.ends_with('}'));
-        assert!(block.contains("--writ-preview-bg: #1b1a18"));
+        assert!(block.contains("--jotra-preview-bg: #1b1a18"));
         assert!(
             !block.contains("#ffffff"),
             "the block must not be the light :root layer"
@@ -327,25 +327,25 @@ mod tests {
     fn dark_style_tag_redeclares_the_dark_palette_on_root() {
         let tag = style_tag_for(ThemePolarity::Dark);
         let at = tag.find(":root{").expect("a :root override is spliced in");
-        assert!(tag[at..].contains("--writ-preview-bg: #1b1a18"));
+        assert!(tag[at..].contains("--jotra-preview-bg: #1b1a18"));
         // After the light default it overrides, before both attribute blocks
         // so a live switch still wins.
         assert!(at > tag.find(":root {").unwrap());
-        assert!(at < tag.find("[data-writ-theme=\"light\"] {").unwrap());
-        assert!(at < tag.find("[data-writ-theme=\"dark\"] {").unwrap());
+        assert!(at < tag.find("[data-jotra-theme=\"light\"] {").unwrap());
+        assert!(at < tag.find("[data-jotra-theme=\"dark\"] {").unwrap());
     }
 
     #[test]
     fn an_html_buffer_served_dark_follows_a_live_switch_to_light() {
         // The bridge flips an already-loaded document by setting
-        // data-writ-theme; the `:root` splice must not outrank that.
+        // data-jotra-theme; the `:root` splice must not outrank that.
         let css = style_block(&style_tag_for(ThemePolarity::Dark));
         assert_eq!(
-            palette(&css, &[":root", "[data-writ-theme=\"light\"]"]),
+            palette(&css, &[":root", "[data-jotra-theme=\"light\"]"]),
             light(BASELINE_PALETTE)
         );
         assert_eq!(
-            palette(&css, &[":root", "[data-writ-theme=\"dark\"]"]),
+            palette(&css, &[":root", "[data-jotra-theme=\"dark\"]"]),
             dark(BASELINE_PALETTE)
         );
     }
@@ -355,12 +355,12 @@ mod tests {
         for polarity in [ThemePolarity::Dark, ThemePolarity::Light] {
             let css = style_block(&wrap_document_with("", "<p>x</p>", "", polarity, 1.0));
             assert_eq!(
-                palette(&css, &[":root", "[data-writ-theme=\"light\"]"]),
+                palette(&css, &[":root", "[data-jotra-theme=\"light\"]"]),
                 light(BASELINE_PALETTE),
                 "{polarity:?} switched to light"
             );
             assert_eq!(
-                palette(&css, &[":root", "[data-writ-theme=\"dark\"]"]),
+                palette(&css, &[":root", "[data-jotra-theme=\"dark\"]"]),
                 dark(BASELINE_PALETTE),
                 "{polarity:?} switched to dark"
             );
@@ -376,8 +376,8 @@ mod tests {
     fn base_css_is_nonempty_and_rules_only() {
         // Sanity: the compiled stylesheet reads the token layer and no longer
         // declares it, so an empty or wrong file fails the build-time include.
-        assert!(PREVIEW_BASE_CSS.contains("var(--writ-preview-bg)"));
-        assert!(!PREVIEW_BASE_CSS.contains("--writ-preview-bg:"));
+        assert!(PREVIEW_BASE_CSS.contains("var(--jotra-preview-bg)"));
+        assert!(!PREVIEW_BASE_CSS.contains("--jotra-preview-bg:"));
         assert!(PREVIEW_BASE_CSS.len() > 1000);
     }
 
@@ -387,10 +387,10 @@ mod tests {
         assert!(tag.starts_with("<style>"));
         assert!(tag.ends_with("</style>"));
         let tokens = tag
-            .find("--writ-preview-bg:")
+            .find("--jotra-preview-bg:")
             .expect("the token layer is inlined");
         let rules = tag
-            .find("var(--writ-preview-bg)")
+            .find("var(--jotra-preview-bg)")
             .expect("the rules are inlined");
         assert!(
             tokens < rules,
@@ -406,7 +406,7 @@ mod tests {
         // injected at the body tail.
         let doc = wrap_document("<p>x</p>");
         assert!(doc.contains("src=\"/_assets/preview/bridge.js\""));
-        assert!(!doc.contains("writ-preview://document/_assets"));
+        assert!(!doc.contains("jotra-preview://document/_assets"));
         let script_idx = doc.find("/preview/bridge.js").unwrap();
         let body_close = doc.find("</body>").unwrap();
         assert!(
@@ -419,8 +419,8 @@ mod tests {
     fn dark_document_carries_the_dark_attribute() {
         let dark = wrap_document_with("", "<p>x</p>", "", ThemePolarity::Dark, 1.0);
         assert!(
-            dark.contains("<html data-writ-theme=\"dark\">"),
-            "dark render must carry the data-writ-theme attribute so the served \
+            dark.contains("<html data-jotra-theme=\"dark\">"),
+            "dark render must carry the data-jotra-theme attribute so the served \
              document opens in the dark palette without a flash"
         );
     }
@@ -429,10 +429,10 @@ mod tests {
     fn light_document_carries_no_theme_attribute() {
         // Light is the token layer's `:root` default, so a light document opts
         // into nothing. (The inlined layer legitimately names the
-        // `[data-writ-theme="dark"]` selector, so assert on the open tag form.)
+        // `[data-jotra-theme="dark"]` selector, so assert on the open tag form.)
         let light = wrap_document_with("", "<p>x</p>", "", ThemePolarity::Light, 1.0);
         assert!(light.contains("\n<html>\n"));
-        assert!(!light.contains("data-writ-theme=\"dark\">"));
+        assert!(!light.contains("data-jotra-theme=\"dark\">"));
     }
 
     #[test]
@@ -445,7 +445,7 @@ mod tests {
         // It composes with the dark palette on the same root element.
         let dark = wrap_document_with("", "<p>x</p>", "", ThemePolarity::Dark, 1.5);
         assert!(
-            dark.contains("<html data-writ-theme=\"dark\" style=\"zoom:1.5\">"),
+            dark.contains("<html data-jotra-theme=\"dark\" style=\"zoom:1.5\">"),
             "got: {dark}"
         );
     }

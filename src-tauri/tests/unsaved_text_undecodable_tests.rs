@@ -4,17 +4,17 @@
 //! decode loses that text for good with nothing in the log to say so; leaving
 //! it where it is keeps it for whatever can read it later.
 //!
-//! One test in its own binary, because `initialize` reads `WRIT_DATA_DIR` and
-//! `WRIT_NOTES_DIR` from the process environment and a second test in the same
+//! One test in its own binary, because `initialize` reads `JOTRA_DATA_DIR` and
+//! `JOTRA_NOTES_DIR` from the process environment and a second test in the same
 //! binary would race it.
 
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_tauri_lib::state::AppState;
 use tempfile::TempDir;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_tauri_lib::state::AppState;
 
 /// Collects what the launch logs, for the assertion that it said something.
 #[derive(Clone, Default)]
@@ -45,7 +45,7 @@ const LEGACY_STATE: &str = r#"{"buffers":{"note-1":42}}"#;
 fn a_recovery_record_that_cannot_be_decoded_is_logged_and_kept() {
     let data = TempDir::new().expect("data folder");
     let notes = TempDir::new().expect("notes folder");
-    let db_path = data.path().join("writ.db");
+    let db_path = data.path().join("jotra.db");
     {
         let conn = open_database(&db_path).expect("open db");
         run_migrations(&conn).expect("migrations");
@@ -64,11 +64,11 @@ fn a_recovery_record_that_cannot_be_decoded_is_logged_and_kept() {
         .with_writer(move || writer.clone())
         .finish();
 
-    std::env::set_var("WRIT_DATA_DIR", data.path());
-    std::env::set_var("WRIT_NOTES_DIR", notes.path());
+    std::env::set_var("JOTRA_DATA_DIR", data.path());
+    std::env::set_var("JOTRA_NOTES_DIR", notes.path());
     let launched = tracing::subscriber::with_default(subscriber, AppState::initialize);
-    std::env::remove_var("WRIT_DATA_DIR");
-    std::env::remove_var("WRIT_NOTES_DIR");
+    std::env::remove_var("JOTRA_DATA_DIR");
+    std::env::remove_var("JOTRA_NOTES_DIR");
     let launched = launched.expect("the launch must not fail on a record it cannot read");
     drop(launched);
 

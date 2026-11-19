@@ -10,14 +10,14 @@ const h = vi.hoisted(() => ({
 vi.mock("../../services/tauri", () => ({
   promptContextPack: h.promptContextPack,
   noteAllTags: vi.fn().mockResolvedValue([{ tag: "launch", count: 2 }]),
-  getNotesRoot: vi.fn().mockResolvedValue("/Users/me/Writ"),
+  getNotesRoot: vi.fn().mockResolvedValue("/Users/me/Jotra"),
   writeClipboardText: h.writeClipboardText,
   readClipboardText: vi.fn(),
 }));
 vi.mock("../../services/autosave", () => ({ collectUnsavedContent: () => [] }));
 vi.mock("../../stores/global/buffer-registry", () => ({
   bufferRegistry: {
-    activeTabs: () => [{ id: "plan", source_path: "/Users/me/Writ/work/Plan.md" }],
+    activeTabs: () => [{ id: "plan", source_path: "/Users/me/Jotra/work/Plan.md" }],
   },
 }));
 vi.mock("../../stores/global/window-registry", () => ({
@@ -98,7 +98,7 @@ describe("Copy files as prompt", () => {
     await waitFor(() => expect(h.promptContextPack).toHaveBeenCalledTimes(2));
     expect(h.promptContextPack.mock.calls[1][0]).toEqual({
       kind: "folder",
-      path: "/Users/me/Writ/work",
+      path: "/Users/me/Jotra/work",
     });
   });
 

@@ -29,19 +29,19 @@ function rule(css: string, selector: string): string {
 describe("the shared sidebar row", () => {
   it("carries the pitch, the margin and the radius on one class", () => {
     const base = rule(SIDEBAR, ".sidebar-row");
-    expect(base).toMatch(/min-height:\s*var\(--writ-sidebar-row-fill\)/);
-    expect(base).toMatch(/margin:\s*1px var\(--writ-space-2-5\)/);
-    expect(base).toMatch(/border-radius:\s*var\(--writ-r-row\)/);
+    expect(base).toMatch(/min-height:\s*var\(--jotra-sidebar-row-fill\)/);
+    expect(base).toMatch(/margin:\s*1px var\(--jotra-space-2-5\)/);
+    expect(base).toMatch(/border-radius:\s*var\(--jotra-r-row\)/);
     expect(base).toMatch(/position:\s*relative/);
   });
 
   it("moves every row with one block per platform", () => {
     expect(rule(SIDEBAR, ':root[data-platform="win"] .sidebar-row')).toMatch(
-      /margin:\s*var\(--writ-space-1\) var\(--writ-space-2\)/,
+      /margin:\s*var\(--jotra-space-1\) var\(--jotra-space-2\)/,
     );
     const linux = rule(SIDEBAR, ':root[data-platform="linux"] .sidebar-row');
-    expect(linux).toMatch(/margin:\s*0 var\(--writ-space-2-5\) var\(--writ-space-1\)/);
-    expect(linux).toMatch(/column-gap:\s*var\(--writ-space-3-5\)/);
+    expect(linux).toMatch(/margin:\s*0 var\(--jotra-space-2-5\) var\(--jotra-space-1\)/);
+    expect(linux).toMatch(/column-gap:\s*var\(--jotra-space-3-5\)/);
   });
 
   it("is worn by every list row in the sidebar", () => {
@@ -65,8 +65,8 @@ describe("the Windows selection bar", () => {
     const bar = rule(SIDEBAR, ':root[data-platform="win"] .sidebar-row.is-selected::before');
     expect(bar).toMatch(/width:\s*3px/);
     expect(bar).toMatch(/height:\s*16px/);
-    expect(bar).toMatch(/border-radius:\s*var\(--writ-r-indicator\)/);
-    expect(bar).toMatch(/background:\s*var\(--writ-accent\)/);
+    expect(bar).toMatch(/border-radius:\s*var\(--jotra-r-indicator\)/);
+    expect(bar).toMatch(/background:\s*var\(--jotra-accent\)/);
     expect(SIDEBAR).not.toMatch(/^\.sidebar-row\.is-selected::before/m);
   });
 

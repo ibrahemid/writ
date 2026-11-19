@@ -4,11 +4,11 @@ import { configStore } from "../../stores/global/config";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { rendererRegistry } from "../../stores/global/renderer-registry";
 import type { BufferDocument } from "../../types/buffer";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 
 // The version panel is a layer over the app, not a pane inside it, and opening
 // it must leave the preview's iframe element where it is: taking a loaded
-// writ-preview:// iframe out of the page freezes the macOS webview (PR #127).
+// jotra-preview:// iframe out of the page freezes the macOS webview (PR #127).
 
 const mocks = vi.hoisted(() => ({
   forceRender: vi.fn().mockResolvedValue({
@@ -88,7 +88,7 @@ function htmlBuffer(): BufferDocument {
   };
 }
 
-function config(): WritConfig {
+function config(): JotraConfig {
   return {
     hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
     sidebar: {

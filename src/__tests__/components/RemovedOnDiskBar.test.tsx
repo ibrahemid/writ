@@ -96,13 +96,13 @@ describe("RemovedOnDiskBar", () => {
   // it back or copy it to.
   it("names the file that could not be made and its folder", () => {
     fixtures.setRemoved(new Set(["one"]));
-    fixtures.setUnmade(new Map([["one", { name: "2026-10-13.txt", folder: "Writ" }]]));
+    fixtures.setUnmade(new Map([["one", { name: "2026-10-13.txt", folder: "Jotra" }]]));
     const { container, queryByText } = render(() => <RemovedOnDiskBar noteId="one" />);
 
     const bar = container.querySelector<HTMLElement>(".removed-on-disk-bar")!;
     expect(bar.getAttribute("role")).toBe("alert");
     expect(bar.querySelector(".editor-bar-text")!.textContent).toBe(
-      "Could not create 2026-10-13.txt in Writ.",
+      "Could not create 2026-10-13.txt in Jotra.",
     );
     expect(bar.textContent).not.toContain("was deleted");
     expect(queryByText("Put the file back")).toBeNull();
@@ -111,7 +111,7 @@ describe("RemovedOnDiskBar", () => {
 
   it("hands a note whose first file could not be made to Save As", () => {
     fixtures.setRemoved(new Set(["one"]));
-    fixtures.setUnmade(new Map([["one", { name: "2026-10-13.txt", folder: "Writ" }]]));
+    fixtures.setUnmade(new Map([["one", { name: "2026-10-13.txt", folder: "Jotra" }]]));
     const { getByText } = render(() => <RemovedOnDiskBar noteId="one" />);
 
     fireEvent.click(getByText("Save As…"));

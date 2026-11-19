@@ -5,7 +5,7 @@ import type { Command } from "../types/commands";
 import type { AppId } from "../types/config";
 import { configStore } from "../stores/global/config";
 
-// Singleton state — Writ is single-window. The commands each app brings, and
+// Singleton state — Jotra is single-window. The commands each app brings, and
 // which of them are in the registry now.
 const commandsByApp = new Map<AppId, readonly Command[]>();
 const registered = new Set<AppId>();

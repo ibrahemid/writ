@@ -60,14 +60,14 @@ export default function TitleBar() {
         </div>
 
         <Show when={layout.headerBar} fallback={<div class="titlebar-drag" />}>
-          <div class="headerbar-title">Writ</div>
+          <div class="headerbar-title">Jotra</div>
         </Show>
 
         <div class="titlebar-end">
           <Show
             when={chordUnheld()}
             fallback={
-              <Tooltip label="Toggle Writ from anywhere">
+              <Tooltip label="Toggle Jotra from anywhere">
                 <div class="titlebar-right" data-no-drag>
                   <Kbd binding={windowChord()} />
                 </div>

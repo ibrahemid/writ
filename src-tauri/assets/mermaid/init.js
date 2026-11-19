@@ -8,7 +8,7 @@ window.mermaid.initialize({
   startOnLoad: false,
   securityLevel: "strict",
   theme:
-    document.documentElement.getAttribute("data-writ-theme") === "dark"
+    document.documentElement.getAttribute("data-jotra-theme") === "dark"
       ? "dark"
       : "default",
 });

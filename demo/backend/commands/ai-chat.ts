@@ -105,7 +105,7 @@ export function createAiChatCommands(state: DemoState): CommandTable {
       if (refusal) return refuse(refusal);
       const text = ai.getRewriteStreamError(state.config.ai);
       setTimeout(() => {
-        state.bridge.emit("writ://ai-rewrite", { kind: "ai:rewrite", payload: { request_id: requestId, kind: "error", text } });
+        state.bridge.emit("jotra://ai-rewrite", { kind: "ai:rewrite", payload: { request_id: requestId, kind: "error", text } });
       }, 0);
       return requestId;
     },
@@ -175,7 +175,7 @@ export function createAiChatCommands(state: DemoState): CommandTable {
       const requestId = String(args.requestId);
       const error = ai.buildChatTransportFrame(state.config.ai);
       setTimeout(() => {
-        state.bridge.emit("writ://ai-chat", {
+        state.bridge.emit("jotra://ai-chat", {
           kind: "ai:chat",
           payload: { conversation_id: chat.id, request_id: requestId, kind: "error", text: error.message, error },
         });

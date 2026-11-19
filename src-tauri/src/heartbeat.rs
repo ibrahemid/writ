@@ -14,7 +14,7 @@ pub const SNAPSHOT_HEARTBEAT: std::time::Duration = std::time::Duration::from_se
 /// land returns, so there is nothing left for a beat to read.
 ///
 /// Every beat takes the store, which keeps the flag that says the marker is
-/// written. The first beat of a session writes it, one insert into `writ.db`;
+/// written. The first beat of a session writes it, one insert into `jotra.db`;
 /// every beat after that reads the flag and does no I/O.
 pub fn beat(state: &AppState) {
     let marked = state

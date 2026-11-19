@@ -1,25 +1,25 @@
 //! The disk half of the data-folder guard: finding the Syncthing marker the
-//! policy in `writ-core` is handed, and what the launch does with the verdict
+//! policy in `jotra-core` is handed, and what the launch does with the verdict
 //! (ADR-028 §8).
 
 use std::path::PathBuf;
 
+use jotra_core::startup::{classify_data_dir, DataDirVerdict, Platform, SyncProvider};
 use tempfile::TempDir;
-use writ_core::startup::{classify_data_dir, DataDirVerdict, Platform, SyncProvider};
 // The canonical spelling the app itself produces: on Windows
-// `std::fs::canonicalize` returns a `\\?\` prefix that every path Writ holds
+// `std::fs::canonicalize` returns a `\\?\` prefix that every path Jotra holds
 // has been stripped of, and the two never compare equal.
-use writ_tauri_lib::security::canonicalize_root;
+use jotra_tauri_lib::security::canonicalize_root;
 #[cfg(unix)]
-use writ_tauri_lib::startup::HOST_PLATFORM;
-use writ_tauri_lib::startup::{data_dir_verdict, stfolder_markers};
-use writ_tauri_lib::state::{AppState, NotesRootFallbackReason};
+use jotra_tauri_lib::startup::HOST_PLATFORM;
+use jotra_tauri_lib::startup::{data_dir_verdict, stfolder_markers};
+use jotra_tauri_lib::state::{AppState, NotesRootFallbackReason};
 
 #[test]
 fn stfolder_marker_is_found_on_an_ancestor() {
     let root = TempDir::new().expect("temp dir");
     let synced = root.path().join("Sync");
-    let data_dir = synced.join("notes").join(".writ");
+    let data_dir = synced.join("notes").join(".jotra");
     std::fs::create_dir_all(&data_dir).expect("data dir");
     std::fs::create_dir_all(synced.join(".stfolder")).expect("marker");
 
@@ -39,7 +39,7 @@ fn stfolder_marker_is_found_on_an_ancestor() {
 #[test]
 fn a_directory_with_no_marker_above_it_yields_none() {
     let root = TempDir::new().expect("temp dir");
-    let data_dir = root.path().join("plain").join(".writ");
+    let data_dir = root.path().join("plain").join(".jotra");
     std::fs::create_dir_all(&data_dir).expect("data dir");
 
     assert_eq!(stfolder_markers(&data_dir), Vec::<PathBuf>::new());
@@ -48,18 +48,18 @@ fn a_directory_with_no_marker_above_it_yields_none() {
 #[test]
 fn a_marker_beside_the_data_directory_itself_is_found() {
     let root = TempDir::new().expect("temp dir");
-    let data_dir = root.path().join(".writ");
+    let data_dir = root.path().join(".jotra");
     std::fs::create_dir_all(data_dir.join(".stfolder")).expect("marker");
 
     assert_eq!(stfolder_markers(&data_dir), vec![data_dir]);
 }
 
 /// Both notes-folder cases in one test, and one file: `AppState::initialize`
-/// reads `WRIT_DATA_DIR` and `WRIT_NOTES_DIR` from the process environment, so
+/// reads `JOTRA_DATA_DIR` and `JOTRA_NOTES_DIR` from the process environment, so
 /// two tests setting them would race each other.
 ///
-/// The launch must keep `<data folder>/Writ`, which is what
-/// `resolve_notes_root_from` picks whenever `WRIT_DATA_DIR` is in force: a
+/// The launch must keep `<data folder>/Jotra`, which is what
+/// `resolve_notes_root_from` picks whenever `JOTRA_DATA_DIR` is in force: a
 /// guard that turned that down would stop every instance running against its
 /// own data folder. A notes folder anywhere else inside the data folder is
 /// turned down by `usable_notes_root` before the guard sees it and the launch
@@ -68,33 +68,33 @@ fn a_marker_beside_the_data_directory_itself_is_found() {
 #[test]
 fn the_launch_keeps_its_notes_beside_its_own_data_folder() {
     let kept = TempDir::new().expect("data folder");
-    std::env::set_var("WRIT_DATA_DIR", kept.path());
-    std::env::set_var("WRIT_NOTES_DIR", kept.path().join("Writ"));
+    std::env::set_var("JOTRA_DATA_DIR", kept.path());
+    std::env::set_var("JOTRA_NOTES_DIR", kept.path().join("Jotra"));
     let state = AppState::initialize().expect("the default notes folder must not stop the launch");
-    std::env::remove_var("WRIT_NOTES_DIR");
-    std::env::remove_var("WRIT_DATA_DIR");
+    std::env::remove_var("JOTRA_NOTES_DIR");
+    std::env::remove_var("JOTRA_DATA_DIR");
 
     assert_eq!(
         state.notes_root(),
-        canonicalize_root(&kept.path().join("Writ")).expect("notes folder")
+        canonicalize_root(&kept.path().join("Jotra")).expect("notes folder")
     );
     assert_eq!(state.notes_root_fallback(), None);
     drop(state);
 
     let turned_down = TempDir::new().expect("data folder");
-    std::env::set_var("WRIT_DATA_DIR", turned_down.path());
-    std::env::set_var("WRIT_NOTES_DIR", turned_down.path().join("notes"));
+    std::env::set_var("JOTRA_DATA_DIR", turned_down.path());
+    std::env::set_var("JOTRA_NOTES_DIR", turned_down.path().join("notes"));
     let state = AppState::initialize().expect("the launch falls back rather than stopping");
-    std::env::remove_var("WRIT_NOTES_DIR");
-    std::env::remove_var("WRIT_DATA_DIR");
+    std::env::remove_var("JOTRA_NOTES_DIR");
+    std::env::remove_var("JOTRA_DATA_DIR");
 
     assert_eq!(
         state.notes_root(),
-        canonicalize_root(&turned_down.path().join("Writ")).expect("notes folder")
+        canonicalize_root(&turned_down.path().join("Jotra")).expect("notes folder")
     );
     assert_eq!(
         state.notes_root_fallback().map(|fallback| fallback.reason),
-        Some(NotesRootFallbackReason::HoldsWritData)
+        Some(NotesRootFallbackReason::HoldsJotraData)
     );
 }
 
@@ -102,7 +102,7 @@ fn the_launch_keeps_its_notes_beside_its_own_data_folder() {
 fn the_verdict_carries_the_marker_walk_to_the_policy() {
     let root = TempDir::new().expect("temp dir");
     let synced = root.path().join("Sync");
-    let data_dir = synced.join("notes").join(".writ");
+    let data_dir = synced.join("notes").join(".jotra");
     std::fs::create_dir_all(&data_dir).expect("data dir");
     std::fs::create_dir_all(synced.join(".stfolder")).expect("marker");
 
@@ -115,12 +115,12 @@ fn the_verdict_carries_the_marker_walk_to_the_policy() {
         }
     );
 
-    let plain = root.path().join("plain").join(".writ");
+    let plain = root.path().join("plain").join(".jotra");
     std::fs::create_dir_all(&plain).expect("data dir");
     assert_eq!(data_dir_verdict(&plain, None, None), DataDirVerdict::Ok);
 }
 
-/// The case the as-spelled path alone cannot see: `~/.writ` is a symlink into
+/// The case the as-spelled path alone cannot see: `~/.jotra` is a symlink into
 /// a synced folder, so only the canonical spelling says where the database
 /// would actually land.
 #[cfg(unix)]
@@ -134,7 +134,7 @@ fn a_data_folder_symlinked_into_a_synced_folder_is_refused() {
     let synced = home.join("Dropbox");
     std::fs::create_dir_all(synced.join("real")).expect("synced folder");
 
-    let spelled = root.path().join(".writ");
+    let spelled = root.path().join(".jotra");
     std::os::unix::fs::symlink(synced.join("real"), &spelled).expect("symlink");
 
     assert_eq!(
@@ -151,7 +151,7 @@ fn a_data_folder_symlinked_into_a_synced_folder_is_refused() {
     );
 }
 
-/// The case the verifier reproduced: a data folder Writ has not created yet.
+/// The case the verifier reproduced: a data folder Jotra has not created yet.
 ///
 /// `canonicalize` fails on a path that does not exist, so a first launch has
 /// only the planned path to go on, and the guard has to judge where that path
@@ -162,7 +162,7 @@ fn a_data_folder_symlinked_into_a_synced_folder_is_refused() {
 /// in `AppState::initialize`, so nothing may appear under the synced tree.
 #[cfg(unix)]
 #[test]
-fn a_data_folder_writ_has_not_created_yet_is_refused() {
+fn a_data_folder_jotra_has_not_created_yet_is_refused() {
     let root = TempDir::new().expect("temp dir");
     let home = canonicalize_root(root.path()).expect("home");
     let synced = home.join("Dropbox");
@@ -249,7 +249,7 @@ fn the_lowercase_provider_folder_is_refused_before_anything_is_created() {
     );
 }
 
-/// What happens to the one path resolution has no answer for: a `WRIT_DATA_DIR`
+/// What happens to the one path resolution has no answer for: a `JOTRA_DATA_DIR`
 /// symlink whose target does not exist. `canonicalize` returns `ENOENT` at
 /// every level, so the guard judges the link's own path, and `create_dir_all`
 /// then refuses the link rather than following it into the synced folder.
@@ -261,7 +261,7 @@ fn a_dangling_data_folder_symlink_creates_nothing_in_the_synced_folder() {
     let synced = home.join("Dropbox");
     std::fs::create_dir_all(&synced).expect("synced folder");
 
-    let spelled = home.join(".writ");
+    let spelled = home.join(".jotra");
     std::os::unix::fs::symlink(synced.join("data"), &spelled).expect("symlink");
 
     assert_eq!(

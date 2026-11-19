@@ -1,7 +1,7 @@
-//! `writ-preview://` protocol — disposition recorder.
+//! `jotra-preview://` protocol — disposition recorder.
 //!
 //! The pure URL parser ([`parse`], [`ParsedRequest`], [`PreviewScope`],
-//! [`RefusalReason`]) lives in `writ-core` (`writ_core::preview::protocol`)
+//! [`RefusalReason`]) lives in `jotra-core` (`jotra_core::preview::protocol`)
 //! so it carries no Tauri dependency and can be fuzzed without the app
 //! shell. It is re-exported here so the handler and tests keep importing
 //! from `super::protocol`.
@@ -14,7 +14,7 @@
 #[cfg(any(test, debug_assertions))]
 use std::cell::RefCell;
 
-pub use writ_core::preview::protocol::{parse, ParsedRequest, PreviewScope, RefusalReason};
+pub use jotra_core::preview::protocol::{parse, ParsedRequest, PreviewScope, RefusalReason};
 
 /// Disposition of a single request, as recorded for diagnostics and for
 /// the verification suite's assertion hook.
@@ -79,11 +79,11 @@ mod tests {
     fn recorder_round_trip() {
         clear_records();
         record(RequestRecord {
-            url: "writ-preview://chrome/x".to_string(),
+            url: "jotra-preview://chrome/x".to_string(),
             disposition: Disposition::Allowed,
         });
         record(RequestRecord {
-            url: "writ-preview://document/../x".to_string(),
+            url: "jotra-preview://document/../x".to_string(),
             disposition: Disposition::Refused(RefusalReason::TraversalAttempt),
         });
         let drained = drain_records();

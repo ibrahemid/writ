@@ -74,7 +74,7 @@ describe("the demo opens a file the way open_file does", () => {
 });
 
 describe("the demo's copy of file_ops", () => {
-  it("refuses a file past the size Writ opens, naming the code first", () => {
+  it("refuses a file past the size Jotra opens, naming the code first", () => {
     const mode = classifySize(500 * MiB + 1, false);
     expect(mode).toEqual({ kind: "Refused", reason: `${ERR_OPEN_TOO_LARGE}: 500.0 MiB is over the 500.0 MiB limit` });
     expect(classifySize(500 * MiB, false)).toEqual({ kind: "LargeFileConfirm" });

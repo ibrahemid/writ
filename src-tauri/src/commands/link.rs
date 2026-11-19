@@ -1,6 +1,6 @@
+use jotra_core::link::{classify_link, LinkTarget, RejectReason};
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
-use writ_core::link::{classify_link, LinkTarget, RejectReason};
 
 /// The classification of a link, as the UI sees it. `url` is the normalized
 /// destination and is present only when the link is allowed; `reason` is the
@@ -17,7 +17,7 @@ pub struct LinkVerdict {
 /// message tells the user something the link itself does not.
 fn message_for(reason: RejectReason) -> String {
     match reason {
-        RejectReason::Scheme => "Writ opens only http, https, and mailto links.".to_string(),
+        RejectReason::Scheme => "Jotra opens only http, https, and mailto links.".to_string(),
         RejectReason::Credentials => {
             "That link hides its real destination behind a username.".to_string()
         }
@@ -55,7 +55,7 @@ pub fn classify_external_url(url: String) -> LinkVerdict {
 
 /// IPC: open a link in the user's default browser or mail client.
 ///
-/// The only path from Writ to an external handler. Classification runs first
+/// The only path from Jotra to an external handler. Classification runs first
 /// and the opener receives the normalized string from the parser, never the
 /// caller's raw input. `opener:allow-open-url` is deliberately absent from
 /// `capabilities/default.json`, so the frontend cannot reach the plugin's own

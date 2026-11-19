@@ -14,7 +14,7 @@ import type { BufferDocument } from "../../types/buffer";
 // returned null — PreviewLayout.showsPane stayed false — the iframe was
 // never inserted into the DOM. This test mounts <PreviewLayout> with such
 // a buffer and asserts the iframe DOES mount and is pointed at the live
-// render under writ-preview://.
+// render under jotra-preview://.
 
 // IPC layer — explicit minimal mock surface. Hoisted so vi.mock's
 // top-of-file factory can reach the mock fns.
@@ -129,7 +129,7 @@ describe("PreviewLayout — scratch buffer with renderable title (regression for
         const iframe = container.querySelector<HTMLIFrameElement>("iframe.preview-frame");
         expect(iframe).not.toBeNull();
         expect(iframe!.src).toMatch(
-          /^writ-preview:\/\/document\/B1\?v=[1-9]\d*$/,
+          /^jotra-preview:\/\/document\/B1\?v=[1-9]\d*$/,
         );
       },
       { timeout: 2000 },

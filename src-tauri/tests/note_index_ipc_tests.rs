@@ -9,13 +9,13 @@
 
 use std::path::Path;
 
-use tempfile::TempDir;
-use writ_storage::notes_index::{self, NotesIndexStore};
-use writ_tauri_lib::commands::note_index::{
+use jotra_storage::notes_index::{self, NotesIndexStore};
+use jotra_tauri_lib::commands::note_index::{
     note_all_tags_inner, note_backlinks_inner, note_facts_inner, note_folder_candidates_inner,
     note_graph_inner, note_heading_line_inner, note_name_candidates_inner,
     note_paths_for_tag_inner, note_paths_in_folder_inner, resolve_note_link_inner, NoteFolderHit,
 };
+use tempfile::TempDir;
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
 
@@ -31,9 +31,9 @@ fn write_note(notes: &Path, name: &str, body: &str) -> std::path::PathBuf {
 /// An index over a folder of notes, walked once.
 fn indexed(notes: &[(&str, &str)]) -> (TempDir, std::path::PathBuf, NotesIndexStore) {
     let dir = TempDir::new().expect("tempdir");
-    let db_path = dir.path().join("writ.db");
-    let conn = writ_storage::database::connection::open_database(&db_path).expect("open");
-    writ_storage::database::migrations::run_migrations(&conn).expect("migrations");
+    let db_path = dir.path().join("jotra.db");
+    let conn = jotra_storage::database::connection::open_database(&db_path).expect("open");
+    jotra_storage::database::migrations::run_migrations(&conn).expect("migrations");
     drop(conn);
 
     let root = dir.path().join("notes");

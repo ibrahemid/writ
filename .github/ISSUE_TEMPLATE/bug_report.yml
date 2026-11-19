@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report a bug in Writ
+description: Report a bug in Jotra
 labels: ["bug"]
 body:
   - type: textarea
@@ -15,7 +15,7 @@ body:
       label: Steps to Reproduce
       description: Step-by-step instructions to reproduce the issue
       placeholder: |
-        1. Open Writ
+        1. Open Jotra
         2. ...
     validations:
       required: true
@@ -47,7 +47,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: Writ Version
+      label: Jotra Version
       placeholder: "0.1.0"
     validations:
       required: true
@@ -55,5 +55,5 @@ body:
     id: logs
     attributes:
       label: Relevant Logs
-      description: Paste any relevant log output from ~/.writ/logs/
+      description: Paste any relevant log output from ~/.jotra/logs/
       render: shell

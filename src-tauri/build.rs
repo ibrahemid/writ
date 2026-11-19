@@ -33,8 +33,8 @@ fn embed_manifest_for_tests() {
 }
 
 /// Compiles the Swift bridge to Apple's on-device model and speech analyzer
-/// (`swift/WritOnDevice`) into a static library and links it, for a macOS
-/// target, and sets `writ_on_device_bridge` so `src/on_device.rs` and
+/// (`swift/JotraOnDevice`) into a static library and links it, for a macOS
+/// target, and sets `jotra_on_device_bridge` so `src/on_device.rs` and
 /// `src/dictation/bridge.rs` call it.
 ///
 /// Where no Swift compiler answers, the app is built without the bridge and
@@ -42,13 +42,13 @@ fn embed_manifest_for_tests() {
 /// on-device row is never offered. An SDK older than macOS 26 compiles the
 /// bridge without the framework, to the same effect.
 fn build_on_device_bridge() {
-    println!("cargo::rustc-check-cfg=cfg(writ_on_device_bridge)");
+    println!("cargo::rustc-check-cfg=cfg(jotra_on_device_bridge)");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         return;
     }
     let sources = [
-        "swift/WritOnDevice/Sources/WritOnDevice/WritOnDevice.swift",
-        "swift/WritOnDevice/Sources/WritOnDevice/Dictation.swift",
+        "swift/JotraOnDevice/Sources/JotraOnDevice/JotraOnDevice.swift",
+        "swift/JotraOnDevice/Sources/JotraOnDevice/Dictation.swift",
     ];
     for source in sources {
         println!("cargo:rerun-if-changed={source}");
@@ -90,11 +90,11 @@ fn build_on_device_bridge() {
     }
 
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("cargo sets OUT_DIR"));
-    let library = out.join("libwrit_on_device.a");
+    let library = out.join("libjotra_on_device.a");
     let compiled = Command::new(&swiftc)
         .args(["-sdk", &sdk, "-target", &target])
         .args(["-parse-as-library", "-emit-library", "-static", "-O"])
-        .args(["-swift-version", "5", "-module-name", "WritOnDevice"])
+        .args(["-swift-version", "5", "-module-name", "JotraOnDevice"])
         .arg("-module-cache-path")
         .arg(out.join("swift-module-cache"))
         .args(sources)
@@ -119,13 +119,13 @@ fn build_on_device_bridge() {
         .and_then(|bin| bin.parent())
         .map(|usr| usr.join("lib/swift/macosx"));
     println!("cargo:rustc-link-search=native={}", out.display());
-    println!("cargo:rustc-link-lib=static=writ_on_device");
+    println!("cargo:rustc-link-lib=static=jotra_on_device");
     println!("cargo:rustc-link-search=native={sdk}/usr/lib/swift");
     if let Some(toolchain_lib) = toolchain_lib {
         println!("cargo:rustc-link-search=native={}", toolchain_lib.display());
     }
     println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
-    println!("cargo:rustc-cfg=writ_on_device_bridge");
+    println!("cargo:rustc-cfg=jotra_on_device_bridge");
 }
 
 /// One line `xcrun` prints, or `None` when it cannot be run or fails.
@@ -138,7 +138,7 @@ fn xcrun(args: &[&str]) -> Option<String> {
     (!line.is_empty()).then_some(line)
 }
 
-/// Fails the build when the bundled `writ` command is not this version's.
+/// Fails the build when the bundled `jotra` command is not this version's.
 ///
 /// The app ships the sidecar in `binaries/` as it finds it, so a stale one
 /// would serve an older tool set to every connected program without a word.
@@ -154,14 +154,14 @@ fn check_sidecar_version() {
     } else {
         ""
     };
-    let sidecar = PathBuf::from(format!("binaries/writ-{target}{extension}"));
+    let sidecar = PathBuf::from(format!("binaries/jotra-{target}{extension}"));
     println!("cargo:rerun-if-changed={}", sidecar.display());
     if !sidecar.is_file() {
         // tauri-build names the missing sidecar itself.
         return;
     }
     let expected = format!(
-        "writ {}",
+        "jotra {}",
         std::env::var("CARGO_PKG_VERSION").unwrap_or_default()
     );
     let output = match Command::new(&sidecar).arg("--version").output() {
@@ -186,7 +186,7 @@ fn check_sidecar_version() {
     if reported != expected {
         panic!(
             "src-tauri/{sidecar} reports `{reported}`, and this build is `{expected}`. \
-             Rebuild it: cargo build -p writ-cli && cp target/debug/writ{extension} src-tauri/{sidecar}",
+             Rebuild it: cargo build -p jotra-cli && cp target/debug/jotra{extension} src-tauri/{sidecar}",
             sidecar = sidecar.display()
         );
     }

@@ -1,7 +1,7 @@
 {
   "preset": {
     "writ-dark": {
-      "$description": "Writ Dark",
+      "$description": "Jotra Dark",
       "polarity": {
         "$type": "other",
         "$value": "dark"

@@ -4,11 +4,11 @@
 # so no build tool runs beside the Developer ID certificate.
 #
 # Usage:
-#   scripts/macos-release.sh extract-app <built.dmg> <dest/Writ.app>
-#   scripts/macos-release.sh sign-app <Writ.app> <identity> [keychain]
-#   scripts/macos-release.sh notarize <Writ.app | file.pkg | file.dmg>
+#   scripts/macos-release.sh extract-app <built.dmg> <dest/Jotra.app>
+#   scripts/macos-release.sh sign-app <Jotra.app> <identity> [keychain]
+#   scripts/macos-release.sh notarize <Jotra.app | file.pkg | file.dmg>
 #       reads APPLE_ID, APPLE_PASSWORD and APPLE_TEAM_ID
-#   scripts/macos-release.sh repack-dmg <built.dmg> <signed Writ.app> <out.dmg>
+#   scripts/macos-release.sh repack-dmg <built.dmg> <signed Jotra.app> <out.dmg>
 
 set -euo pipefail
 
@@ -65,7 +65,7 @@ trap on_exit EXIT
 # Sets SCRATCH_DIR in this shell; a command substitution would lose the record
 # the exit trap cleans up from.
 new_scratch_dir() {
-  SCRATCH_DIR="$(mktemp -d "${TMPDIR:-/tmp}/writ-macos-release.XXXXXX")"
+  SCRATCH_DIR="$(mktemp -d "${TMPDIR:-/tmp}/jotra-macos-release.XXXXXX")"
   SCRATCH+=("$SCRATCH_DIR")
 }
 
@@ -231,19 +231,19 @@ command="${1:-}"
 shift || true
 case "$command" in
   extract-app)
-    [ "$#" -eq 2 ] || fail "usage: extract-app <built.dmg> <dest/Writ.app>"
+    [ "$#" -eq 2 ] || fail "usage: extract-app <built.dmg> <dest/Jotra.app>"
     extract_app "$@"
     ;;
   sign-app)
-    [ "$#" -eq 2 ] || [ "$#" -eq 3 ] || fail "usage: sign-app <Writ.app> <identity> [keychain]"
+    [ "$#" -eq 2 ] || [ "$#" -eq 3 ] || fail "usage: sign-app <Jotra.app> <identity> [keychain]"
     sign_app "$@"
     ;;
   notarize)
-    [ "$#" -eq 1 ] || fail "usage: notarize <Writ.app | file.pkg | file.dmg>"
+    [ "$#" -eq 1 ] || fail "usage: notarize <Jotra.app | file.pkg | file.dmg>"
     notarize "$@"
     ;;
   repack-dmg)
-    [ "$#" -eq 3 ] || fail "usage: repack-dmg <built.dmg> <signed Writ.app> <out.dmg>"
+    [ "$#" -eq 3 ] || fail "usage: repack-dmg <built.dmg> <signed Jotra.app> <out.dmg>"
     repack_dmg "$@"
     ;;
   *)

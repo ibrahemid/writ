@@ -127,7 +127,7 @@ describe("findConflicts across platforms", () => {
 });
 
 describe("findFixedConflicts", () => {
-  const fixed = [{ chord: "CmdOrCtrl+Q", label: "Quit Writ" }];
+  const fixed = [{ chord: "CmdOrCtrl+Q", label: "Quit Jotra" }];
 
   it("names the menu item a draft would collide with", () => {
     const conflicts = findFixedConflicts(
@@ -135,7 +135,7 @@ describe("findFixedConflicts", () => {
       fixed,
       "mac",
     );
-    expect(conflicts.get("a.cmd")).toBe("Quit Writ");
+    expect(conflicts.get("a.cmd")).toBe("Quit Jotra");
     expect(conflicts.has("b.cmd")).toBe(false);
   });
 

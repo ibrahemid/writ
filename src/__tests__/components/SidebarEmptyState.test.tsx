@@ -7,7 +7,7 @@ import type { DirListing } from "../../types/workspace";
 // empty once the folder has been listed and found so, and nothing else in the
 // sidebar stands in for it or hides it.
 
-const NOTES = "/Users/me/Writ";
+const NOTES = "/Users/me/Jotra";
 
 const histDoc: BufferDocument = {
   id: "h1",
@@ -139,7 +139,7 @@ describe("the notes folder's empty state", () => {
 
     const empty = container.querySelector(".sidebar-empty");
     expect(empty?.textContent).toContain("This folder is empty.");
-    expect(container.querySelectorAll(".sidebar-empty .writ-btn")).toHaveLength(2);
+    expect(container.querySelectorAll(".sidebar-empty .jotra-btn")).toHaveLength(2);
     expect(container.querySelectorAll(".sidebar-empty .kbd-chord")).toHaveLength(1);
   });
 

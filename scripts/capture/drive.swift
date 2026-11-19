@@ -3,7 +3,7 @@ import CoreGraphics
 import Foundation
 import IOKit
 
-// Drives one Writ instance by pid. Every event is refused unless the harness
+// Drives one Jotra instance by pid. Every event is refused unless the harness
 // instance is the frontmost app and the person at the machine has been idle
 // for longer than IDLE_FLOOR seconds; the driver waits for both rather than
 // posting into whatever else is on screen. Keys go to the pid's own event
@@ -30,7 +30,7 @@ import IOKit
 // Every event the driver posts resets the system's idle clock, so it keeps
 // the time of its own last post here: an idle clock that runs from that
 // moment means nobody else has touched the machine since.
-let STAMP = ProcessInfo.processInfo.environment["CAPTURE_STAMP"] ?? NSTemporaryDirectory() + "writ-capture-drive.stamp"
+let STAMP = ProcessInfo.processInfo.environment["CAPTURE_STAMP"] ?? NSTemporaryDirectory() + "jotra-capture-drive.stamp"
 let IDLE_FLOOR: Double = Double(ProcessInfo.processInfo.environment["CAPTURE_IDLE_FLOOR"] ?? "") ?? 45
 let WAIT_LIMIT: Double = Double(ProcessInfo.processInfo.environment["CAPTURE_WAIT_LIMIT"] ?? "") ?? 900
 
@@ -203,7 +203,7 @@ func objcAlloc(_ name: String) -> NSObject {
 /// fallback one macOS draws, and that fallback returns when the process ends.
 func holdHiDPIDisplay(width: UInt, height: UInt) -> Never {
   let descriptor = objcClass("CGVirtualDisplayDescriptor").init()
-  descriptor.setValue("Writ capture", forKey: "name")
+  descriptor.setValue("Jotra capture", forKey: "name")
   descriptor.setValue(width * 2, forKey: "maxPixelsWide")
   descriptor.setValue(height * 2, forKey: "maxPixelsHigh")
   descriptor.setValue(NSValue(size: NSSize(width: 600, height: 375)), forKey: "sizeInMillimeters")

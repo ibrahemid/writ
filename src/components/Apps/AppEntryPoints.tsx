@@ -8,7 +8,7 @@ import "./AppEntryPoints.css";
 
 /** The macOS menu bar's own names for the menus the shared list fills. */
 const MAC_MENU_NAMES: Record<MenuSection, string> = {
-  app: "Writ menu",
+  app: "Jotra menu",
   file: "File menu",
   edit: "Edit menu",
   view: "View menu",
@@ -25,7 +25,7 @@ export function entryPointName(point: AppEntryPoint, platform: Platform): string
     case "toolbar":
       return "Toolbar";
     case "menu": {
-      if (platform !== "mac") return "Writ menu";
+      if (platform !== "mac") return "Jotra menu";
       const entry = MENU_COMMANDS.find((item) => item.id === point.command);
       return entry ? MAC_MENU_NAMES[entry.menu] : null;
     }

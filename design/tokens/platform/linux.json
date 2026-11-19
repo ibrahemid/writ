@@ -8,7 +8,7 @@
             "$value": "\"Adwaita Sans\", Cantarell, Inter, sans-serif"
           },
           "prose": {
-            "$value": "var(--writ-font-ui)"
+            "$value": "var(--jotra-font-ui)"
           },
           "mono": {
             "$value": "\"Adwaita Mono\", \"Source Code Pro\", ui-monospace, monospace"
@@ -338,8 +338,8 @@
           "default": {
             "$value": "rgb(28 24 16 / 12%)",
             "$extensions": {
-              "writ": {
-                "cssName": "--writ-border"
+              "jotra": {
+                "cssName": "--jotra-border"
               }
             }
           },
@@ -351,8 +351,8 @@
           "default": {
             "$value": "rgb(28 24 16 / 88%)",
             "$extensions": {
-              "writ": {
-                "cssName": "--writ-fg"
+              "jotra": {
+                "cssName": "--jotra-fg"
               }
             }
           },
@@ -442,8 +442,8 @@
           "default": {
             "$value": "rgb(0 0 6 / 36%)",
             "$extensions": {
-              "writ": {
-                "cssName": "--writ-border"
+              "jotra": {
+                "cssName": "--jotra-border"
               }
             }
           },
@@ -455,8 +455,8 @@
           "default": {
             "$value": "#F6F2EC",
             "$extensions": {
-              "writ": {
-                "cssName": "--writ-fg"
+              "jotra": {
+                "cssName": "--jotra-fg"
               }
             }
           },

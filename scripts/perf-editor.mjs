@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-//   WRIT_PERF_GATE=1 node scripts/perf-editor.mjs [--only <id>]... [--large] [--strict] [--out <file.json>]
+//   JOTRA_PERF_GATE=1 node scripts/perf-editor.mjs [--only <id>]... [--large] [--strict] [--out <file.json>]
 //   node scripts/perf-editor.mjs --write-files <dir> [--only <id>]... [--large]   (Node 22.18+)
-// Chromium: WRIT_PLAYWRIGHT_CORE (path to playwright-core's index.mjs), an installed
-// playwright-core with its chromium, or WRIT_PERF_CHROMIUM. Exit 0 within budget,
+// Chromium: JOTRA_PLAYWRIGHT_CORE (path to playwright-core's index.mjs), an installed
+// playwright-core with its chromium, or JOTRA_PERF_CHROMIUM. Exit 0 within budget,
 // 1 over budget, 2 when the gate could not measure. docs/perf-budgets.md describes the gate.
 import http from "node:http";
 import os from "node:os";
@@ -71,13 +71,13 @@ function parseArgs(argv) {
 }
 
 async function loadChromium() {
-  const explicit = process.env.WRIT_PLAYWRIGHT_CORE;
+  const explicit = process.env.JOTRA_PLAYWRIGHT_CORE;
   try {
     const module = explicit ? await import(pathToFileURL(resolve(explicit)).href) : await import("playwright-core");
     return module.chromium ?? module.default?.chromium;
   } catch (error) {
     throw new GateSetupError(
-      `playwright-core did not load (${error.message}); set WRIT_PLAYWRIGHT_CORE to its index.mjs or install it`,
+      `playwright-core did not load (${error.message}); set JOTRA_PLAYWRIGHT_CORE to its index.mjs or install it`,
     );
   }
 }
@@ -655,12 +655,12 @@ async function main() {
     await writeScenarioFiles(scenarios, options.writeFiles);
     return 0;
   }
-  if (process.env.WRIT_PERF_GATE !== "1") {
-    console.log("perf-editor: skipped (set WRIT_PERF_GATE=1 to run)");
+  if (process.env.JOTRA_PERF_GATE !== "1") {
+    console.log("perf-editor: skipped (set JOTRA_PERF_GATE=1 to run)");
     return 0;
   }
   const chromium = await loadChromium();
-  const outDir = await mkdtemp(join(os.tmpdir(), "writ-perf-editor-"));
+  const outDir = await mkdtemp(join(os.tmpdir(), "jotra-perf-editor-"));
   let server = null;
   let browser = null;
   try {
@@ -669,7 +669,7 @@ async function main() {
     const base = `http://127.0.0.1:${server.address().port}`;
     browser = await chromium.launch({
       headless: true,
-      ...(process.env.WRIT_PERF_CHROMIUM ? { executablePath: process.env.WRIT_PERF_CHROMIUM } : { channel: "chromium" }),
+      ...(process.env.JOTRA_PERF_CHROMIUM ? { executablePath: process.env.JOTRA_PERF_CHROMIUM } : { channel: "chromium" }),
       args: [
         "--disable-renderer-backgrounding",
         "--disable-background-timer-throttling",
@@ -733,7 +733,7 @@ async function main() {
     for (const problem of toggleProblems) console.log(`  problem: ${problem}`);
     if (toggleProblems.length) failed = true;
 
-    const out = options.out ?? join(os.tmpdir(), `writ-perf-editor-${Date.now()}.json`);
+    const out = options.out ?? join(os.tmpdir(), `jotra-perf-editor-${Date.now()}.json`);
     const record = {
       at: new Date().toISOString(),
       machine,

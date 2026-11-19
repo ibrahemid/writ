@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // A command that cannot act is kept out of the palette rather than listed and
 // then stopped. `note.delete` is the case that pays for it: a tab can hold a
-// file opened from somebody else's folder, and Writ never moves that to the
+// file opened from somebody else's folder, and Jotra never moves that to the
 // Trash.
 
 vi.mock("../../stores/global/command-usage", () => ({

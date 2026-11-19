@@ -12,8 +12,8 @@ import {
 } from "../backend/naming";
 
 describe("the demo's naming rules", () => {
-  it("mints writ-<yymmdd>-<hhmm> on the local clock", () => {
-    expect(formatMintedStem(new Date(2026, 8, 21, 7, 48))).toBe("writ-260921-0748");
+  it("mints jotra-<yymmdd>-<hhmm> on the local clock", () => {
+    expect(formatMintedStem(new Date(2026, 8, 21, 7, 48))).toBe("jotra-260921-0748");
   });
 
   it("takes a heading or list marker off the first line", () => {
@@ -52,7 +52,7 @@ describe("the demo's naming rules", () => {
     const at = new Date(2026, 8, 21, 7, 48);
     expect(deriveNoteFileStem("Seed swap", at)).toBe("Seed swap");
     expect(deriveNoteFileStem("  ", at)).toBe("2026-09-21");
-    expect(deriveNoteFileStem("writ-260921-0748", at)).toBe("2026-09-21");
+    expect(deriveNoteFileStem("jotra-260921-0748", at)).toBe("2026-09-21");
     expect(deriveNoteFileStem("/", at)).toBe("2026-09-21");
   });
 });

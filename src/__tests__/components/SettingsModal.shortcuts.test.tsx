@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 import { configStore } from "../../stores/global/config";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 
 // The nav drops a section no row on this platform can fill, and Files holds
 // only the file-types row, which macOS alone can claim. jsdom reports no
@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => ({
   claimDefaultApp: vi.fn().mockResolvedValue(undefined),
   fetchDefaultAppTypes: vi.fn(),
   fetchCliStatus: vi.fn().mockResolvedValue({ installed: false }),
-  fetchStorageInfo: vi.fn().mockResolvedValue({ db_path: "/home/user/.writ/writ.db", dir: "/home/user/.writ" }),
+  fetchStorageInfo: vi.fn().mockResolvedValue({ db_path: "/home/user/.jotra/jotra.db", dir: "/home/user/.jotra" }),
   revealStoragePath: vi.fn().mockResolvedValue(undefined),
   copyStoragePath: vi.fn().mockResolvedValue(undefined),
   writeClipboardText: vi.fn().mockResolvedValue(undefined),
@@ -43,7 +43,7 @@ const mocks = vi.hoisted(() => ({
   mcpClients: vi.fn().mockResolvedValue({ approved: [], waiting: [] }),
   mcpSetClientPermission: vi.fn(),
   mcpForgetClient: vi.fn(),
-  mcpServerCommand: vi.fn().mockResolvedValue({ path: "/usr/local/bin/writ", command: "writ mcp" }),
+  mcpServerCommand: vi.fn().mockResolvedValue({ path: "/usr/local/bin/jotra", command: "jotra mcp" }),
   mcpTools: vi.fn(),
   onEvent: vi.fn().mockResolvedValue(() => {}),
   aiCheckConnection: vi.fn().mockResolvedValue({
@@ -107,11 +107,11 @@ vi.mock("../../stores/global/default-app", () => ({
 }));
 
 vi.mock("../../stores/global/cli", () => ({
-  installCli: vi.fn().mockResolvedValue({ symlink_path: "/usr/local/bin/writ", manual_command: "" }),
+  installCli: vi.fn().mockResolvedValue({ symlink_path: "/usr/local/bin/jotra", manual_command: "" }),
   fetchCliStatus: mocks.fetchCliStatus,
-  CLI_EXAMPLES: ["writ .", "git log | writ --title log"],
+  CLI_EXAMPLES: ["jotra .", "git log | jotra --title log"],
   copyCliExample: vi.fn().mockResolvedValue(undefined),
-  installFailureMessage: () => "Could not install the writ command",
+  installFailureMessage: () => "Could not install the jotra command",
 }));
 
 vi.mock("../../stores/global/notes", () => ({
@@ -213,7 +213,7 @@ import SettingsModal, {
 } from "../../components/SettingsModal/SettingsModal";
 import { rankSettings } from "../../settings";
 
-function baseConfig(): WritConfig {
+function baseConfig(): JotraConfig {
   return {
     hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
     sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false, width: 240, collapsed: [], hidden: [] },
@@ -273,7 +273,7 @@ describe("SettingsModal General: the window's chord and open at login", () => {
     cleanup();
   });
 
-  it("shows the window's chord with no caution while Writ holds it", async () => {
+  it("shows the window's chord with no caution while Jotra holds it", async () => {
     const { container } = render(() => <SettingsModal />);
     await openGeneralSection(container);
 
@@ -323,7 +323,7 @@ describe("SettingsModal General: the window's chord and open at login", () => {
     await openGeneralSection(container);
 
     expect(windowRow(container).querySelector(".settings-row-caution")?.textContent).toBe(
-      "Wayland doesn't pass this shortcut to Writ from other apps.",
+      "Wayland doesn't pass this shortcut to Jotra from other apps.",
     );
   });
 

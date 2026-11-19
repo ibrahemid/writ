@@ -182,7 +182,7 @@ export default function Tooltip(props: TooltipProps) {
   return (
     <span
       ref={(el) => (anchorRef = el)}
-      class="writ-tooltip-anchor"
+      class="jotra-tooltip-anchor"
       role={props.anchorRole}
       onPointerEnter={scheduleShow}
       onPointerLeave={onPointerLeave}
@@ -197,13 +197,13 @@ export default function Tooltip(props: TooltipProps) {
           ref={(el) => (tipRef = el)}
           id={id}
           role="tooltip"
-          class="writ-tooltip"
+          class="jotra-tooltip"
           style={positionStyle()}
         >
           {props.label}
           <Show when={shortcut()}>
             {" "}
-            <span class="writ-tooltip-kbd">{shortcut()}</span>
+            <span class="jotra-tooltip-kbd">{shortcut()}</span>
           </Show>
         </div>
       </Show>

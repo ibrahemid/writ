@@ -49,12 +49,14 @@ class RewritePkgbuildTests(unittest.TestCase):
         self.assertTrue(sources[2].startswith('"LICENSE-'))
 
     def test_the_srcinfo_lists_what_the_pkgbuild_does(self) -> None:
-        text = MODULE.srcinfo_text("9.9.9", SHA, LICENSE_SHA)
+        text = MODULE.srcinfo_text(REPO_PKGBUILD.read_text(), "9.9.9", SHA, LICENSE_SHA)
 
         self.assertIn("\tmakedepends = minisign\n", text)
+        self.assertIn("\tprovides = jotra\n", text)
+        self.assertIn("\tconflicts = jotra\n", text)
         self.assertIn(
-            "\tsource = writ-9.9.9.AppImage.minisign::"
-            "https://github.com/ibrahemid/writ/releases/download/v9.9.9/Writ_9.9.9_amd64.AppImage.sig\n",
+            "\tsource = jotra-9.9.9.AppImage.minisign::"
+            "https://github.com/ibrahemid/writ/releases/download/v9.9.9/Jotra_9.9.9_amd64.AppImage.sig\n",
             text,
         )
         self.assertEqual(
@@ -62,7 +64,7 @@ class RewritePkgbuildTests(unittest.TestCase):
         )
 
     def test_the_srcinfo_depends_on_what_the_pkgbuild_does(self) -> None:
-        text = MODULE.srcinfo_text("9.9.9", SHA, LICENSE_SHA)
+        text = MODULE.srcinfo_text(REPO_PKGBUILD.read_text(), "9.9.9", SHA, LICENSE_SHA)
         listed = re.search(r"^depends=\(([^)]*)\)", REPO_PKGBUILD.read_text(), re.MULTILINE)
         assert listed is not None
         pkgbuild_depends = [name.strip("'\"") for name in listed.group(1).split()]
@@ -91,8 +93,26 @@ class RewritePkgbuildTests(unittest.TestCase):
         self.assertEqual(sums[1], "SKIP")
         self.assertEqual(
             (ROOT / "packaging/aur/writ-bin/.SRCINFO").read_text(),
-            MODULE.srcinfo_text(version, sums[0], sums[2]),
+            MODULE.srcinfo_text(pkgbuild, version, sums[0], sums[2]),
         )
+
+    def test_the_srcinfo_expands_the_variables_the_pkgbuild_arrays_name(self) -> None:
+        pkgbuild = '_name=alpha\n_other="beta"\nprovides=("${_name}" \'gamma\')\nconflicts=("${_other}")\n'
+
+        text = MODULE.srcinfo_text(pkgbuild, "9.9.9", SHA, LICENSE_SHA)
+
+        self.assertEqual(re.findall(r"\tprovides = (\S+)", text), ["alpha", "gamma"])
+        self.assertEqual(re.findall(r"\tconflicts = (\S+)", text), ["beta"])
+
+    def test_the_srcinfo_refuses_an_array_that_names_an_unassigned_variable(self) -> None:
+        pkgbuild = 'provides=("${_missing}")\nconflicts=()\n'
+
+        with self.assertRaisesRegex(MODULE.PkgbuildFormatError, "_missing"):
+            MODULE.srcinfo_text(pkgbuild, "9.9.9", SHA, LICENSE_SHA)
+
+    def test_the_srcinfo_refuses_a_pkgbuild_without_conflicts(self) -> None:
+        with self.assertRaisesRegex(MODULE.PkgbuildFormatError, "conflicts"):
+            MODULE.srcinfo_text("provides=('alpha')\n", "9.9.9", SHA, LICENSE_SHA)
 
 
 class PkgbuildKeyTests(unittest.TestCase):
@@ -114,14 +134,20 @@ mkdir -p squashfs-root
 touch squashfs-root/extracted
 """
 
+COMMAND_WRAPPER_BLOCK = re.compile(
+    r'^ *cat > "\$\{pkgdir\}/usr/bin/\$\{(?:_pkgname|_legacy_name)\}" <<EOF\n.*?\nEOF$',
+    re.MULTILINE | re.DOTALL,
+)
 
-@unittest.skipIf(BASH is None, "bash is not installed")
-class PkgbuildFunctionTests(unittest.TestCase):
+GUI_PROBE_CLI = '#!/bin/sh\nprintf "%s\\n" "$JOTRA_GUI_BIN"\n'
+
+
+class PkgbuildFixture(unittest.TestCase):
     """Runs prepare() and package() from the PKGBUILD the way makepkg does:
     sourced into bash with errexit, in a srcdir holding the downloads."""
 
     def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory(prefix="writ-pkgbuild-test-")
+        tmp = tempfile.TemporaryDirectory(prefix="jotra-pkgbuild-test-")
         self.addCleanup(tmp.cleanup)
         self.root = pathlib.Path(tmp.name)
         self.srcdir = self.root / "src"
@@ -133,10 +159,10 @@ class PkgbuildFunctionTests(unittest.TestCase):
         (stubs / "minisign").write_text(MINISIGN_STUB)
         (stubs / "minisign").chmod(0o755)
         self.version = re.search(r"^pkgver=(\S+)$", REPO_PKGBUILD.read_text(), re.MULTILINE).group(1)  # type: ignore[union-attr]
-        appimage = self.srcdir / f"writ-{self.version}.AppImage"
+        appimage = self.srcdir / f"jotra-{self.version}.AppImage"
         appimage.write_text(APPIMAGE_STUB)
         minisig = "untrusted comment: x\nRUQ=\ntrusted comment: y\nAAAA\n"
-        (self.srcdir / f"writ-{self.version}.AppImage.minisign").write_text(
+        (self.srcdir / f"jotra-{self.version}.AppImage.minisign").write_text(
             base64.b64encode(minisig.encode()).decode()
         )
         self.minisign_log = self.root / "minisign.log"
@@ -158,6 +184,54 @@ class PkgbuildFunctionTests(unittest.TestCase):
             text=True,
         )
 
+    def write_payload(self) -> None:
+        root = self.srcdir / "squashfs-root"
+        (root / "usr/bin").mkdir(parents=True)
+        (root / "usr/share/applications").mkdir(parents=True)
+        (root / "usr/share/icons/hicolor/32x32/apps").mkdir(parents=True)
+        (root / "AppRun").write_text("#!/bin/sh\n")
+        (root / "usr/bin/jotra").write_text("cli\n")
+        (root / "usr/share/applications/Jotra.desktop").write_text(
+            "[Desktop Entry]\nExec=x\nIcon=y\nMimeType=text/plain;\nStartupWMClass=z\n"
+        )
+        (root / "usr/share/icons/hicolor/32x32/apps/jotra-tauri.png").write_text("")
+        (self.srcdir / f"LICENSE-{self.version}").write_text("MIT\n")
+
+    def write_command_wrappers(self, opt: pathlib.Path) -> None:
+        blocks = [match.group(0) for match in COMMAND_WRAPPER_BLOCK.finditer(REPO_PKGBUILD.read_text())]
+        self.assertEqual(len(blocks), 2)
+        (self.pkgdir / "usr/bin").mkdir(parents=True)
+        script = f'set -e; pkgdir="{self.pkgdir}"; source "{REPO_PKGBUILD}"; opt="{opt}"\n' + "\n".join(blocks) + "\n"
+        result = subprocess.run([BASH, "-c", script], env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def assert_gui_variable_precedence(self, command: str) -> None:
+        opt = self.root / "opt/jotra"
+        (opt / "usr/bin").mkdir(parents=True)
+        cli = opt / "usr/bin" / command
+        cli.write_text(GUI_PROBE_CLI)
+        cli.chmod(0o755)
+        self.write_command_wrappers(opt)
+        wrapper = self.pkgdir / "usr/bin" / command
+        wrapper.chmod(0o755)
+        cases = (
+            ({}, f"{opt}/AppRun"),
+            ({"WRIT_GUI_BIN": "/set/old"}, "/set/old"),
+            ({"JOTRA_GUI_BIN": "/set/new"}, "/set/new"),
+            ({"JOTRA_GUI_BIN": "/set/new", "WRIT_GUI_BIN": "/set/old"}, "/set/new"),
+            ({"JOTRA_GUI_BIN": "", "WRIT_GUI_BIN": ""}, f"{opt}/AppRun"),
+        )
+        for extra, expected in cases:
+            with self.subTest(command=command, env=extra):
+                ran = subprocess.run(
+                    [str(wrapper)], env={"PATH": os.environ["PATH"], **extra}, capture_output=True, text=True
+                )
+                self.assertEqual(ran.returncode, 0, ran.stderr)
+                self.assertEqual(ran.stdout, f"{expected}\n")
+
+
+@unittest.skipIf(BASH is None, "bash is not installed")
+class PkgbuildFunctionTests(PkgbuildFixture):
     def test_prepare_refuses_an_appimage_whose_signature_fails(self) -> None:
         result = self.run_function("prepare", minisign_exit=1)
 
@@ -172,27 +246,42 @@ class PkgbuildFunctionTests(unittest.TestCase):
         call = self.minisign_log.read_text()
         key = re.search(r"^_minisign_pubkey='([^']+)'$", REPO_PKGBUILD.read_text(), re.MULTILINE).group(1)  # type: ignore[union-attr]
         self.assertIn(f"-V -P {key}", call)
-        self.assertIn(f"-m {self.srcdir}/writ-{self.version}.AppImage", call)
-        self.assertTrue((self.srcdir / f"writ-{self.version}.AppImage.minisig").read_text().startswith("untrusted comment:"))
+        self.assertIn(f"-m {self.srcdir}/jotra-{self.version}.AppImage", call)
+        self.assertTrue((self.srcdir / f"jotra-{self.version}.AppImage.minisig").read_text().startswith("untrusted comment:"))
+
+    def test_the_command_keeps_a_gui_path_the_person_set(self) -> None:
+        self.assert_gui_variable_precedence("jotra")
 
     @unittest.skipUnless(platform.system() == "Linux", "package() uses GNU install and sed")
     def test_package_marks_the_install_as_pacman_managed(self) -> None:
-        root = self.srcdir / "squashfs-root"
-        (root / "usr/bin").mkdir(parents=True)
-        (root / "usr/share/applications").mkdir(parents=True)
-        (root / "usr/share/icons/hicolor/32x32/apps").mkdir(parents=True)
-        (root / "AppRun").write_text("#!/bin/sh\n")
-        (root / "usr/bin/writ").write_text("")
-        (root / "usr/share/applications/Writ.desktop").write_text("Exec=x\nIcon=y\n")
-        (root / "usr/share/icons/hicolor/32x32/apps/writ-tauri.png").write_text("")
-        (self.srcdir / f"LICENSE-{self.version}").write_text("MIT\n")
+        self.write_payload()
 
         result = self.run_function("package")
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        marker = self.pkgdir / "opt/writ/.package-manager"
+        marker = self.pkgdir / "opt/jotra/.package-manager"
         self.assertEqual(marker.read_text(), "pacman\n")
         self.assertEqual(marker.stat().st_mode & 0o777, 0o644)
+
+    @unittest.skipUnless(platform.system() == "Linux", "package() uses GNU install and sed")
+    def test_package_installs_the_command_launcher_and_desktop_entry(self) -> None:
+        self.write_payload()
+
+        result = self.run_function("package")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        wrapper = (self.pkgdir / "usr/bin/jotra").read_text()
+        self.assertIn(': "${JOTRA_GUI_BIN:=${WRIT_GUI_BIN:-/opt/jotra/AppRun}}"\n', wrapper)
+        self.assertIn("export JOTRA_GUI_BIN\n", wrapper)
+        self.assertIn('exec "/opt/jotra/usr/bin/jotra" "$@"\n', wrapper)
+        self.assertNotIn("JOTRA_COMMAND_NAME", wrapper)
+        self.assertIn('exec "/opt/jotra/AppRun" "$@"\n', (self.pkgdir / "usr/bin/jotra-tauri").read_text())
+        entry = (self.pkgdir / "usr/share/applications/jotra.desktop").read_text()
+        self.assertIn("Exec=/opt/jotra/AppRun %U\n", entry)
+        self.assertIn("Icon=jotra\n", entry)
+        self.assertIn("StartupWMClass=jotra-tauri\n", entry)
+        self.assertNotIn("NoDisplay", entry)
+        self.assertTrue((self.pkgdir / "usr/share/icons/hicolor/32x32/apps/jotra.png").is_file())
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # Captures for the site
 
-Every still under `site/src/assets/captures/` comes from `scripts/capture/run.sh`: a release build of the current branch, launched on a scratch copy of the folder `scripts/capture/fixtures/home/Notes` with `WRIT_DATA_DIR` and `WRIT_NOTES_DIR` pointed at it, driven by keystrokes posted to that one process, and captured by its window id at 2x. Nothing in a capture identifies the machine, and the run never reads `~/.writ` or `~/Writ`.
+Every still under `site/src/assets/captures/` comes from `scripts/capture/run.sh`: a release build of the current branch, launched on a scratch copy of the folder `scripts/capture/fixtures/home/Notes` with `JOTRA_DATA_DIR` and `JOTRA_NOTES_DIR` pointed at it, driven by keystrokes posted to that one process, and captured by its window id at 2x. Nothing in a capture identifies the machine, and the run never reads `~/.jotra` or `~/Jotra`.
 
 ## Re-run
 
@@ -17,7 +17,7 @@ scripts/capture/run.sh --report                               # media sizes agai
 
 Each scene writes its own `config.toml`: `[files] default_extension = "txt"`, Markdown files in Inline mode, the pine accent, and only the apps that scene shows switched on (`apps_on` in `run.sh`), so `[apps]`, `ai.chat.enabled`, `ai.rewrite.enabled` and `mcp.enabled` are all written out. `first-run` writes no config, which is what puts the format step on screen.
 
-The run builds the CLI sidecar and the app (`CARGO_PROFILE_RELEASE_STRIP=false`, no updater artifact) and logs the bundle path. It refuses to start while any other Writ process exists, and every key and click waits until the instance is the frontmost app and the machine has been idle for 45 s, so leave it alone once it is going. The Finder still and the `first-run` still follow the system appearance; the run flips it for the dark take and puts it back.
+The run builds the CLI sidecar and the app (`CARGO_PROFILE_RELEASE_STRIP=false`, no updater artifact) and logs the bundle path. It refuses to start while any other Jotra process exists, and every key and click waits until the instance is the frontmost app and the machine has been idle for 45 s, so leave it alone once it is going. The Finder still and the `first-run` still follow the system appearance; the run flips it for the dark take and puts it back.
 
 Stills are 2x. When the main display draws at 1x, as the headless M1's fallback display does, the run adds a 1680x1050 display drawn at 2x (`drive hidpi`, through `CGVirtualDisplay`) for its own length and places every window on it; on a machine with no display attached, that display stands in for the fallback one until the run ends, so a remote view of the machine changes size meanwhile. `CAPTURE_HIDPI=0` keeps the display as it is and takes 1x stills.
 
@@ -28,7 +28,7 @@ Output: `site/src/assets/captures/<scene>-<theme>.png`, at most 2880 px wide and
 | Name | On screen | Apps on | Window |
 |---|---|---|---|
 | `hero-window` | The file tree and search in the sidebar, the garden committee file open in Inline mode with the cursor on a list line, so that line shows its markup | none | 1440x900 |
-| `hero-window-win`, `hero-window-linux` | The same frame in the Windows and GNOME shells (`VITE_WRIT_PLATFORM`, dev instance) | none | 1440x900 |
+| `hero-window-win`, `hero-window-linux` | The same frame in the Windows and GNOME shells (`VITE_JOTRA_PLATFORM`, dev instance) | none | 1440x900 |
 | `text-file` | `To do.txt` in the plain editor, with the status bar a `.txt` file gets | none | 1280x800 |
 | `markdown-inline` | `Sourdough notes.md` in Inline mode: a callout, a table shown as styled source, checkboxes and a code block | none | 1280x800 |
 | `search` | Search everywhere with matches across `.txt` and `.md` files | none | 1280x800 |

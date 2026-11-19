@@ -29,16 +29,16 @@ const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
  * probe cannot tell "installed but stopped" from "not installed", so each line
  * states the fact it knows and, for Ollama, the link covers the other case. */
 const LOCAL_HELP: Record<string, string> = {
-  ollama: "Writ could not reach Ollama on port 11434.",
-  lmstudio: "Writ could not reach LM Studio on port 1234. Start its server in the Developer tab.",
-  llamacpp: "Writ could not reach llama.cpp on port 8080. Start llama-server.",
-  jan: "Writ could not reach Jan on port 1337. Start its Local API Server in Jan's settings.",
+  ollama: "Jotra could not reach Ollama on port 11434.",
+  lmstudio: "Jotra could not reach LM Studio on port 1234. Start its server in the Developer tab.",
+  llamacpp: "Jotra could not reach llama.cpp on port 8080. Start llama-server.",
+  jan: "Jotra could not reach Jan on port 1337. Start its Local API Server in Jan's settings.",
 };
 
 /** The one connection Chat and Rewrite share (ADR-040 section 1), drawn on the
  * page of each while either is on (ADR-042 section 4).
  *
- * Every row reads the provider table `writ-core` owns, so the base URL, the
+ * Every row reads the provider table `jotra-core` owns, so the base URL, the
  * key page, the default model and the probe port are never spelled out here. */
 export default function AiConnectionRows(props: { withChatModel: boolean }) {
   const cfg = () => configStore.config().ai;
@@ -259,7 +259,7 @@ export default function AiConnectionRows(props: { withChatModel: boolean }) {
       setKeyInput("");
       await refreshModels();
       if (state.memory_only) {
-        showToast("Writ could not save your key, so you will enter it again next time", "info");
+        showToast("Jotra could not save your key, so you will enter it again next time", "info");
       }
     } catch {
       showToast("Could not save the API key", "error");
@@ -378,14 +378,14 @@ export default function AiConnectionRows(props: { withChatModel: boolean }) {
             fallback={
               <p class="settings-ai-consent-text">
                 The files you attach and the text you rewrite are sent to {endpointHost()} with your
-                API key. Writ also sends the key on its own to check the host is reachable. The check
+                API key. Jotra also sends the key on its own to check the host is reachable. The check
                 sends no text.
               </p>
             }
           >
             <p class="settings-ai-consent-text">
               The files you attach and the text you rewrite are sent to {endpointHost()} on your
-              local network. Writ also checks the address is reachable. The check sends no text.
+              local network. Jotra also checks the address is reachable. The check sends no text.
             </p>
           </Show>
           <Button data-action="ai-consent" onClick={() => void onConsent()}>
@@ -459,7 +459,7 @@ export default function AiConnectionRows(props: { withChatModel: boolean }) {
       </Show>
       <Show when={keyState()?.is_set && keyState()?.memory_only}>
         <div class="settings-ai-note">
-          Your key is not saved. You will enter it again next time you open Writ.
+          Your key is not saved. You will enter it again next time you open Jotra.
         </div>
       </Show>
 

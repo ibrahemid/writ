@@ -1,9 +1,9 @@
 use std::path::Path;
 
+use jotra_core::inbox::InboxFile;
+use jotra_storage::inbox_store;
 use tauri::{AppHandle, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
-use writ_core::inbox::InboxFile;
-use writ_storage::inbox_store;
 
 use crate::commands::config::persist_config;
 use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};

@@ -11,11 +11,11 @@
     "control-height": { "$type": "dimension", "$value": { "value": 44, "unit": "px" } },
     "font": {
       "$type": "fontFamily",
-      "display": { "$value": "\"Wix Madefor Display\", var(--writ-font-ui)" },
-      "text": { "$value": "\"Wix Madefor Text\", var(--writ-font-ui)" }
+      "display": { "$value": "\"Wix Madefor Display\", var(--jotra-font-ui)" },
+      "text": { "$value": "\"Wix Madefor Text\", var(--jotra-font-ui)" }
     },
     "hl": { "$type": "color", "$value": "#FFE97A" },
-    "hl-ink": { "$type": "color", "$value": "var(--writ-fg)" },
+    "hl-ink": { "$type": "color", "$value": "var(--jotra-fg)" },
     "text": {
       "$type": "dimension",
       "xs": { "$value": { "value": 13, "unit": "px" } },
@@ -62,7 +62,7 @@
       "crossfade": { "$value": { "value": 350, "unit": "ms" } },
       "noun-interval": { "$value": { "value": 2400, "unit": "ms" } },
       "noun-sweep-delay": {
-        "$value": "calc(var(--writ-site-motion-crossfade) + 60ms)",
+        "$value": "calc(var(--jotra-site-motion-crossfade) + 60ms)",
         "$description": "The noun fade and the slot width change run together for one crossfade; the marker starts just after both end."
       },
       "noun-sweep-out": { "$value": { "value": 220, "unit": "ms" } },

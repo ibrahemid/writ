@@ -8,7 +8,7 @@ import type { BufferDocument } from "../../types/buffer";
 
 // The one preview beside two panes (ADR-056): it shows the focused pane's tab,
 // and its iframe is the same element through Split right, a focus change and
-// Close split, since removing a writ-preview:// iframe freezes the macOS
+// Close split, since removing a jotra-preview:// iframe freezes the macOS
 // webview. A split kept from the last launch comes back with both panes.
 
 const mocks = vi.hoisted(() => ({

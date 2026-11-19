@@ -10,29 +10,29 @@ import "./cm-markdown-typography.css";
 // same spec against its own values (ADR-030).
 // The app's own selection, so the note and the find field select in one colour;
 // the match is the same mix a step weaker, and both are named in the theme.
-const SELECTION = "var(--writ-selection)";
-const SELECTION_MATCH = "var(--writ-selection-match)";
+const SELECTION = "var(--jotra-selection)";
+const SELECTION_MATCH = "var(--jotra-selection-match)";
 const ACTIVE_LINE_ALPHA = `color-mix(in srgb, ${cssVar(CSS_VAR.bgHover)} 55%, transparent)`;
 
 
 // Exported for the contract test that holds the var()-only rule.
-export const writThemeSpec = {
+export const jotraThemeSpec = {
     "&": {
       color: cssVar(CSS_VAR.fg),
       backgroundColor: cssVar(CSS_VAR.bgCanvas),
       height: "100%",
       // The zoom lever, which defaults to the prose size (design/tokens).
-      fontSize: "var(--writ-editor-font-size)",
+      fontSize: "var(--jotra-editor-font-size)",
       lineHeight: cssVar(CSS_VAR.proseLineHeight),
-      fontFamily: "var(--writ-font-prose)",
-      [CSS_VAR.prosePadX]: `calc(var(--writ-editor-font-size) * ${cssVar(CSS_VAR.prosePadXEm)})`,
-      [CSS_VAR.prosePadY]: `calc(var(--writ-editor-font-size) * ${cssVar(CSS_VAR.prosePadYEm)})`,
+      fontFamily: "var(--jotra-font-prose)",
+      [CSS_VAR.prosePadX]: `calc(var(--jotra-editor-font-size) * ${cssVar(CSS_VAR.prosePadXEm)})`,
+      [CSS_VAR.prosePadY]: `calc(var(--jotra-editor-font-size) * ${cssVar(CSS_VAR.prosePadYEm)})`,
     },
     ".cm-scroller": {
       overflow: "auto",
       minWidth: "0",
       lineHeight: cssVar(CSS_VAR.proseLineHeight),
-      fontFamily: "var(--writ-font-prose)",
+      fontFamily: "var(--jotra-font-prose)",
     },
     // The column is the pane; only the gutters are drawn, in the same tokens
     // the rendered note pads with.
@@ -47,10 +47,10 @@ export const writThemeSpec = {
     ".cm-cursor, .cm-dropCursor": {
       borderLeftColor: cssVar(CSS_VAR.accent),
     },
-    "&.cm-focused > .cm-scroller > .cm-writ-selection .cm-selectionBackground": {
+    "&.cm-focused > .cm-scroller > .cm-jotra-selection .cm-selectionBackground": {
       backgroundColor: SELECTION,
     },
-    ".cm-writ-selection .cm-selectionBackground": {
+    ".cm-jotra-selection .cm-selectionBackground": {
       backgroundColor: SELECTION,
     },
     // The selection layer paints the note; a native selection reaching a
@@ -75,8 +75,8 @@ export const writThemeSpec = {
     },
     ".cm-lineNumbers .cm-gutterElement": {
       color: cssVar(CSS_VAR.fgFaint),
-      fontFamily: "var(--writ-font-mono)",
-      padding: "0 var(--writ-space-3) 0 var(--writ-space-3)",
+      fontFamily: "var(--jotra-font-mono)",
+      padding: "0 var(--jotra-space-3) 0 var(--jotra-space-3)",
     },
     ".cm-foldGutter .cm-gutterElement": {
       color: cssVar(CSS_VAR.fgFaint),
@@ -85,7 +85,7 @@ export const writThemeSpec = {
       display: "inline-flex",
       alignItems: "center",
       height: "100%",
-      padding: "0 var(--writ-space-1)",
+      padding: "0 var(--jotra-space-1)",
       cursor: "pointer",
     },
     ".cm-fold-marker:hover": {
@@ -138,11 +138,11 @@ export const writThemeSpec = {
 // One spec, two polarities. The token values flip via CSS custom properties;
 // the { dark } flag flips CodeMirror's own light/dark fallback styling so a
 // light preset doesn't keep dark-mode caret/selection defaults.
-export const writThemeDark = EditorView.theme(writThemeSpec, { dark: true });
-export const writThemeLight = EditorView.theme(writThemeSpec, { dark: false });
+export const jotraThemeDark = EditorView.theme(jotraThemeSpec, { dark: true });
+export const jotraThemeLight = EditorView.theme(jotraThemeSpec, { dark: false });
 
 export function editorThemeFor(polarity: ThemePolarity) {
-  return polarity === "light" ? writThemeLight : writThemeDark;
+  return polarity === "light" ? jotraThemeLight : jotraThemeDark;
 }
 
 /**
@@ -151,39 +151,39 @@ export function editorThemeFor(polarity: ThemePolarity) {
  * way down. Inside a markdown buffer, mono stays scoped to `.cm-md-code` and
  * `.cm-md-codeblock` (ADR-030 decision 7).
  */
-export const writCodeFace = EditorView.theme({
+export const jotraCodeFace = EditorView.theme({
   "&, .cm-scroller, .cm-content": {
-    fontFamily: "var(--writ-font-mono)",
+    fontFamily: "var(--jotra-font-mono)",
   },
 });
 
 /** The tag styles, exported so the same contract test can read them. */
-export const WRIT_HIGHLIGHT_SPECS = [
-  { tag: t.keyword, color: "var(--writ-syntax-keyword)", fontWeight: "600" },
-  { tag: t.controlKeyword, color: "var(--writ-syntax-keyword)", fontWeight: "600" },
-  { tag: t.moduleKeyword, color: "var(--writ-syntax-keyword)", fontWeight: "600" },
-  { tag: t.operatorKeyword, color: "var(--writ-syntax-keyword)", fontWeight: "600" },
-  { tag: t.definitionKeyword, color: "var(--writ-syntax-keyword)", fontWeight: "600" },
+export const JOTRA_HIGHLIGHT_SPECS = [
+  { tag: t.keyword, color: "var(--jotra-syntax-keyword)", fontWeight: "600" },
+  { tag: t.controlKeyword, color: "var(--jotra-syntax-keyword)", fontWeight: "600" },
+  { tag: t.moduleKeyword, color: "var(--jotra-syntax-keyword)", fontWeight: "600" },
+  { tag: t.operatorKeyword, color: "var(--jotra-syntax-keyword)", fontWeight: "600" },
+  { tag: t.definitionKeyword, color: "var(--jotra-syntax-keyword)", fontWeight: "600" },
 
-  { tag: [t.string, t.special(t.string)], color: "var(--writ-syntax-string)" },
-  { tag: t.regexp, color: "var(--writ-syntax-string)" },
-  { tag: t.escape, color: "var(--writ-syntax-number)" },
+  { tag: [t.string, t.special(t.string)], color: "var(--jotra-syntax-string)" },
+  { tag: t.regexp, color: "var(--jotra-syntax-string)" },
+  { tag: t.escape, color: "var(--jotra-syntax-number)" },
 
-  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: "var(--writ-syntax-comment)", fontStyle: "italic" },
+  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: "var(--jotra-syntax-comment)", fontStyle: "italic" },
 
-  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: "var(--writ-syntax-function)" },
-  { tag: t.macroName, color: "var(--writ-syntax-function)" },
+  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: "var(--jotra-syntax-function)" },
+  { tag: t.macroName, color: "var(--jotra-syntax-function)" },
 
-  { tag: [t.number, t.integer, t.float, t.bool, t.null], color: "var(--writ-syntax-number)" },
+  { tag: [t.number, t.integer, t.float, t.bool, t.null], color: "var(--jotra-syntax-number)" },
 
-  { tag: [t.typeName, t.className, t.namespace], color: "var(--writ-syntax-type)" },
-  { tag: t.standard(t.typeName), color: "var(--writ-syntax-type)" },
+  { tag: [t.typeName, t.className, t.namespace], color: "var(--jotra-syntax-type)" },
+  { tag: t.standard(t.typeName), color: "var(--jotra-syntax-type)" },
 
-  { tag: [t.variableName, t.propertyName, t.attributeName], color: "var(--writ-syntax-variable)" },
-  { tag: t.definition(t.variableName), color: "var(--writ-syntax-variable)" },
+  { tag: [t.variableName, t.propertyName, t.attributeName], color: "var(--jotra-syntax-variable)" },
+  { tag: t.definition(t.variableName), color: "var(--jotra-syntax-variable)" },
 
-  { tag: [t.tagName, t.angleBracket], color: "var(--writ-syntax-keyword)" },
-  { tag: t.attributeValue, color: "var(--writ-syntax-string)" },
+  { tag: [t.tagName, t.angleBracket], color: "var(--jotra-syntax-keyword)" },
+  { tag: t.attributeValue, color: "var(--jotra-syntax-string)" },
 
   // Weight and size carry heading hierarchy; the ink is the body's (ADR-030
   // decision 3), and the per-level scale comes from the line decorations.
@@ -192,8 +192,8 @@ export const WRIT_HIGHLIGHT_SPECS = [
   { tag: t.emphasis, fontStyle: "italic" },
   { tag: t.strong, fontWeight: "600" },
 
-  { tag: t.invalid, color: "var(--writ-status-error)" },
+  { tag: t.invalid, color: "var(--jotra-status-error)" },
   { tag: t.meta, color: cssVar(CSS_VAR.fgMuted) },
 ];
 
-export const writHighlight = HighlightStyle.define(WRIT_HIGHLIGHT_SPECS);
+export const jotraHighlight = HighlightStyle.define(JOTRA_HIGHLIGHT_SPECS);

@@ -147,9 +147,9 @@ describe("sidebar section headers", () => {
   });
 
   it("names the folder section after the folder itself", () => {
-    h.root = "/Users/me/Documents/Writ";
+    h.root = "/Users/me/Documents/Jotra";
     const { container } = render(() => <FilesSection />);
-    expect(container.querySelector(".sidebar-section-heading")!.textContent).toBe("Writ");
+    expect(container.querySelector(".sidebar-section-heading")!.textContent).toBe("Jotra");
   });
 
   it("is absent when no folder is open", () => {
@@ -159,8 +159,8 @@ describe("sidebar section headers", () => {
 
   it("keeps section headers unshouted and untracked", () => {
     expect(SIDEBAR_CSS).toMatch(/text-transform:\s*none/);
-    expect(SIDEBAR_CSS).toMatch(/letter-spacing:\s*var\(--writ-ui-tracking\)/);
-    expect(SIDEBAR_CSS).toMatch(/font-size:\s*var\(--writ-ui-sm\)/);
+    expect(SIDEBAR_CSS).toMatch(/letter-spacing:\s*var\(--jotra-ui-tracking\)/);
+    expect(SIDEBAR_CSS).toMatch(/font-size:\s*var\(--jotra-ui-sm\)/);
     expect(SIDEBAR_CSS).not.toMatch(/text-transform:\s*uppercase/);
   });
 });
@@ -174,8 +174,8 @@ describe("sidebar rows", () => {
     expect(TAB_ITEM_CSS).not.toContain(".tab-item-active");
     expect(TAB_ITEM_CSS).not.toContain(".tab-item-pill");
     const rowRule = /\.tab-item\s*\{[^}]*\}/.exec(TAB_ITEM_CSS)![0];
-    expect(rowRule).not.toContain("--writ-accent");
-    expect(TAB_ITEM_CSS).toMatch(/\.tab-item:hover\s*\{\s*background:\s*var\(--writ-bg-hover\)/);
+    expect(rowRule).not.toContain("--jotra-accent");
+    expect(TAB_ITEM_CSS).toMatch(/\.tab-item:hover\s*\{\s*background:\s*var\(--jotra-bg-hover\)/);
   });
 
   it("gives a search result the same box as a note row", () => {
@@ -201,16 +201,16 @@ describe("sidebar rows", () => {
     const card = ruleFor(SIDEBAR_EMPTY_CSS, ".sidebar-empty");
     expect(card.get("width")).toBe("auto");
     expect(card.get("max-width")).toBe("212px");
-    expect(card.get("margin")).toBe("var(--writ-space-3)");
+    expect(card.get("margin")).toBe("var(--jotra-space-3)");
     expect(ruleFor(SIDEBAR_EMPTY_CSS, ".sidebar-empty-line").get("flex-wrap")).toBe("wrap");
   });
 
   it("sits on the row pitch and radius tokens the whole sidebar shares", () => {
-    expect(TAB_ITEM_CSS).not.toMatch(/height:\s*var\(--writ-sidebar-row-fill\)/);
+    expect(TAB_ITEM_CSS).not.toMatch(/height:\s*var\(--jotra-sidebar-row-fill\)/);
     const row = ruleFor(SIDEBAR_CSS, ".sidebar-row");
-    expect(row.get("min-height")).toBe("var(--writ-sidebar-row-fill)");
-    expect(row.get("border-radius")).toBe("var(--writ-r-row)");
-    expect(row.get("margin")).toBe("1px var(--writ-space-2-5)");
+    expect(row.get("min-height")).toBe("var(--jotra-sidebar-row-fill)");
+    expect(row.get("border-radius")).toBe("var(--jotra-r-row)");
+    expect(row.get("margin")).toBe("1px var(--jotra-space-2-5)");
   });
 
   // Tabbing to a closed note reveals Restore and Close, which sit over the

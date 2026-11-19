@@ -1,23 +1,23 @@
 //! The chat applier still hands the history store to the write, and a note
 //! applied over earlier text keeps a version of what it held.
 
+use jotra_storage::note_history::NoteHistoryStore;
+use jotra_tauri_lib::commands::chat::{apply_proposal_inner, undo_proposal_inner};
+use jotra_tauri_lib::watcher::open_files::NoOpenNotes;
 use tempfile::TempDir;
-use writ_storage::note_history::NoteHistoryStore;
-use writ_tauri_lib::commands::chat::{apply_proposal_inner, undo_proposal_inner};
-use writ_tauri_lib::watcher::open_files::NoOpenNotes;
 
 #[test]
 fn applying_a_proposal_keeps_what_the_note_held() {
     let dir = TempDir::new().expect("temp dir");
     let notes = std::fs::canonicalize(dir.path()).expect("canonical root");
-    let writ = notes.join(".writ");
-    std::fs::create_dir_all(&writ).expect("writ folder");
+    let jotra = notes.join(".jotra");
+    std::fs::create_dir_all(&jotra).expect("jotra folder");
 
     let note = notes.join("Launch.md");
     std::fs::write(&note, "before\n").expect("seed a note");
-    let before_hash = writ_core::hash::sha256_hex(b"before\n");
+    let before_hash = jotra_core::hash::sha256_hex(b"before\n");
 
-    let store = NoteHistoryStore::open(&writ).expect("history store");
+    let store = NoteHistoryStore::open(&jotra).expect("history store");
     store.set_notes_root(notes.clone());
     let key = store.key_for(&note).expect("a key for the note");
     assert!(store.versions(&key).expect("versions").is_empty());
@@ -25,7 +25,7 @@ fn applying_a_proposal_keeps_what_the_note_held() {
     let outcome = apply_proposal_inner(
         &notes,
         &NoOpenNotes,
-        &writ,
+        &jotra,
         "probe-host",
         &note.to_string_lossy(),
         "after\n",
@@ -53,8 +53,8 @@ fn applying_a_proposal_keeps_what_the_note_held() {
 fn applying_without_a_store_still_writes() {
     let dir = TempDir::new().expect("temp dir");
     let notes = std::fs::canonicalize(dir.path()).expect("canonical root");
-    let writ = notes.join(".writ");
-    std::fs::create_dir_all(&writ).expect("writ folder");
+    let jotra = notes.join(".jotra");
+    std::fs::create_dir_all(&jotra).expect("jotra folder");
 
     let note = notes.join("Launch.md");
     std::fs::write(&note, "before\n").expect("seed a note");
@@ -62,11 +62,11 @@ fn applying_without_a_store_still_writes() {
     apply_proposal_inner(
         &notes,
         &NoOpenNotes,
-        &writ,
+        &jotra,
         "probe-host",
         &note.to_string_lossy(),
         "after\n",
-        &writ_core::hash::sha256_hex(b"before\n"),
+        &jotra_core::hash::sha256_hex(b"before\n"),
         None,
         |_, _, _| unreachable!(),
     )
@@ -84,8 +84,8 @@ fn applying_without_a_store_still_writes() {
 fn a_stale_proposal_is_refused_with_a_copy() {
     let dir = TempDir::new().expect("temp dir");
     let notes = std::fs::canonicalize(dir.path()).expect("canonical root");
-    let writ = notes.join(".writ");
-    std::fs::create_dir_all(&writ).expect("writ folder");
+    let jotra = notes.join(".jotra");
+    std::fs::create_dir_all(&jotra).expect("jotra folder");
 
     let note = notes.join("Launch.md");
     std::fs::write(&note, "somebody else wrote this\n").expect("seed a note");
@@ -93,11 +93,11 @@ fn a_stale_proposal_is_refused_with_a_copy() {
     let refusal = apply_proposal_inner(
         &notes,
         &NoOpenNotes,
-        &writ,
+        &jotra,
         "probe-host",
         &note.to_string_lossy(),
         "what the model proposed\n",
-        &writ_core::hash::sha256_hex(b"what the pane last saw\n"),
+        &jotra_core::hash::sha256_hex(b"what the pane last saw\n"),
         None,
         |_, _, _| unreachable!(),
     )
@@ -136,30 +136,30 @@ fn versioned(
 ) {
     let dir = TempDir::new().expect("temp dir");
     let notes = std::fs::canonicalize(dir.path()).expect("canonical root");
-    let writ = notes.join(".writ");
-    std::fs::create_dir_all(&writ).expect("writ folder");
+    let jotra = notes.join(".jotra");
+    std::fs::create_dir_all(&jotra).expect("jotra folder");
     std::fs::write(notes.join("Launch.md"), text).expect("seed a note");
-    let store = NoteHistoryStore::open(&writ).expect("history store");
+    let store = NoteHistoryStore::open(&jotra).expect("history store");
     store.set_notes_root(notes.clone());
-    (dir, notes, writ, store)
+    (dir, notes, jotra, store)
 }
 
 /// Applies `after` over `before` and answers what the apply did.
 fn apply_over(
     notes: &std::path::Path,
-    writ: &std::path::Path,
+    jotra: &std::path::Path,
     store: &NoteHistoryStore,
     before: &str,
     after: &str,
-) -> writ_tauri_lib::commands::chat::ProposalOutcome {
+) -> jotra_tauri_lib::commands::chat::ProposalOutcome {
     apply_proposal_inner(
         notes,
         &NoOpenNotes,
-        writ,
+        jotra,
         "probe-host",
         "Launch.md",
         after,
-        &writ_core::hash::sha256_hex(before.as_bytes()),
+        &jotra_core::hash::sha256_hex(before.as_bytes()),
         Some(store),
         |_, _, _| unreachable!("a note in the folder is not written through a tab"),
     )
@@ -168,18 +168,18 @@ fn apply_over(
 
 #[test]
 fn undo_after_apply_puts_back_what_the_note_held() {
-    let (_dir, notes, writ, store) = versioned("before\n");
-    let applied = apply_over(&notes, &writ, &store, "before\n", "after\n");
+    let (_dir, notes, jotra, store) = versioned("before\n");
+    let applied = apply_over(&notes, &jotra, &store, "before\n", "after\n");
     assert!(applied.changed);
     assert!(applied.undoable, "the apply kept the text it replaced");
 
     let undone = undo_proposal_inner(
         &notes,
         &NoOpenNotes,
-        &writ,
+        &jotra,
         "probe-host",
         "Launch.md",
-        &writ_core::hash::sha256_hex(b"before\n"),
+        &jotra_core::hash::sha256_hex(b"before\n"),
         &applied.hash,
         Some(&store),
     )
@@ -190,7 +190,7 @@ fn undo_after_apply_puts_back_what_the_note_held() {
         std::fs::read_to_string(notes.join("Launch.md")).expect("read"),
         "before\n"
     );
-    let log = writ_storage::activity_log::read_recent(&writ, 10);
+    let log = jotra_storage::activity_log::read_recent(&jotra, 10);
     assert!(
         log.iter().any(|record| record.action == "undo_proposal"),
         "the undo is its own line in the log"
@@ -199,17 +199,17 @@ fn undo_after_apply_puts_back_what_the_note_held() {
 
 #[test]
 fn undo_refuses_a_note_that_changed_after_the_apply() {
-    let (_dir, notes, writ, store) = versioned("before\n");
-    let applied = apply_over(&notes, &writ, &store, "before\n", "after\n");
+    let (_dir, notes, jotra, store) = versioned("before\n");
+    let applied = apply_over(&notes, &jotra, &store, "before\n", "after\n");
     std::fs::write(notes.join("Launch.md"), "somebody kept writing\n").expect("write");
 
     let error = undo_proposal_inner(
         &notes,
         &NoOpenNotes,
-        &writ,
+        &jotra,
         "probe-host",
         "Launch.md",
-        &writ_core::hash::sha256_hex(b"before\n"),
+        &jotra_core::hash::sha256_hex(b"before\n"),
         &applied.hash,
         Some(&store),
     )
@@ -228,15 +228,15 @@ fn undo_refuses_a_note_that_changed_after_the_apply() {
 
 #[test]
 fn a_write_without_versions_offers_no_undo() {
-    let (_dir, notes, writ, store) = versioned("before\n");
+    let (_dir, notes, jotra, store) = versioned("before\n");
     let unkept = apply_proposal_inner(
         &notes,
         &NoOpenNotes,
-        &writ,
+        &jotra,
         "probe-host",
         "Launch.md",
         "after\n",
-        &writ_core::hash::sha256_hex(b"before\n"),
+        &jotra_core::hash::sha256_hex(b"before\n"),
         None,
         |_, _, _| unreachable!(),
     )
@@ -246,17 +246,17 @@ fn a_write_without_versions_offers_no_undo() {
     let error = undo_proposal_inner(
         &notes,
         &NoOpenNotes,
-        &writ,
+        &jotra,
         "probe-host",
         "Launch.md",
-        &writ_core::hash::sha256_hex(b"before\n"),
+        &jotra_core::hash::sha256_hex(b"before\n"),
         &unkept.hash,
         Some(&store),
     )
     .expect_err("nothing to put back");
     assert_eq!(error, "The earlier text of Launch.md is not kept.");
 
-    let same = apply_over(&notes, &writ, &store, "after\n", "after\n");
+    let same = apply_over(&notes, &jotra, &store, "after\n", "after\n");
     assert!(!same.changed);
     assert!(
         !same.undoable,

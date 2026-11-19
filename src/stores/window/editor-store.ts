@@ -638,7 +638,7 @@ export function createEditorStore(options: EditorStoreOptions = {}) {
   }
 
   /**
-   * Records that a note's file is gone, keeping whatever text only Writ holds.
+   * Records that a note's file is gone, keeping whatever text only Jotra holds.
    *
    * `text` is passed only by the launch, which seeds a note the last session
    * left removed from the unsaved-text journal rather than from anything live.
@@ -725,7 +725,7 @@ export function createEditorStore(options: EditorStoreOptions = {}) {
    * A `removed` note's text is kept the same way, and the deletion still
    * stands: the next launch writes nothing at the path and leaves nothing
    * beside it either, handing the text to the tab, which comes up removed on
-   * disk (`writ_core::recovery::plan_recovery`). So the typing survives a quit
+   * disk (`jotra_core::recovery::plan_recovery`). So the typing survives a quit
    * and the file the person threw away is not put back.
    *
    * The bar of a failed save reads this too, and takes its `Try again` away
@@ -879,7 +879,7 @@ export function createEditorStore(options: EditorStoreOptions = {}) {
   }
 
   /**
-   * Writes a note whose file was deleted outside Writ back to the path it
+   * Writes a note whose file was deleted outside Jotra back to the path it
    * names.
    *
    * The write goes through the one command the backend does not refuse for a
@@ -971,7 +971,7 @@ export function createEditorStore(options: EditorStoreOptions = {}) {
    * a save could not write, is not the file's and reads dirty.
    *
    * The file's digest comes from Rust, which read the file
-   * (`writ_core::hash::comparison_digest_hex`), and is kept as the record of
+   * (`jotra_core::hash::comparison_digest_hex`), and is kept as the record of
    * what the file holds ([`lastKnownDiskHash`]). The frontend computes no
    * digest: whether the document says what the file says is the document
    * compared (`Text.eq`) with the text the file was last known to hold.
@@ -1053,7 +1053,7 @@ export function createEditorStore(options: EditorStoreOptions = {}) {
     if (fileHoldsOpened && opened !== null && note !== undefined && note.opened === opened) {
       note.saved = opened;
       // So the first save can be the changes since the open. Rust applies
-      // them only while the file holds this digest's text and the bytes Writ
+      // them only while the file holds this digest's text and the bytes Jotra
       // last read or wrote.
       if (diskHash !== undefined && !savesAreHeld(id)) recordOpenedText(id, opened, diskHash);
     }
@@ -1305,7 +1305,7 @@ export function createEditorStore(options: EditorStoreOptions = {}) {
   }
 
   /**
-   * Records that a tab came back with the state it kept, its file as Writ
+   * Records that a tab came back with the state it kept, its file as Jotra
    * last read or wrote it ([`checkKeptState`]). The note's record stands, and
    * its document is the text the file holds.
    */
@@ -1317,7 +1317,7 @@ export function createEditorStore(options: EditorStoreOptions = {}) {
    * Whether the state pane `slot` keeps for note `id` can come back without
    * the file being read: it was kept under the note's current open, the note
    * reads clean against its file, nothing holds its saves, and the backend
-   * finds the file as Writ last read or wrote it
+   * finds the file as Jotra last read or wrote it
    * ([`noteFileUnchanged`]). Null sends the tab to its file, as does a check
    * that fails.
    */
@@ -1726,7 +1726,7 @@ export function createEditorStore(options: EditorStoreOptions = {}) {
    * stopped leaves the queue empty on purpose, and the note whose bar is on
    * screen is not always the one loaded into the editor.
    *
-   * A note whose file was deleted outside Writ is put back instead. Writing it
+   * A note whose file was deleted outside Jotra is put back instead. Writing it
    * the ordinary way is refused every time, so the press would answer the bar
    * with the same bar.
    *

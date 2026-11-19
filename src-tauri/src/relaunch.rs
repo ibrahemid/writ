@@ -14,7 +14,7 @@
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use writ_core::events::bus::WritEvent;
+use jotra_core::events::bus::JotraEvent;
 
 use crate::quit::QuitDecision;
 use crate::state::AppState;
@@ -22,7 +22,7 @@ use crate::state::AppState;
 /// How long a relaunch waits for a quit that is already writing.
 ///
 /// That quit waits for the window up to
-/// [`writ_core::recovery::QUIT_FLUSH_TIMEOUT`], then stops chat replies,
+/// [`jotra_core::recovery::QUIT_FLUSH_TIMEOUT`], then stops chat replies,
 /// drains deferred reindexes and writes the clean marker; one still running
 /// after this is stuck.
 const QUIT_IN_FLIGHT_LIMIT: Duration = Duration::from_secs(8);
@@ -42,7 +42,7 @@ pub enum RelaunchShutdown {
 /// Runs the quit's handshake and the shutdown work before a relaunch.
 ///
 /// Blocks for as long as the window takes to answer, bounded by
-/// [`writ_core::recovery::QUIT_FLUSH_TIMEOUT`], so it must not run on the main
+/// [`jotra_core::recovery::QUIT_FLUSH_TIMEOUT`], so it must not run on the main
 /// thread: the window's answer is a command handled there.
 ///
 /// `finish_shutdown` is the work itself, passed in because it needs the
@@ -67,7 +67,7 @@ pub fn shut_down_for_relaunch(
     state.notes_index_cancel.store(true, Ordering::Relaxed);
 
     if state.frontend_ready.load(Ordering::SeqCst) {
-        state.event_bus.emit(WritEvent::FlushBeforeQuit);
+        state.event_bus.emit(JotraEvent::FlushBeforeQuit);
         if !state.quit.wait_for_flush() {
             tracing::warn!("the window did not confirm its flush before the relaunch");
         }

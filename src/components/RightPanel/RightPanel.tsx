@@ -170,7 +170,7 @@ function ConnectionsPanel() {
         "is-open": win.rightPanel.isOpen(),
         "is-resizing": dragWidth() !== null,
       }}
-      style={{ "--writ-panel-live-width": `${width()}px` }}
+      style={{ "--jotra-panel-live-width": `${width()}px` }}
       aria-label="Connections"
       aria-hidden={win.rightPanel.isOpen() ? undefined : "true"}
       ref={panel}

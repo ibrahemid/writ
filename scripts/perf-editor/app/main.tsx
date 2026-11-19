@@ -179,7 +179,7 @@ function rowFor(file: HarnessFile, mode: FileOpenMode): BufferDocument {
   if (file.doc) return file.doc;
   const now = new Date().toISOString();
   const id = `perf-${nextId++}`;
-  // writ_core::buffer::manager::open_external: titled with the file name.
+  // jotra_core::buffer::manager::open_external: titled with the file name.
   const doc: BufferDocument = {
     id,
     title: file.path.slice(file.path.lastIndexOf("/") + 1),
@@ -253,7 +253,7 @@ function answerFor(cmd: string, args: Record<string, unknown>): { value: unknown
     case "note_disk_state":
       return { value: { state: "described", disk: { hash: file.digest, size: file.size, mtime_ms: Date.now() } } };
     // Every write to the page's files is the editor's own, so each file is as
-    // Writ last read or wrote it.
+    // Jotra last read or wrote it.
     case "note_file_unchanged":
       return { value: true };
     case "get_buffer":
@@ -301,9 +301,9 @@ installIpc((bridge) => {
   };
 });
 
-// The preview pane keeps an iframe on the host's writ-preview:// scheme. A
+// The preview pane keeps an iframe on the host's jotra-preview:// scheme. A
 // browser has no handler for it; the blank page is what the host serves.
-const hostOnly = (value: string) => (value.startsWith("writ-preview://") ? "about:blank" : value);
+const hostOnly = (value: string) => (value.startsWith("jotra-preview://") ? "about:blank" : value);
 const frameSrc = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, "src");
 if (frameSrc?.set) {
   const setSrc = frameSrc.set;
@@ -551,7 +551,7 @@ function wholeTextCounts() {
 }
 
 function emitWindowShown(): void {
-  emitEvent?.("writ://window-shown", { kind: "window:shown", payload: { rust_elapsed_us: 0 } });
+  emitEvent?.("jotra://window-shown", { kind: "window:shown", payload: { rust_elapsed_us: 0 } });
 }
 
 /** The undo depth, the selection and the line at the top of the view of the editor in front. */

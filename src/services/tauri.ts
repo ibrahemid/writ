@@ -15,7 +15,7 @@ import type {
   AppId,
   ConfigDiagnostic,
   FileExtension,
-  WritConfig,
+  JotraConfig,
 } from "../types/config";
 import type { CommandUsage, CommandUse } from "../types/command-usage";
 
@@ -201,10 +201,10 @@ export async function getNotesRoot(): Promise<string> {
   return invoke("get_notes_root");
 }
 
-/** Why Writ is not using the notes folder the settings named. */
-export type NotesFallbackReason = "unusable" | "holds_writ_data";
+/** Why Jotra is not using the notes folder the settings named. */
+export type NotesFallbackReason = "unusable" | "holds_jotra_data";
 
-/** The notes folder Writ was asked for and did not keep. */
+/** The notes folder Jotra was asked for and did not keep. */
 export interface NotesFolderFallback {
   /** The folder as it was written in the settings. */
   from: string;
@@ -216,7 +216,7 @@ export interface NotesFolderInfo {
   path: string;
   /** The path with the home folder collapsed to `~`. */
   display_path: string;
-  /** The folder the settings named, when Writ could not use it. */
+  /** The folder the settings named, when Jotra could not use it. */
   fallback: NotesFolderFallback | null;
   /**
    * The sync service whose folder the notes are in, as the user knows it
@@ -276,7 +276,7 @@ export type RetitleOutcome =
   | { kind: "not_yet" }
   | { kind: "skipped" };
 
-/** Renames a note Writ minted from its own first line, or offers to. */
+/** Renames a note Jotra minted from its own first line, or offers to. */
 export async function autoRetitleNote(id: string): Promise<RetitleOutcome> {
   return invoke("auto_retitle_note", { id });
 }
@@ -554,7 +554,7 @@ export interface DiskState {
 }
 
 /** The request header a raw-body save names its note in (`NOTE_ID_HEADER` in Rust). */
-const NOTE_ID_HEADER = "writ-note-id";
+const NOTE_ID_HEADER = "jotra-note-id";
 
 /**
  * Writes the note and reports the digest of what its file now holds, or null
@@ -575,7 +575,7 @@ export async function saveBufferContent(id: string, content: string): Promise<st
  * [`noteDiskState`] answered with. `length` is the length in UTF-16 code units
  * of the document the changes produce. Answers like [`saveBufferContent`];
  * refused under `ERR_CHANGES_STALE` when the file no longer holds that text or
- * holds bytes Writ did not last read or write.
+ * holds bytes Jotra did not last read or write.
  */
 export async function saveBufferChanges(
   id: string,
@@ -599,7 +599,7 @@ export async function setBufferViewPosition(
 }
 
 /**
- * Writes a note whose file was deleted outside Writ back to the path it names.
+ * Writes a note whose file was deleted outside Jotra back to the path it names.
  *
  * [`saveBufferContent`] refuses that write, because a keystroke must not put
  * back a file the person threw away (spec W4). This is the person asking for
@@ -613,7 +613,7 @@ export async function restoreNoteFile(id: string, content: string): Promise<stri
  * What the backend can say about a note's file.
  *
  * `no_file` is a new note nothing has saved yet. `undescribed` is a note that
- * names a file Writ could not read: it is not there, or its bytes have not
+ * names a file Jotra could not read: it is not there, or its bytes have not
  * been downloaded (reading the second would make the sync provider fetch it).
  * The two are kept apart because only the first is safe to read as clean.
  */
@@ -628,7 +628,7 @@ export async function noteDiskState(id: string): Promise<NoteDiskAnswer> {
 }
 
 /**
- * Whether the note's file is still the file Writ last read or wrote, told
+ * Whether the note's file is still the file Jotra last read or wrote, told
  * from its size, modification time and file id without reading it. `false`
  * whenever that cannot be shown: no file, nothing recorded, another file.
  */
@@ -644,7 +644,7 @@ export interface NoteVersion {
   at_ms: number;
   /** What the text costs in bytes. */
   bytes: number;
-  /** What left the text in the file, or `null` when Writ does not know. */
+  /** What left the text in the file, or `null` when Jotra does not know. */
   writer?: VersionWriter | null;
 }
 
@@ -702,7 +702,7 @@ export async function copyNoteVersion(versionId: number): Promise<VersionCopy> {
 }
 
 /**
- * Carries out what the person chose about a file that changed outside Writ.
+ * Carries out what the person chose about a file that changed outside Jotra.
  *
  * `content` is the editor's text, which has to travel: the file is the only
  * copy of a note, so the unsaved version exists nowhere else. The backend
@@ -812,7 +812,7 @@ export async function listHistory(): Promise<BufferDocument[]> {
 
 /**
  * Reopens a closed file, answering as an open does: a file that grew past the
- * size Writ opens without asking is a question, and nothing reopens until
+ * size Jotra opens without asking is a question, and nothing reopens until
  * `restoreBufferConfirmed`. A tab restored unread at launch answers the same
  * way and stays where it is.
  */
@@ -835,11 +835,11 @@ export async function searchBuffers(query: string): Promise<SearchResults> {
   return invoke("search_buffers", { query });
 }
 
-export async function getConfig(): Promise<WritConfig> {
+export async function getConfig(): Promise<JotraConfig> {
   return invoke("get_config");
 }
 
-export async function updateConfig(config: WritConfig): Promise<void> {
+export async function updateConfig(config: JotraConfig): Promise<void> {
   return invoke("update_config", { config });
 }
 
@@ -1315,8 +1315,8 @@ export async function previewClose(bufferId: string): Promise<void> {
 }
 
 /**
- * The host-decided base a preview URL is built from: `writ-preview://` on
- * macOS and Linux, `http://writ-preview.` on Windows (WebView2 serves a custom
+ * The host-decided base a preview URL is built from: `jotra-preview://` on
+ * macOS and Linux, `http://jotra-preview.` on Windows (WebView2 serves a custom
  * scheme as `http://<scheme>.<host>`). Loaded once at startup into the
  * preview-url store.
  */
@@ -1728,7 +1728,7 @@ export async function aiConsentHost(): Promise<AiEndpointState> {
  * the user typed. */
 export type AiProviderGroup = "on_device" | "local" | "hosted" | "custom";
 
-/** One row of the provider table `writ-core` owns (ADR-040 section 2). The
+/** One row of the provider table `jotra-core` owns (ADR-040 section 2). The
  * dropdown, the probe, the model fetch and the endpoint guard read this one
  * definition, so the frontend hardcodes no base URL and no key page. */
 export interface AiProviderInfo {
@@ -1907,7 +1907,7 @@ export interface RequestIdentity {
   host: string;
 }
 
-/** The reason a provider gave for a refusal, when it is one of the eight Writ
+/** The reason a provider gave for a refusal, when it is one of the eight Jotra
  * has a sentence for, as the word Rust serializes it to. No other part of a
  * response body ever reaches here. */
 export type RejectCode =
@@ -1920,7 +1920,7 @@ export type RejectCode =
   | "unsupported_parameter"
   | "unsupported_value";
 
-/** What the pane is told when a reply fails. `message` is Writ's own sentence;
+/** What the pane is told when a reply fails. `message` is Jotra's own sentence;
  * `kind` is what a recovery action is chosen from. */
 export interface ChatErrorFrame {
   kind: string;
@@ -1949,7 +1949,7 @@ export type ChatProposalStatus = "pending" | "applied" | "discarded" | "refused"
 
 /** A change to one note a reply asked for.
  *
- * `before_hash` is what Writ read when the request was built, never something
+ * `before_hash` is what Jotra read when the request was built, never something
  * the model supplied: applying carries it back as the note's last known state,
  * so a note that changed in between is refused rather than overwritten.
  *
@@ -2263,7 +2263,7 @@ export async function mcpSetClientPermission(
   return invoke("mcp_set_client_permission", { name, read, write });
 }
 
-/** Lets one program see the file open in Writ and its selection, or stops it (ADR-053). */
+/** Lets one program see the file open in Jotra and its selection, or stops it (ADR-053). */
 export async function mcpSetClientContext(name: string, context: boolean): Promise<McpClients> {
   return invoke("mcp_set_client_context", { name, context });
 }
@@ -2371,7 +2371,7 @@ export async function mcpTools(): Promise<McpTools> {
   return invoke("mcp_tools");
 }
 
-/** The MCP clients Writ has a card for (`writ_core::mcp_clients::McpClient`). */
+/** The MCP clients Jotra has a card for (`jotra_core::mcp_clients::McpClient`). */
 export type McpClientId =
   | "claude-code"
   | "codex"
@@ -2499,7 +2499,7 @@ export async function dictationOpenMicSettings(): Promise<void> {
 // Through the Tauri plugin rather than `navigator.clipboard`: reading in
 // WKWebView can raise WebKit's own paste-confirmation UI, and webkitgtk's
 // clipboard read is unreliable, so the web API would behave differently on each
-// of the three platforms Writ ships.
+// of the three platforms Jotra ships.
 
 export async function writeClipboardText(text: string): Promise<void> {
   await writeText(text);

@@ -1,53 +1,53 @@
 /* The bar's own platform attribute drives the metrics. The `:root` prefix is
-   load-bearing: Button.css sizes `.writ-btn` per platform at the same weight,
+   load-bearing: Button.css sizes `.jotra-btn` per platform at the same weight,
    and the toolbar's controls have to win those. */
 
-.writ-toolbar {
+.jotra-toolbar {
   /* The baseline's compose gap and GNOME's toolbar metric, named so the bar
      moves both in one place; every reader carries the fallback the token
      contract asks of a component-set property. */
-  --writ-toolbar-tight: var(--writ-space-2-5);
+  --jotra-toolbar-tight: var(--jotra-space-2-5);
   height: 44px;
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--writ-space-3);
-  padding: 0 var(--writ-space-4);
-  border-bottom: 1px solid var(--writ-border-soft);
-  background: var(--writ-bg-canvas);
-  z-index: var(--writ-z-chrome);
+  gap: var(--jotra-space-3);
+  padding: 0 var(--jotra-space-4);
+  border-bottom: 1px solid var(--jotra-border-soft);
+  background: var(--jotra-bg-canvas);
+  z-index: var(--jotra-z-chrome);
 }
 
-:root .writ-toolbar[data-platform] .writ-btn {
+:root .jotra-toolbar[data-platform] .jotra-btn {
   height: 28px;
 }
 
-:root .writ-toolbar[data-platform] .writ-toolbar-btn {
+:root .jotra-toolbar[data-platform] .jotra-toolbar-btn {
   width: 28px;
   padding: 0;
   justify-content: center;
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
 }
 
-:root .writ-toolbar[data-platform] .writ-toolbar-compose {
-  gap: var(--writ-toolbar-tight, var(--writ-space-2-5));
-  padding: 0 var(--writ-space-3-5) 0 var(--writ-space-3);
+:root .jotra-toolbar[data-platform] .jotra-toolbar-compose {
+  gap: var(--jotra-toolbar-tight, var(--jotra-space-2-5));
+  padding: 0 var(--jotra-space-3-5) 0 var(--jotra-space-3);
   /* GNOME sets its buttons in bold; the toolbar's compose label is not one. */
   font-weight: 400;
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
   white-space: nowrap;
   flex: none;
 }
 
-.writ-toolbar-divider {
+.jotra-toolbar-divider {
   width: 1px;
   height: 16px;
   flex: none;
-  background: var(--writ-border);
+  background: var(--jotra-border);
 }
 
 /* Search moves out of the sidebar and sits at the right end of the bar. */
-.writ-toolbar .search-bar {
+.jotra-toolbar .search-bar {
   margin-left: auto;
   flex: 0 1 180px;
   min-width: 120px;
@@ -55,50 +55,50 @@
 }
 
 /* Windows: a 48px CommandBar, a flat cluster and a boxed search field. */
-.writ-toolbar[data-platform="win"] {
+.jotra-toolbar[data-platform="win"] {
   height: 48px;
-  gap: var(--writ-space-2);
-  padding: 0 var(--writ-space-3) 0 var(--writ-space-4);
+  gap: var(--jotra-space-2);
+  padding: 0 var(--jotra-space-3) 0 var(--jotra-space-4);
   border-bottom: 0;
 }
 
-:root .writ-toolbar[data-platform="win"] .writ-btn {
+:root .jotra-toolbar[data-platform="win"] .jotra-btn {
   height: 36px;
 }
 
-:root .writ-toolbar[data-platform="win"] .writ-toolbar-btn {
+:root .jotra-toolbar[data-platform="win"] .jotra-toolbar-btn {
   width: 36px;
 }
 
-:root .writ-toolbar[data-platform="win"] .writ-toolbar-compose {
-  gap: var(--writ-space-3);
-  padding: 0 var(--writ-space-4) 0 var(--writ-space-3-5);
+:root .jotra-toolbar[data-platform="win"] .jotra-toolbar-compose {
+  gap: var(--jotra-space-3);
+  padding: 0 var(--jotra-space-4) 0 var(--jotra-space-3-5);
 }
 
-.writ-toolbar[data-platform="win"] .writ-toolbar-divider {
+.jotra-toolbar[data-platform="win"] .jotra-toolbar-divider {
   height: 20px;
-  margin: 0 var(--writ-space-2);
+  margin: 0 var(--jotra-space-2);
 }
 
-.writ-toolbar[data-platform="win"] .search-bar {
+.jotra-toolbar[data-platform="win"] .search-bar {
   width: 220px;
 }
 
-.writ-toolbar[data-platform="win"] .search-field {
+.jotra-toolbar[data-platform="win"] .search-field {
   min-height: 32px;
-  gap: var(--writ-space-3);
-  border-radius: var(--writ-r-control);
-  background: var(--writ-win-input-active);
-  border: 1px solid var(--writ-win-stroke);
+  gap: var(--jotra-space-3);
+  border-radius: var(--jotra-r-control);
+  background: var(--jotra-win-input-active);
+  border: 1px solid var(--jotra-win-stroke);
   border-bottom-width: 2px;
 }
 
 /* The second AdwToolbarView row under the header bar: same ground, no rule
    between them, so the two read as one chrome stack. */
-.writ-toolbar[data-platform="linux"] {
-  gap: var(--writ-toolbar-tight, var(--writ-space-2-5));
-  padding: var(--writ-toolbar-tight, var(--writ-space-2-5));
-  background: var(--writ-lin-headerbar-bg);
+.jotra-toolbar[data-platform="linux"] {
+  gap: var(--jotra-toolbar-tight, var(--jotra-space-2-5));
+  padding: var(--jotra-toolbar-tight, var(--jotra-space-2-5));
+  background: var(--jotra-lin-headerbar-bg);
   border-bottom: 0;
 }
 
@@ -107,24 +107,24 @@
    sidebar's own motion token: both move together, and the leading control stays
    clear of the lights for the whole open and close rather than crossing under
    them. Reduced motion zeroes the duration at the token layer. */
-:root[data-platform="mac"] .writ-toolbar {
-  transition: padding-left var(--writ-motion);
+:root[data-platform="mac"] .jotra-toolbar {
+  transition: padding-left var(--jotra-motion);
 }
 
-:root[data-platform="mac"] .writ-toolbar.leads-lights {
-  padding-left: var(--writ-window-lights-lead, 84px);
+:root[data-platform="mac"] .jotra-toolbar.leads-lights {
+  padding-left: var(--jotra-window-lights-lead, 84px);
 }
 
-.writ-toolbar-programs {
+.jotra-toolbar-programs {
   position: relative;
 }
 
-.writ-toolbar-dot {
+.jotra-toolbar-dot {
   position: absolute;
   top: 5px;
   right: 5px;
   width: 6px;
   height: 6px;
-  border-radius: var(--writ-r-pill);
-  background: var(--writ-accent);
+  border-radius: var(--jotra-r-pill);
+  background: var(--jotra-accent);
 }

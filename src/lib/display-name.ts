@@ -11,7 +11,7 @@
  * typing over it keeps the format the file already has.
  */
 
-/** The formats Writ writes prose in, whose extension a display name drops. */
+/** The formats Jotra writes prose in, whose extension a display name drops. */
 const TEXT_EXTENSIONS = ["md", "markdown", "txt", "text"] as const;
 
 const TEXT_EXTENSION = new RegExp(`\\.(?:${TEXT_EXTENSIONS.join("|")})$`, "i");

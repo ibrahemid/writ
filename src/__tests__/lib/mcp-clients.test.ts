@@ -6,7 +6,7 @@ import { isClientsName, MCP_CLIENTS, mcpClientLabel } from "../../lib/mcp-client
 import { PROGRAM_NAMES } from "../../lib/program-names";
 
 const MCP_CLIENTS_RS = readFileSync(
-  resolve(process.cwd(), "crates/writ-core/src/mcp_clients.rs"),
+  resolve(process.cwd(), "crates/jotra-core/src/mcp_clients.rs"),
   "utf8",
 );
 

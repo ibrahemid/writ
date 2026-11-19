@@ -1,15 +1,15 @@
-# cargo-fuzz crate for writ-core's parsers of untrusted input: the
-# writ-preview:// URL parser, the rename name, the image sniff, and the
-# writ:// link grammar.
+# cargo-fuzz crate for jotra-core's parsers of untrusted input: the
+# jotra-preview:// URL parser, the rename name, the image sniff, and the
+# jotra:// link grammar.
 #
 # Its own workspace (empty [workspace] table) so the main `cargo build
 # --workspace` and the four merge gates never pull in libfuzzer or require
 # the nightly toolchain. Run with: `cargo +nightly fuzz run <target>`.
 #
-# Depends only on writ-core — every target is pure domain logic, so the fuzz
+# Depends only on jotra-core — every target is pure domain logic, so the fuzz
 # build does not compile Tauri.
 [package]
-name = "writ-fuzz"
+name = "jotra-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2021"
@@ -19,7 +19,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-writ-core = { path = "../crates/writ-core" }
+jotra-core = { path = "../crates/jotra-core" }
 
 [[bin]]
 name = "preview_url_parser"
@@ -43,8 +43,8 @@ doc = false
 bench = false
 
 [[bin]]
-name = "writ_link_parser"
-path = "fuzz_targets/writ_link_parser.rs"
+name = "jotra_link_parser"
+path = "fuzz_targets/jotra_link_parser.rs"
 test = false
 doc = false
 bench = false

@@ -15,8 +15,8 @@ Build IDs:
 
 Run from the repository root:
     python3 .github/scripts/debug_symbols.py dsym --out DIR A.dSYM [B.dSYM ...]
-    python3 .github/scripts/debug_symbols.py pdb --out DIR --exe writ-tauri.exe writ_tauri.pdb
-    python3 .github/scripts/debug_symbols.py elf --out DIR --binary writ-tauri writ-tauri.debug
+    python3 .github/scripts/debug_symbols.py pdb --out DIR --exe jotra-tauri.exe jotra_tauri.pdb
+    python3 .github/scripts/debug_symbols.py elf --out DIR --binary jotra-tauri jotra-tauri.debug
 """
 from __future__ import annotations
 

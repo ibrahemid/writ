@@ -4,33 +4,33 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--writ-overlay-scrim);
-  z-index: var(--writ-z-modal);
+  background: var(--jotra-overlay-scrim);
+  z-index: var(--jotra-z-modal);
 }
 
 .confirm-dialog {
   width: min(420px, calc(100vw - 48px));
-  background: var(--writ-bg-raised);
+  background: var(--jotra-bg-raised);
   border: 0;
-  border-radius: var(--writ-r-modal);
-  padding: var(--writ-space-6);
+  border-radius: var(--jotra-r-modal);
+  padding: var(--jotra-space-6);
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-4);
-  box-shadow: var(--writ-shadow-modal);
-  font-family: var(--writ-font-ui);
+  gap: var(--jotra-space-4);
+  box-shadow: var(--jotra-shadow-modal);
+  font-family: var(--jotra-font-ui);
 }
 
 .confirm-title {
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
   font-weight: 600;
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
 }
 
 .confirm-message {
-  font-size: var(--writ-ui-sm);
-  color: var(--writ-fg-muted);
+  font-size: var(--jotra-ui-sm);
+  color: var(--jotra-fg-muted);
   line-height: 1.5;
   /* A caller that breaks its message into lines keeps them. */
   white-space: pre-line;
@@ -41,8 +41,8 @@
 .confirm-actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--writ-space-3);
-  margin-top: var(--writ-space-3);
+  gap: var(--jotra-space-3);
+  margin-top: var(--jotra-space-3);
 }
 
 .confirm-dialog.has-diff {
@@ -56,39 +56,39 @@
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-2);
-  padding: var(--writ-space-2) 0;
-  border-radius: var(--writ-r-modal);
-  background: var(--writ-bg-sunken);
-  font-family: var(--writ-font-prose);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-md-lh);
+  gap: var(--jotra-space-2);
+  padding: var(--jotra-space-2) 0;
+  border-radius: var(--jotra-r-modal);
+  background: var(--jotra-bg-sunken);
+  font-family: var(--jotra-font-prose);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-md-lh);
 }
 
 .confirm-diff-row {
   display: flex;
   align-items: baseline;
-  gap: var(--writ-space-2);
-  padding: 0 var(--writ-space-3);
+  gap: var(--jotra-space-2);
+  padding: 0 var(--jotra-space-3);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
 }
 
 .confirm-diff-row[data-kind="added"] {
-  background: color-mix(in srgb, var(--writ-status-success) 20%, transparent);
-  color: var(--writ-fg);
+  background: color-mix(in srgb, var(--jotra-status-success) 20%, transparent);
+  color: var(--jotra-fg);
 }
 
 .confirm-diff-row[data-kind="removed"] {
-  background: color-mix(in srgb, var(--writ-status-error) 20%, transparent);
-  color: var(--writ-fg);
+  background: color-mix(in srgb, var(--jotra-status-error) 20%, transparent);
+  color: var(--jotra-fg);
 }
 
 .confirm-diff-mark {
   flex-shrink: 0;
   width: 1ch;
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
 }
 
 .confirm-diff-text {

@@ -1,5 +1,6 @@
 import type { ActivityDecision } from "../services/tauri";
 import { joinAnd } from "./join-and";
+import { currentActivityAction } from "./legacy-names";
 
 export type ToolPhrase =
   | { group: "do"; phrase: string }
@@ -16,7 +17,7 @@ export const TOOL_PHRASES: Readonly<Record<string, ToolPhrase>> = {
   note_properties: { group: "see", phrase: "properties" },
   note_tags: { group: "see", phrase: "tags" },
   folder_tags: { group: "see", phrase: "tags" },
-  open_in_writ: { group: "do", phrase: "show" },
+  open_in_jotra: { group: "do", phrase: "show" },
   reveal: { group: "do", phrase: "show" },
   write_note: { group: "write", phrase: "replace a file's text" },
   create_note: { group: "write", phrase: "make a new file" },
@@ -24,7 +25,7 @@ export const TOOL_PHRASES: Readonly<Record<string, ToolPhrase>> = {
   append_note: { group: "write", phrase: "add to the end of a file" },
   replace_in_note: { group: "write", phrase: "replace a passage in a file" },
   today: { group: "write", phrase: "make or add to today's file" },
-  get_context: { group: "context", phrase: "see the file open in Writ and the text you selected" },
+  get_context: { group: "context", phrase: "see the file open in Jotra and the text you selected" },
 };
 
 export function describeReadTools(ids: readonly string[]): string {
@@ -66,7 +67,7 @@ export function describeContextTools(ids: readonly string[]): string {
 }
 
 export function isReadAction(action: string): boolean {
-  const group = TOOL_PHRASES[action]?.group;
+  const group = TOOL_PHRASES[currentActivityAction(action)]?.group;
   return group === "do" || group === "see";
 }
 
@@ -91,13 +92,13 @@ const CALL_PHRASES: Readonly<Record<string, CallPhrase>> = {
   },
   note_tags: { done: "read", asked: "read", beforePath: "the tags in", alone: "a file's tags" },
   folder_tags: { done: "listed", asked: "list", alone: "the tags in your folder" },
-  open_in_writ: { done: "showed", asked: "show", beforePath: "", alone: "a file in Writ" },
-  reveal: { done: "showed", asked: "show", beforePath: "", alone: "a file in Writ" },
+  open_in_jotra: { done: "showed", asked: "show", beforePath: "", alone: "a file in Jotra" },
+  reveal: { done: "showed", asked: "show", beforePath: "", alone: "a file in Jotra" },
   get_context: {
     done: "read",
     asked: "read",
     beforePath: "what is selected in",
-    alone: "which file is open in Writ",
+    alone: "which file is open in Jotra",
   },
   read_index: { done: "read", asked: "read", alone: "the index of your folder" },
   write_note: { done: "replaced", asked: "replace", beforePath: "the text of", alone: "a file's text" },
@@ -134,7 +135,8 @@ const CALL_PHRASES: Readonly<Record<string, CallPhrase>> = {
   discard_proposal: { done: "changed", asked: "change", beforePath: "", alone: "a file" },
 };
 
-export function describeCall(action: string, namesFile: boolean, decision: ActivityDecision): string {
+export function describeCall(logged: string, namesFile: boolean, decision: ActivityDecision): string {
+  const action = currentActivityAction(logged);
   const phrase = CALL_PHRASES[action];
   if (!phrase) return action.replace(/_/g, " ");
   const done = decision === "allow" && !isReadAction(action);

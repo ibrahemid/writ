@@ -1,6 +1,6 @@
-/** Who left a text in a file, as Rust's `writ_core::notes::Writer` sends it. */
+/** Who left a text in a file, as Rust's `jotra_core::notes::Writer` sends it. */
 export type VersionWriter =
-  | { kind: "writ" }
+  | { kind: "jotra" }
   | { kind: "program"; name: string }
   | { kind: "chat" }
   | { kind: "command" };

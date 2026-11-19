@@ -5,26 +5,26 @@ use std::sync::mpsc;
 use std::sync::Mutex as StdMutex;
 
 use chrono::{DateTime, Local, TimeZone, Utc};
-use writ_core::buffer::document::BufferStatus;
-use writ_core::config::FileExtension;
-use writ_core::events::bus::WritEvent;
-use writ_core::startup::dated_note_name;
-use writ_core::watcher::change_event::ExternalChange;
-use writ_tauri_lib::commands::buffer::save_buffer_content_inner;
-use writ_tauri_lib::commands::capture::{capture_append_inner, capture_target_inner};
-use writ_tauri_lib::commands::notes::todays_note_inner;
-use writ_tauri_lib::state::AppState;
+use jotra_core::buffer::document::BufferStatus;
+use jotra_core::config::FileExtension;
+use jotra_core::events::bus::JotraEvent;
+use jotra_core::startup::dated_note_name;
+use jotra_core::watcher::change_event::ExternalChange;
+use jotra_tauri_lib::commands::buffer::save_buffer_content_inner;
+use jotra_tauri_lib::commands::capture::{capture_append_inner, capture_target_inner};
+use jotra_tauri_lib::commands::notes::todays_note_inner;
+use jotra_tauri_lib::state::AppState;
 
-// `AppState::initialize` reads `WRIT_DATA_DIR` and `WRIT_NOTES_DIR`.
+// `AppState::initialize` reads `JOTRA_DATA_DIR` and `JOTRA_NOTES_DIR`.
 static ENV_LOCK: StdMutex<()> = StdMutex::new(());
 
 fn launch(data_dir: &std::path::Path, notes_dir: &std::path::Path) -> AppState {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("WRIT_DATA_DIR", data_dir);
-    std::env::set_var("WRIT_NOTES_DIR", notes_dir);
+    std::env::set_var("JOTRA_DATA_DIR", data_dir);
+    std::env::set_var("JOTRA_NOTES_DIR", notes_dir);
     let state = AppState::initialize().expect("app state");
-    std::env::remove_var("WRIT_DATA_DIR");
-    std::env::remove_var("WRIT_NOTES_DIR");
+    std::env::remove_var("JOTRA_DATA_DIR");
+    std::env::remove_var("JOTRA_NOTES_DIR");
     state
 }
 
@@ -141,7 +141,7 @@ const FRENCH: &str = "Le caf\u{e9} est tr\u{e8}s bon, \u{e0} c\u{f4}t\u{e9} de l
 D\u{e9}j\u{e0} vu, d\u{e9}j\u{e0} lu, d\u{e9}j\u{e0} \u{e9}crit.\n";
 
 fn windows_1252(text: &str) -> Vec<u8> {
-    writ_core::text_encoding::TextEncoding::windows_1252()
+    jotra_core::text_encoding::TextEncoding::windows_1252()
         .encode(text)
         .expect("Windows-1252 text")
         .into_owned()
@@ -219,7 +219,7 @@ fn a_tab_holding_the_file_is_told_and_cannot_write_over_the_entry() {
     let told = rx.try_iter().any(|event| {
         matches!(
             event,
-            WritEvent::BufferExternal { ref buffer_id, change: ExternalChange::Modified, .. }
+            JotraEvent::BufferExternal { ref buffer_id, change: ExternalChange::Modified, .. }
                 if *buffer_id == tab.id
         )
     });

@@ -733,8 +733,8 @@ function AppShell() {
 
     registerCommand({
       id: "help.docs",
-      label: "Writ help",
-      description: "Open the guide on the Writ site",
+      label: "Jotra help",
+      description: "Open the guide on the Jotra site",
       keywords: ["docs", "documentation", "manual", "guide"],
       scope: "app",
       execute: () => void linkStore.openExternal(DOCS_URL),
@@ -793,7 +793,7 @@ function AppShell() {
     registerCommand({
       id: "app.thirdPartyNotices",
       label: "Third-party licenses",
-      description: "Open the licenses of the code Writ is built on",
+      description: "Open the licenses of the code Jotra is built on",
       scope: "app",
       execute: () => {
         void (async () => {
@@ -814,7 +814,7 @@ function AppShell() {
     registerCommand({
       id: "app.check_updates",
       label: "Check for updates…",
-      description: "Check whether a newer version of Writ is available",
+      description: "Check whether a newer version of Jotra is available",
       scope: "app",
       execute: () => updateStore.checkForUpdate(),
     });
@@ -823,9 +823,9 @@ function AppShell() {
   const shell: BootShell = {
     prepareShell: () => {
       const off: Unlisten[] = [];
-      // Writ owns every context menu; the engine's belongs to a browser.
+      // Jotra owns every context menu; the engine's belongs to a browser.
       off.push(installNativeContextMenuSuppressor());
-      // The platform layer is a token overlay keyed off the root; Writ is
+      // The platform layer is a token overlay keyed off the root; Jotra is
       // single-window, so it is written once and never recomputed (ADR-030).
       document.documentElement.setAttribute("data-platform", resolvePlatform());
       themeStore.applyToRoot();

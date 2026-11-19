@@ -10,13 +10,13 @@
       // set and root attributes, applied before the module bundle runs.
       (function () {
         try {
-          var raw = localStorage.getItem("writ-theme-vars-v3");
+          var raw = localStorage.getItem("jotra-theme-vars-v3");
           if (!raw) return;
           var saved = JSON.parse(raw);
           var root = document.documentElement;
           var vars = saved.vars || {};
           for (var key in vars) {
-            if (Object.prototype.hasOwnProperty.call(vars, key) && key.indexOf("--writ-") === 0) {
+            if (Object.prototype.hasOwnProperty.call(vars, key) && key.indexOf("--jotra-") === 0) {
               root.style.setProperty(key, vars[key]);
             }
           }

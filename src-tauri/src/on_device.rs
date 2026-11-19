@@ -1,15 +1,15 @@
 //! Apple's on-device model, through the Swift bridge `build.rs` links on
-//! macOS (`swift/WritOnDevice`).
+//! macOS (`swift/JotraOnDevice`).
 //!
-//! What the bridge's answers mean is [`writ_core::ai::on_device`]; turning its
-//! events into the rewrite stream is [`writ_ai::connection::OnDeviceReply`].
+//! What the bridge's answers mean is [`jotra_core::ai::on_device`]; turning its
+//! events into the rewrite stream is [`jotra_ai::connection::OnDeviceReply`].
 //! This module is the call and the callback. A build without the bridge, and
 //! every platform other than macOS, reports the model as unsupported.
 
+use jotra_ai::connection::{OnDeviceEvent, OnDeviceReply, OnDeviceRequest, StreamEvent};
+use jotra_core::ai::on_device::{offers_on_device, OnDeviceAvailability, OnDeviceFailure};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use writ_ai::connection::{OnDeviceEvent, OnDeviceReply, OnDeviceRequest, StreamEvent};
-use writ_core::ai::on_device::{offers_on_device, OnDeviceAvailability, OnDeviceFailure};
 
 /// What the system reports about the on-device model right now.
 pub fn availability() -> OnDeviceAvailability {
@@ -76,12 +76,12 @@ impl Events {
     }
 }
 
-#[cfg(writ_on_device_bridge)]
+#[cfg(jotra_on_device_bridge)]
 mod bridge {
     use std::ffi::{c_char, c_void, CStr, CString};
 
+    use jotra_ai::connection::{OnDeviceEvent, OnDeviceRequest};
     use tokio::sync::mpsc;
-    use writ_ai::connection::{OnDeviceEvent, OnDeviceRequest};
 
     use super::Events;
 
@@ -89,17 +89,17 @@ mod bridge {
     type Sender = mpsc::UnboundedSender<OnDeviceEvent>;
 
     extern "C" {
-        fn writ_on_device_os_major() -> i32;
-        fn writ_on_device_availability() -> i32;
-        fn writ_on_device_stream(
+        fn jotra_on_device_os_major() -> i32;
+        fn jotra_on_device_availability() -> i32;
+        fn jotra_on_device_stream(
             instructions: *const c_char,
             prompt: *const c_char,
             temperature: f64,
             context: *mut c_void,
             callback: Callback,
         ) -> *mut c_void;
-        fn writ_on_device_stop(handle: *mut c_void);
-        fn writ_on_device_release(handle: *mut c_void);
+        fn jotra_on_device_stop(handle: *mut c_void);
+        fn jotra_on_device_release(handle: *mut c_void);
     }
 
     const EVENT_SNAPSHOT: i32 = 0;
@@ -108,12 +108,12 @@ mod bridge {
 
     pub(super) fn os_major() -> u32 {
         // SAFETY: takes no arguments and reads the process's system version.
-        u32::try_from(unsafe { writ_on_device_os_major() }).unwrap_or(0)
+        u32::try_from(unsafe { jotra_on_device_os_major() }).unwrap_or(0)
     }
 
     pub(super) fn availability_code() -> i32 {
         // SAFETY: takes no arguments; the bridge answers a code.
-        unsafe { writ_on_device_availability() }
+        unsafe { jotra_on_device_availability() }
     }
 
     /// The bridge's handle on one request, released when dropped.
@@ -126,7 +126,7 @@ mod bridge {
     impl Handle {
         pub(super) fn stop(&self) {
             // SAFETY: the handle is live until `drop` releases it.
-            unsafe { writ_on_device_stop(self.0) }
+            unsafe { jotra_on_device_stop(self.0) }
         }
     }
 
@@ -134,7 +134,7 @@ mod bridge {
         fn drop(&mut self) {
             // SAFETY: released once, here; the bridge keeps the request alive
             // for as long as it still calls back.
-            unsafe { writ_on_device_release(self.0) }
+            unsafe { jotra_on_device_release(self.0) }
         }
     }
 
@@ -187,7 +187,7 @@ mod bridge {
         // SAFETY: both strings outlive the call, which copies them; the
         // context is a live box the callback frees on the ending event.
         let handle = unsafe {
-            writ_on_device_stream(
+            jotra_on_device_stream(
                 instructions.as_ptr(),
                 prompt.as_ptr(),
                 request.temperature,
@@ -202,10 +202,10 @@ mod bridge {
     }
 }
 
-#[cfg(not(writ_on_device_bridge))]
+#[cfg(not(jotra_on_device_bridge))]
 mod bridge {
+    use jotra_ai::connection::{OnDeviceEvent, OnDeviceRequest};
     use tokio::sync::mpsc;
-    use writ_ai::connection::{OnDeviceEvent, OnDeviceRequest};
 
     use super::Events;
 
@@ -261,7 +261,7 @@ mod tests {
         }
     }
 
-    #[cfg(writ_on_device_bridge)]
+    #[cfg(jotra_on_device_bridge)]
     #[test]
     fn the_bridge_reads_the_running_system() {
         assert!(bridge::os_major() >= 12, "{}", bridge::os_major());
@@ -299,7 +299,7 @@ mod tests {
     }
 
     /// A live rewrite on a Mac with Apple Intelligence on:
-    /// `cargo test -p writ-tauri --lib on_device -- --ignored`.
+    /// `cargo test -p jotra-tauri --lib on_device -- --ignored`.
     #[test]
     #[ignore = "needs Apple Intelligence turned on"]
     fn a_rewrite_streams_on_a_mac_with_the_model() {

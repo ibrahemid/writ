@@ -5,13 +5,13 @@ import { getDocsPage } from '../../data/docs-topics';
 const page = getDocsPage('cli');
 ---
 <Prose title={page.title} description={page.description} path={page.path}>
-  <p>The <code>writ</code> command opens files in the running app. The Windows installer and the <code>.deb</code> put it on your PATH, and <code>install.sh</code> puts it in <code>~/.local/bin</code>. On macOS or from a downloaded AppImage, install it from Settings, Integrations, Terminal command (macOS asks for an administrator password once when <code>/usr/local/bin</code> is not writable).</p>
-  <pre><code>writ todo.txt            # open a file
-writ .                   # open the folder
-pbpaste | writ           # stdin becomes a new file
-make test 2>&1 | writ --title tests</code></pre>
-  <p>Piped text is saved as a file in Writ's folder, so it stays after the terminal closes.</p>
+  <p>The <code>jotra</code> command opens files in the running app. The Windows installer and the <code>.deb</code> put it on your PATH, and <code>install.sh</code> puts it in <code>~/.local/bin</code>. On macOS or from a downloaded AppImage, install it from Settings, Integrations, Terminal command (macOS asks for an administrator password once when <code>/usr/local/bin</code> is not writable). <code>writ</code> runs the same command: the installers add both names, and the Settings action keeps a <code>writ</code> link that an earlier version made.</p>
+  <pre><code>jotra todo.txt            # open a file
+jotra .                   # open the folder
+pbpaste | jotra           # stdin becomes a new file
+make test 2>&1 | jotra --title tests</code></pre>
+  <p>Piped text is saved as a file in Jotra's folder, so it stays after the terminal closes.</p>
 
-  <h2 id="links">writ:// links</h2>
-  <p>On macOS and Windows, <code>writ://open?path=Plan.md&amp;line=12</code> opens a file in Writ's folder at a line, from a browser or another program, and <code>writ://new</code> opens a new tab. A link opens only a file inside the folder, and following one writes nothing.</p>
+  <h2 id="links">jotra:// links</h2>
+  <p>On macOS and Windows, <code>jotra://open?path=Plan.md&amp;line=12</code> opens a file in Jotra's folder at a line, from a browser or another program, and <code>jotra://new</code> opens a new tab. <code>writ://</code> links work the same way. A link opens only a file inside the folder, and following one writes nothing.</p>
 </Prose>

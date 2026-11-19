@@ -21,7 +21,7 @@ import { activityStore, ACTIVITY_POLL_MS, type ActivityRecord } from "../../stor
 import { programName, timeOf, WaitingList } from "./WaitingProgram";
 import "./ActivityPanel.css";
 
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 
 const [isOpen, setIsOpen] = createSignal(false);
 
@@ -55,7 +55,7 @@ function actorName(record: ActivityRecord): string {
     case "chat":
       return record.actor.host;
     case "app":
-      return "Writ";
+      return "Jotra";
   }
 }
 
@@ -87,14 +87,14 @@ function Row(props: { row: ActivityRow }) {
 function ActivityDialog() {
   const titleId = createUniqueId();
   const subtitleId = createUniqueId();
-  const writHeadingId = createUniqueId();
+  const jotraHeadingId = createUniqueId();
   const win = useWindow();
   let dialogRef: HTMLDivElement | undefined;
 
   const programRows = createMemo(() =>
     foldActivity(activityStore.records().filter((record) => record.actor.kind === "client")),
   );
-  const writRows = createMemo(() =>
+  const jotraRows = createMemo(() =>
     foldActivity(activityStore.records().filter((record) => record.actor.kind !== "client")),
   );
 
@@ -102,7 +102,7 @@ function ActivityDialog() {
     void activityStore.load();
   });
 
-  // The `writ mcp` process cannot tell a running app it wrote a line, so the
+  // The `jotra mcp` process cannot tell a running app it wrote a line, so the
   // list re-reads while it is on screen. This whole component is unmounted when
   // the panel closes, so the interval is cleared with it.
   onMount(() => {
@@ -134,7 +134,7 @@ function ActivityDialog() {
   async function onClear() {
     const confirmed = await requestConfirm({
       title: "Clear the activity list?",
-      message: "Writ will not have a record of what programs did before now.",
+      message: "Jotra will not have a record of what programs did before now.",
       confirmLabel: "Clear",
       danger: true,
       defaultAction: "cancel",
@@ -229,12 +229,12 @@ function ActivityDialog() {
             </ul>
           </Show>
 
-          <Show when={writRows().length > 0}>
-            <h2 id={writHeadingId} class="activity-section-title">
+          <Show when={jotraRows().length > 0}>
+            <h2 id={jotraHeadingId} class="activity-section-title">
               Chat and earlier versions
             </h2>
-            <ul class="activity-list" data-rows="writ" aria-labelledby={writHeadingId}>
-              <For each={writRows()}>{(row) => <Row row={row} />}</For>
+            <ul class="activity-list" data-rows="jotra" aria-labelledby={jotraHeadingId}>
+              <For each={jotraRows()}>{(row) => <Row row={row} />}</For>
             </ul>
           </Show>
         </div>

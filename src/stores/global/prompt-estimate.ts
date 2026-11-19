@@ -1,7 +1,7 @@
 import { createSignal, createRoot } from "solid-js";
 import { promptFillPlaceholders, promptEstimateTokens } from "../../services/tauri";
 
-// Singleton state — Writ is single-window: one prompt-fill modal, one estimate.
+// Singleton state — Jotra is single-window: one prompt-fill modal, one estimate.
 // Estimates the *filled* prompt: it fills the template with the current values
 // (authoritative Rust substitution) and then counts tokens, so the workbench
 // reflects what actually gets copied.

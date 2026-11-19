@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use writ_storage::paths::strip_verbatim_prefix;
+use jotra_storage::paths::strip_verbatim_prefix;
 
 use crate::poison::recover_poison;
 
@@ -281,16 +281,16 @@ pub fn canonicalize_root(path: &Path) -> std::io::Result<PathBuf> {
     Ok(strip_verbatim_prefix(std::fs::canonicalize(path)?))
 }
 
-/// [`writ_core::notes::containment::resolve_for_containment`] in the spelling
+/// [`jotra_core::notes::containment::resolve_for_containment`] in the spelling
 /// every other path in this crate carries.
 ///
-/// The walk-up rule lives in `writ-core` because the MCP tool surface applies
+/// The walk-up rule lives in `jotra-core` because the MCP tool surface applies
 /// it to a path a client chose (ADR-031 rule 3.7) and that crate imports no
 /// tauri. What is added here is the Windows verbatim prefix and the `String`
 /// the authorized-path stores are keyed by, so an authorized path and an
 /// indexed one stay one spelling.
 pub fn resolve_for_containment(path: &Path) -> Option<String> {
-    let resolved = writ_core::notes::containment::resolve_for_containment(path)?;
+    let resolved = jotra_core::notes::containment::resolve_for_containment(path)?;
     strip_verbatim_prefix(resolved)
         .into_os_string()
         .into_string()
@@ -459,19 +459,19 @@ mod tests {
     #[test]
     fn paths_equal_for_authorization_matches_an_identical_path() {
         assert!(paths_equal_for_authorization(
-            "/home/u/Writ/note.md",
-            "/home/u/Writ/note.md"
+            "/home/u/Jotra/note.md",
+            "/home/u/Jotra/note.md"
         ));
         assert!(!paths_equal_for_authorization(
-            "/home/u/Writ/note.md",
-            "/home/u/Writ/other.md"
+            "/home/u/Jotra/note.md",
+            "/home/u/Jotra/other.md"
         ));
     }
 
     #[test]
     fn paths_equal_for_authorization_follows_the_platform_on_case() {
         let differs_only_by_case =
-            paths_equal_for_authorization("/home/u/Writ/Note.md", "/home/u/Writ/note.md");
+            paths_equal_for_authorization("/home/u/Jotra/Note.md", "/home/u/Jotra/note.md");
         assert_eq!(differs_only_by_case, CASE_INSENSITIVE_FILESYSTEM);
     }
 

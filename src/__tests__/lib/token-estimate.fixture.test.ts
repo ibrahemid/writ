@@ -16,16 +16,16 @@ interface FixtureCase {
 }
 
 const cases: FixtureCase[] = JSON.parse(
-  readFileSync(resolve(__dirname, "../../../crates/writ-core/tests/fixtures/token-estimates.json"), "utf8"),
+  readFileSync(resolve(__dirname, "../../../crates/jotra-core/tests/fixtures/token-estimates.json"), "utf8"),
 ).cases;
 
-describe("the token-estimate fixture shared with writ-core", () => {
+describe("the token-estimate fixture shared with jotra-core", () => {
   it("carries the cases the contract needs", () => {
     expect(cases.length).toBeGreaterThanOrEqual(5);
     expect(cases.map((one) => one.name)).toContain("astral emoji");
   });
 
-  it.each(cases)("counts $name as writ-core does", (one) => {
+  it.each(cases)("counts $name as jotra-core does", (one) => {
     expect(countText(Text.of(one.text.split("\n")))).toEqual({
       words: one.words,
       characters: one.characters,
@@ -34,7 +34,7 @@ describe("the token-estimate fixture shared with writ-core", () => {
     });
   });
 
-  it.each(cases)("estimates $name to the tokens writ-core estimates", (one) => {
+  it.each(cases)("estimates $name to the tokens jotra-core estimates", (one) => {
     expect(estimateTokens(countText(Text.of(one.text.split("\n"))))).toBe(one.tokens);
   });
 });

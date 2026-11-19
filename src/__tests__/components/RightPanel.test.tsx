@@ -247,7 +247,7 @@ describe("a note with nothing to show", () => {
       resolve(process.cwd(), "src/components/RightPanel/RightPanel.css"),
       "utf8",
     );
-    expect(css).toMatch(/\.right-panel\s*\{[^}]*border-left:\s*1px solid var\(--writ-border-soft\)/);
+    expect(css).toMatch(/\.right-panel\s*\{[^}]*border-left:\s*1px solid var\(--jotra-border-soft\)/);
   });
 
   it("hands the folder graph back when the last note closes", () => {
@@ -348,9 +348,9 @@ describe("the outline", () => {
     const rows = [...container.querySelectorAll<HTMLElement>(".right-panel-heading")];
     expect(rows.map((row) => row.textContent)).toEqual(["Title", "Part", "Detail"]);
     expect(rows.map((row) => row.style.paddingLeft)).toEqual([
-      "calc(var(--writ-space-3) + 0px)",
-      "calc(var(--writ-space-3) + 16px)",
-      "calc(var(--writ-space-3) + 32px)",
+      "calc(var(--jotra-space-3) + 0px)",
+      "calc(var(--jotra-space-3) + 16px)",
+      "calc(var(--jotra-space-3) + 32px)",
     ]);
   });
 
@@ -622,7 +622,7 @@ describe("the panel's edge", () => {
     const { panel, handle } = mount();
     fireEvent.pointerDown(handle, { button: 0, pointerId: 1, clientX: 800 });
     fireEvent.pointerMove(handle, { pointerId: 1, clientX: 760 });
-    expect(panel.style.getPropertyValue("--writ-panel-live-width")).toBe("280px");
+    expect(panel.style.getPropertyValue("--jotra-panel-live-width")).toBe("280px");
     fireEvent.pointerUp(handle, { pointerId: 1, clientX: 760 });
     expect(h.setWidth).toHaveBeenCalledWith(280);
   });
@@ -631,9 +631,9 @@ describe("the panel's edge", () => {
     const { panel, handle } = mount();
     fireEvent.pointerDown(handle, { button: 0, pointerId: 1, clientX: 800 });
     fireEvent.pointerMove(handle, { pointerId: 1, clientX: 400 });
-    expect(panel.style.getPropertyValue("--writ-panel-live-width")).toBe("320px");
+    expect(panel.style.getPropertyValue("--jotra-panel-live-width")).toBe("320px");
     fireEvent.pointerMove(handle, { pointerId: 1, clientX: 1200 });
-    expect(panel.style.getPropertyValue("--writ-panel-live-width")).toBe("200px");
+    expect(panel.style.getPropertyValue("--jotra-panel-live-width")).toBe("200px");
   });
 
   it("steps with the arrow keys, left widening the panel", () => {
@@ -647,10 +647,10 @@ describe("the panel's edge", () => {
   it("opens at the width the last session left, across a remount", () => {
     h.panel = { open: true, width: 305 };
     const first = mount();
-    expect(first.panel.style.getPropertyValue("--writ-panel-live-width")).toBe("305px");
+    expect(first.panel.style.getPropertyValue("--jotra-panel-live-width")).toBe("305px");
     cleanup();
     const second = mount();
-    expect(second.panel.style.getPropertyValue("--writ-panel-live-width")).toBe("305px");
+    expect(second.panel.style.getPropertyValue("--jotra-panel-live-width")).toBe("305px");
     expect(second.handle.getAttribute("aria-valuenow")).toBe("305");
   });
 });

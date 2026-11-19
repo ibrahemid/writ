@@ -17,7 +17,7 @@ import { saveStatusStore } from "../../stores/global/save-status";
 import { debouncedSave } from "../../services/autosave";
 import { getConfig, saveBufferContent } from "../../services/tauri";
 import { configStore } from "../../stores/global/config";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 
 const mockedSave = vi.mocked(saveBufferContent);
 
@@ -147,7 +147,7 @@ describe("Cmd+\\ toggles the sidebar", () => {
 
   it("flips the sidebar on the new chord", async () => {
     // The sidebar's open state is the config's.
-    vi.mocked(getConfig).mockResolvedValueOnce({ sidebar: { open: false } } as WritConfig);
+    vi.mocked(getConfig).mockResolvedValueOnce({ sidebar: { open: false } } as JotraConfig);
     await configStore.load();
     const sidebar = createSidebarStore();
     registerCommand({

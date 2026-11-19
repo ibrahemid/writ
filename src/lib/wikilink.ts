@@ -1,14 +1,14 @@
 /**
  * The note name inside a `[[…]]` target.
  *
- * Mirrors `writ_core::notes::links::parse_wikilink`: the alias is what follows
+ * Mirrors `jotra_core::notes::links::parse_wikilink`: the alias is what follows
  * the first `|`, the heading is what follows the first `#` before it, the name
  * is the last non-empty `/` or `\` segment, and a note extension on it is
  * removed so `[[Note.md]]` and `[[Note]]` are the same link. What is left is
  * what a surface shows and what `Create note` names a file.
  *
  * The two implementations are pinned against each other by the shared corpus
- * in `crates/writ-core/tests/fixtures/wikilink-targets.json`.
+ * in `crates/jotra-core/tests/fixtures/wikilink-targets.json`.
  */
 const NOTE_EXTENSIONS = ["md", "markdown"];
 
@@ -37,7 +37,7 @@ export function wikilinkFileName(target: string): string {
  * What `Create note` sends. A target carrying a folder only resolves to a note
  * whose own folders end the same way, so the note is created where the target
  * says and the folder travels with the name. `.` and `..` are dropped the way
- * `writ_core::notes::links::stored_target` drops them, and Rust sanitises
+ * `jotra_core::notes::links::stored_target` drops them, and Rust sanitises
  * every segment before anything is created.
  */
 export function wikilinkTargetPath(target: string): string {
@@ -74,7 +74,7 @@ function stripNoteExtension(name: string): string {
  * its own rather than a bare relative path the external-link policy would
  * refuse as unparseable.
  */
-export const NOTE_LINK_SCHEME = "writ-note:";
+export const NOTE_LINK_SCHEME = "jotra-note:";
 
 /**
  * The notes-folder-relative path in a preview href, still escaped, or null

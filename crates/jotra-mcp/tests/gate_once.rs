@@ -1,0 +1,216 @@
+//! The gate is asked exactly once per tool call, a refusal reaches no host
+//! call, and the derived set is the one the direction names.
+
+use std::path::PathBuf;
+use std::sync::Mutex;
+
+use jotra_mcp::consent::{ClientId, ConsentGate, Verdict};
+use jotra_mcp::tools::{FixedAppFolder, ToolError, ToolHost};
+use tempfile::TempDir;
+
+/// A gate that remembers every question it was asked.
+struct CountingGate {
+    asked: Mutex<Vec<String>>,
+    verdict: Verdict,
+}
+
+impl CountingGate {
+    fn new(verdict: Verdict) -> Self {
+        Self {
+            asked: Mutex::new(Vec::new()),
+            verdict,
+        }
+    }
+}
+
+impl ConsentGate for CountingGate {
+    fn decide(&self, _client: &ClientId, tool: &str) -> Verdict {
+        self.asked.lock().expect("lock").push(tool.to_string());
+        self.verdict
+    }
+}
+
+struct Fixture {
+    _dir: TempDir,
+    notes: PathBuf,
+    db: PathBuf,
+    jotra: PathBuf,
+}
+
+fn fixture() -> Fixture {
+    let dir = TempDir::new().expect("temp dir");
+    let notes = dir.path().join("notes");
+    let jotra = dir.path().join("jotra");
+    std::fs::create_dir_all(&notes).expect("notes folder");
+    std::fs::create_dir_all(&jotra).expect("jotra folder");
+    Fixture {
+        db: dir.path().join("jotra.db"),
+        _dir: dir,
+        notes,
+        jotra,
+    }
+}
+
+fn client() -> ClientId {
+    ClientId::named("Probe Client")
+}
+
+/// Every tool call asks the gate once and no more. A second ask would leave a
+/// second line in the activity log for one call.
+#[test]
+fn each_tool_call_asks_the_gate_once() {
+    let fixture = fixture();
+    std::fs::write(fixture.notes.join("Launch.md"), "before\n").expect("seed");
+
+    // The gate is boxed into the host, so the count is read through a leaked
+    // reference to the same object.
+    let gate = Box::leak(Box::new(CountingGate::new(Verdict::Allow)));
+    let counted: &'static CountingGate = gate;
+    struct Forwarding(&'static CountingGate);
+    impl ConsentGate for Forwarding {
+        fn decide(&self, client: &ClientId, tool: &str) -> Verdict {
+            self.0.decide(client, tool)
+        }
+    }
+
+    let host = ToolHost::open(
+        &fixture.notes,
+        &fixture.db,
+        &fixture.jotra,
+        Box::new(FixedAppFolder(fixture.notes.clone())),
+        Box::new(Forwarding(counted)),
+    )
+    .expect("host");
+    let client = client();
+
+    let _ = host.list_notes(&client, None, None, 10);
+    let _ = host.read_note(&client, "Launch.md");
+    let _ = host.note_links(&client, "Launch.md");
+    let _ = host.folder_tags(&client);
+    let _ = host.write_note(&client, "Launch.md", "after\n", None, false);
+    let _ = host.create_note(&client, "Ship it", "body\n");
+    let _ = host.rename_note(&client, "Launch.md", "Landed");
+
+    let asked = counted.asked.lock().expect("lock").clone();
+    assert_eq!(
+        asked,
+        vec![
+            "list_notes",
+            "read_note",
+            "note_links",
+            "folder_tags",
+            "write_note",
+            "create_note",
+            "rename_note",
+        ],
+        "one call, one question"
+    );
+}
+
+/// A refusal ends the call before the host: nothing is read and nothing lands,
+/// whichever reason the gate gave.
+#[test]
+fn a_refusal_reaches_no_host_call() {
+    for (verdict, refused) in [
+        (Verdict::Off, "NotEnabled"),
+        (Verdict::Unnamed, "Unnamed"),
+        (Verdict::Waiting, "NotApproved"),
+        (Verdict::NotGranted, "NotAllowed"),
+    ] {
+        let fixture = fixture();
+        let note = fixture.notes.join("Launch.md");
+        std::fs::write(&note, "before\n").expect("seed");
+
+        let host = ToolHost::open(
+            &fixture.notes,
+            &fixture.db,
+            &fixture.jotra,
+            Box::new(FixedAppFolder(fixture.notes.clone())),
+            Box::new(CountingGate::new(verdict)),
+        )
+        .expect("host");
+        let client = client();
+
+        let answers = [
+            host.read_note(&client, "Launch.md").map(|_| ()),
+            host.write_note(&client, "Launch.md", "after\n", None, false)
+                .map(|_| ()),
+            host.create_note(&client, "Ship it", "body\n").map(|_| ()),
+        ];
+        for answer in answers {
+            let error = answer.expect_err("refused");
+            assert!(
+                format!("{error:?}").starts_with(refused),
+                "{verdict:?} answered {error:?}"
+            );
+            assert!(
+                matches!(
+                    error,
+                    ToolError::NotEnabled
+                        | ToolError::Unnamed
+                        | ToolError::NotApproved { .. }
+                        | ToolError::NotAllowed { .. }
+                ),
+                "{error:?}"
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read back"),
+            "before\n"
+        );
+        assert!(!fixture.notes.join("Ship it.md").exists());
+        assert!(!fixture.db.exists(), "a refused call opened no database");
+        assert!(
+            !fixture.jotra.join("history.db").exists(),
+            "a refused write opened no version store"
+        );
+    }
+}
+
+/// An unparseable `expected_hash` on a path the folder does not hold: the
+/// hash is read before the path is resolved, so the answer names the hash.
+#[test]
+fn an_unparseable_hash_outranks_the_path_check() {
+    let fixture = fixture();
+    let outside = fixture._dir.path().join("elsewhere.md");
+    std::fs::write(&outside, "not a note\n").expect("seed outside");
+
+    let host = ToolHost::open(
+        &fixture.notes,
+        &fixture.db,
+        &fixture.jotra,
+        Box::new(FixedAppFolder(fixture.notes.clone())),
+        Box::new(CountingGate::new(Verdict::Allow)),
+    )
+    .expect("host");
+
+    let refusal = host
+        .write_note(
+            &client(),
+            &outside.to_string_lossy(),
+            "after\n",
+            Some("not-a-hash"),
+            false,
+        )
+        .expect_err("both arguments are wrong");
+
+    // Records which of the two messages the client now gets.
+    assert!(
+        matches!(refusal, ToolError::HashNotUnderstood { .. }),
+        "the precedence changed the other way: {refusal:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&outside).expect("read back"),
+        "not a note\n",
+        "nothing outside the folder was written either way"
+    );
+
+    // A missing path in the folder, same question.
+    let missing = host
+        .write_note(&client(), "Gone.md", "after\n", Some("not-a-hash"), false)
+        .expect_err("both arguments are wrong");
+    assert!(
+        matches!(missing, ToolError::HashNotUnderstood { .. }),
+        "{missing:?}"
+    );
+}

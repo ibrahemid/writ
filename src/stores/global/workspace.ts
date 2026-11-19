@@ -1,4 +1,4 @@
-// Singleton state — Writ is single-window.
+// Singleton state — Jotra is single-window.
 import { createSignal } from "solid-js";
 import * as tauri from "../../services/tauri";
 import { dirname } from "../../lib/path";

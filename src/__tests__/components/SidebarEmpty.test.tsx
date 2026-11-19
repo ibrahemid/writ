@@ -33,9 +33,9 @@ describe("SidebarEmpty", () => {
     expect(container.querySelector(".sidebar-empty-title")!.textContent).toBe(
       "This folder is empty.",
     );
-    expect(buttonNamed(container, "New file").classList).toContain("writ-btn-primary");
+    expect(buttonNamed(container, "New file").classList).toContain("jotra-btn-primary");
     expect(buttonNamed(container, "Show folder in Finder").classList).toContain(
-      "writ-btn-secondary",
+      "jotra-btn-secondary",
     );
     // Only New file has a binding.
     const caps = Array.from(container.querySelectorAll(".kbd-chord")).map((el) =>

@@ -46,26 +46,26 @@ const APP_ROOT = rootDeclarations(APP_SHEETS);
 const ARABIC_FAMILIES = ['"SF Arabic"', '"Geeza Pro"', '"Noto Naskh Arabic"'];
 
 const STACKS: { name: string; css: string | null; token: string; generic: string }[] = [
-  { name: "app ui", css: null, token: "--writ-font-ui", generic: "system-ui" },
-  { name: "app prose", css: null, token: "--writ-font-prose", generic: "system-ui" },
-  { name: "app prose alt", css: null, token: "--writ-font-prose-alt", generic: "system-ui" },
-  { name: "app mono", css: null, token: "--writ-font-mono", generic: "monospace" },
+  { name: "app ui", css: null, token: "--jotra-font-ui", generic: "system-ui" },
+  { name: "app prose", css: null, token: "--jotra-font-prose", generic: "system-ui" },
+  { name: "app prose alt", css: null, token: "--jotra-font-prose-alt", generic: "system-ui" },
+  { name: "app mono", css: null, token: "--jotra-font-mono", generic: "monospace" },
   {
     name: "preview sans",
     css: PREVIEW_TOKENS_CSS,
-    token: "--writ-preview-font-sans",
+    token: "--jotra-preview-font-sans",
     generic: "system-ui",
   },
   {
     name: "preview mono",
     css: PREVIEW_TOKENS_CSS,
-    token: "--writ-preview-font-mono",
+    token: "--jotra-preview-font-mono",
     generic: "monospace",
   },
 ];
 
-// A stack can be declared as a reference to another (--writ-font-prose is
-// var(--writ-font-ui)), so the assertion runs on what the browser resolves.
+// A stack can be declared as a reference to another (--jotra-font-prose is
+// var(--jotra-font-ui)), so the assertion runs on what the browser resolves.
 function deref(value: string, depth = 0): string {
   if (depth > 8) throw new Error(`unresolved var() chain in ${value}`);
   const m = /var\((--[a-z0-9-]+)\)/.exec(value);

@@ -1,8 +1,8 @@
 use crate::commands::config::mutate_config;
 use crate::state::AppState;
+use jotra_core::config::SpellingConfig;
+use jotra_lint::{check, dialect_from_str, LintConfig, LintResult};
 use tauri::State;
-use writ_core::config::SpellingConfig;
-use writ_lint::{check, dialect_from_str, LintConfig, LintResult};
 
 /// Maps the persisted spelling config to the engine's per-call config.
 fn lint_config_from(spelling: &SpellingConfig) -> LintConfig {
@@ -50,16 +50,16 @@ mod tests {
     use super::*;
     use std::sync::Mutex as StdMutex;
 
-    // `AppState::initialize` reads `WRIT_DATA_DIR`; serialize the env mutation so
+    // `AppState::initialize` reads `JOTRA_DATA_DIR`; serialize the env mutation so
     // parallel tests in this module never race on it.
     static ENV_LOCK: StdMutex<()> = StdMutex::new(());
 
     fn with_state<F: FnOnce(&AppState)>(f: F) {
         let _guard = ENV_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().expect("tempdir");
-        std::env::set_var("WRIT_DATA_DIR", dir.path());
+        std::env::set_var("JOTRA_DATA_DIR", dir.path());
         let state = AppState::initialize().expect("init app state");
-        std::env::remove_var("WRIT_DATA_DIR");
+        std::env::remove_var("JOTRA_DATA_DIR");
         f(&state);
     }
 
@@ -68,11 +68,11 @@ mod tests {
         let spelling = SpellingConfig {
             enabled: true,
             dialect: "british".to_string(),
-            ignored_words: vec!["writ".to_string()],
+            ignored_words: vec!["jotra".to_string()],
         };
         let cfg = lint_config_from(&spelling);
-        assert!(matches!(cfg.dialect, writ_lint::Dialect::British));
-        assert_eq!(cfg.ignored_words, vec!["writ".to_string()]);
+        assert!(matches!(cfg.dialect, jotra_lint::Dialect::British));
+        assert_eq!(cfg.ignored_words, vec!["jotra".to_string()]);
     }
 
     #[test]
@@ -82,7 +82,7 @@ mod tests {
             ..SpellingConfig::default()
         };
         let cfg = lint_config_from(&spelling);
-        assert!(matches!(cfg.dialect, writ_lint::Dialect::American));
+        assert!(matches!(cfg.dialect, jotra_lint::Dialect::American));
     }
 
     #[test]

@@ -7,7 +7,7 @@ import type {
 } from "../../services/tauri";
 import { writeClipboardText } from "../../services/tauri";
 
-// Singleton state — Writ is single-window. The notes folder changes only when
+// Singleton state — Jotra is single-window. The notes folder changes only when
 // the user moves it from Settings, which goes through `move` below and
 // refreshes both signals.
 

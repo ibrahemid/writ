@@ -84,14 +84,14 @@ export default function AppMenu(props: Props) {
       class="titlebar-appmenu"
       classList={{ "titlebar-appmenu-compact": props.compact }}
       aria-haspopup="menu"
-      aria-label="Writ menu"
+      aria-label="Jotra menu"
       onClick={openMenu}
     >
       <Show
         when={props.compact}
         fallback={
           <>
-            Writ
+            Jotra
             <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true">
               <path
                 d="M1.5 3L4 5.5L6.5 3"

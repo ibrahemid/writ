@@ -160,7 +160,7 @@ describe("the shared menu command list", () => {
       MENU_COMMANDS.filter((entry) => entry.menu === "help").map((entry) => entry.label),
     ).toEqual([
       "Command Palette…",
-      "Writ Help",
+      "Jotra Help",
       "Keyboard Shortcuts",
       "What's New",
       "Show Setup Again",

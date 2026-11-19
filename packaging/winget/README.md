@@ -1,6 +1,6 @@
-# Writ winget Manifests
+# Jotra winget Manifests
 
-This directory holds the winget manifests for Writ. End users install Writ on Windows via:
+This directory holds the winget manifests for Jotra. End users install Jotra on Windows via:
 
 ```powershell
 winget install --id ibrahemid.Writ -e
@@ -8,7 +8,7 @@ winget install --id ibrahemid.Writ -e
 
 ## Status
 
-Versions 0.1.0 and 0.2.0 are merged into `microsoft/winget-pkgs`, so the command above installs Writ on any Windows machine. Every new version is another manual PR upstream; nothing in this repo submits it. A merged version takes 1-3 days to replicate to the public source.
+Versions 0.1.0 and 0.2.0 are merged into `microsoft/winget-pkgs`, so the command above installs Jotra on any Windows machine. Every new version is another manual PR upstream; nothing in this repo submits it. A merged version takes 1-3 days to replicate to the public source.
 
 ## Layout
 
@@ -25,24 +25,24 @@ Schema version: 1.6.0.
 
 ## Placeholders
 
-Before a release fills it in, `InstallerSha256` holds the placeholder `__SHA256_MSI__`. The post-release workflow replaces it with the SHA256 of the released `Writ_<version>_x64_en-US.msi`.
+Before a release fills it in, `InstallerSha256` holds the placeholder `__SHA256_MSI__`. The post-release workflow replaces it with the SHA256 of the released `Jotra_<version>_x64_en-US.msi`.
 
-## ProductCode
+## ProductCode and UpgradeCode
 
 The 0.2.0 installer manifest carries the real `ProductCode` GUID, and the upstream 0.2.0 manifest carries the same one. Only the dead 0.1.0 folder still holds the zero placeholder `{00000000-0000-0000-0000-000000000000}`, so a grep across this directory can look as though the field was never filled in.
 
-Tauri's WiX bundler mints a fresh ProductCode for every version (confirmed 0.3.1 -> 0.3.2), and the upstream validation bot rejects a stale one. `scripts/packaging_bump_winget.py` reads the GUID from the released MSI (`MSI_PATH`) with `msiinfo` from msitools and writes it into the new installer manifest. It stops without writing a version folder when msiinfo is missing, fails, or the Property table has no single braced-GUID `ProductCode` row.
+Tauri's WiX bundler mints a fresh ProductCode for every version (confirmed 0.3.1 -> 0.3.2), and the upstream validation bot rejects a stale one. `scripts/packaging_bump_winget.py` reads the GUID from the released MSI (`MSI_PATH`) with `msiinfo` from msitools and writes it into the new installer manifest. It also reads the `UpgradeCode` row, which `bundle.windows.wix.upgradeCode` in `src-tauri/tauri.conf.json` pins, and writes an `AppsAndFeaturesEntries` entry with `DisplayName: Jotra` and that UpgradeCode, so winget matches installs made under the old display name to this package. It stops without writing a version folder when msiinfo is missing, fails, or the Property table lacks a single braced-GUID `ProductCode` or `UpgradeCode` row.
 
 To check a manifest's GUID against an MSI by hand, on Windows:
 
 ```powershell
-lessmsi l -t Property Writ_<version>_x64_en-US.msi
+lessmsi l -t Property Jotra_<version>_x64_en-US.msi
 ```
 
 On macOS or Linux, with msitools installed:
 
 ```bash
-msiinfo export Writ_<version>_x64_en-US.msi Property
+msiinfo export Jotra_<version>_x64_en-US.msi Property
 ```
 
 ## Installer URL
@@ -50,23 +50,23 @@ msiinfo export Writ_<version>_x64_en-US.msi Property
 The URL points at the GitHub Releases download for the x64 MSI:
 
 ```
-https://github.com/ibrahemid/writ/releases/download/v<version>/Writ_<version>_x64_en-US.msi
+https://github.com/ibrahemid/writ/releases/download/v<version>/Jotra_<version>_x64_en-US.msi
 ```
 
-Writ does not ship an ARM64 MSI. When an ARM64 artifact is added, append a second entry to the `Installers` list with `Architecture: arm64`.
+Jotra does not ship an ARM64 MSI. When an ARM64 artifact is added, append a second entry to the `Installers` list with `Architecture: arm64`.
 
 ## Local validation
 
 Validate a manifest folder locally before submitting upstream. Requires Windows 10+ with winget installed:
 
 ```powershell
-winget validate --manifest packaging\winget\manifests\i\ibrahemid\Writ\<version>
+winget validate --manifest packaging/winget/manifests/i/ibrahemid/Writ/<version>
 ```
 
 For a fuller check, run the upstream sandbox test from a clone of `microsoft/winget-pkgs`:
 
 ```powershell
-.\Tools\SandboxTest.ps1 packaging\winget\manifests\i\ibrahemid\Writ\<version>
+.\Tools\SandboxTest.ps1 packaging/winget/manifests/i/ibrahemid/Writ/<version>
 ```
 
 ## Submitting to microsoft/winget-pkgs
@@ -84,6 +84,6 @@ For a fuller check, run the upstream sandbox test from a clone of `microsoft/win
 
 ## Updating on a new release
 
-The post-release workflow `.github/workflows/packages.yml` copies the highest existing version folder to the new version, rewrites `PackageVersion`, `InstallerUrl`, `InstallerSha256`, `ReleaseDate`, `ReleaseNotesUrl`, and `ProductCode`, and opens a PR in this repo with the bumps. After the PR merges, repeat the submission steps above against `microsoft/winget-pkgs` for the new version folder.
+The post-release workflow `.github/workflows/packages.yml` copies the highest existing version folder to the new version, rewrites `PackageVersion`, `InstallerUrl`, `InstallerSha256`, `ReleaseDate`, `ReleaseNotesUrl`, `ProductCode`, `AppsAndFeaturesEntries`, `PackageName`, `Moniker`, the descriptions and `Tags`, and opens a PR in this repo with the bumps. The package identifier stays as published; `PackageName` and `Moniker` name Jotra, and the tags keep the old name as a search term. After the PR merges, repeat the submission steps above against `microsoft/winget-pkgs` for the new version folder.
 
 A follow-up improvement is to automate the upstream PR using `wingetcreate submit`, which requires a GitHub PAT with fork access stored as a repo secret.

@@ -22,13 +22,13 @@ const FENCE_SCAN_BUDGET_MS = 16;
 // The block field's scan and widget build for one window, which runs on every
 // edit and every scroll that moves the viewport.
 const BLOCK_SCAN_BUDGET_MS = 16;
-// Matches the convention in crates/writ-storage/tests/perf_budget.rs.
+// Matches the convention in crates/jotra-storage/tests/perf_budget.rs.
 const MEDIAN_SAMPLES = 9;
 const CORPUS_BYTES = 2 * 1024 * 1024;
 const VIEWPORT_LINES = 60;
 const PARSE_TIMEOUT_MS = 120_000;
 
-const gated = !process.env.WRIT_PERF_GATE;
+const gated = !process.env.JOTRA_PERF_GATE;
 
 function median(samples: number[]): number {
   const sorted = [...samples].sort((a, b) => a - b);

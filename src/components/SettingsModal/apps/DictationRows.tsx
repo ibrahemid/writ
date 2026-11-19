@@ -120,7 +120,7 @@ export default function DictationRows() {
       const state = await store.setKey(key);
       setKeyInput("");
       if (state.memory_only) {
-        showToast("Writ could not save your key, so you will enter it again next time", "info");
+        showToast("Jotra could not save your key, so you will enter it again next time", "info");
       }
     } catch {
       showToast("Could not save the API key", "error");
@@ -270,7 +270,7 @@ export default function DictationRows() {
         </Show>
         <Show when={!keyShared() && keySet() && endpoint()?.key.memory_only}>
           <div class="settings-ai-note">
-            Your key is not saved. You will enter it again next time you open Writ.
+            Your key is not saved. You will enter it again next time you open Jotra.
           </div>
         </Show>
 

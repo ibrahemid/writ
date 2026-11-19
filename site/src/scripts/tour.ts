@@ -11,9 +11,9 @@ const CAMERA_ANCHORS: readonly CameraAnchor[] = ['top', 'bottom'];
 const RESIZE_SETTLE_MS = 150;
 
 export type FrameMessage =
-  | { readonly type: 'writ-demo-ready' }
-  | { readonly type: 'writ-demo-engaged' }
-  | { readonly type: 'writ-demo-scene'; readonly name: SceneName; readonly state: SceneState };
+  | { readonly type: 'jotra-demo-ready' }
+  | { readonly type: 'jotra-demo-engaged' }
+  | { readonly type: 'jotra-demo-scene'; readonly name: SceneName; readonly state: SceneState };
 
 export interface SceneGate {
   readonly isLive: boolean;
@@ -87,8 +87,8 @@ export function isFrameMessage(
 export function readFrameMessage(data: unknown): FrameMessage | null {
   if (typeof data !== 'object' || data === null) return null;
   const { type, name, state } = data as Record<string, unknown>;
-  if (type === 'writ-demo-ready' || type === 'writ-demo-engaged') return { type };
-  if (type !== 'writ-demo-scene' || !isSceneName(name)) return null;
+  if (type === 'jotra-demo-ready' || type === 'jotra-demo-engaged') return { type };
+  if (type !== 'jotra-demo-scene' || !isSceneName(name)) return null;
   const known = SCENE_STATES.find((candidate) => candidate === state);
   return known ? { type, name, state: known } : null;
 }
@@ -189,7 +189,7 @@ export function startTour(root: HTMLElement, bp: string, env: TourEnv): Tour {
 
   const readTriggerLine = (): number => {
     const style = env.getComputedStyle(html);
-    return readLength(style, '--writ-site-nav-height') + readLength(style, '--writ-site-tour-band');
+    return readLength(style, '--jotra-site-nav-height') + readLength(style, '--jotra-site-tour-band');
   };
 
   const stepsAtLine = new Set<Element>();
@@ -242,7 +242,7 @@ export function startTour(root: HTMLElement, bp: string, env: TourEnv): Tour {
 
   const syncTour = (): void => {
     const isOn = isTourOn();
-    html.toggleAttribute('data-writ-tour', isOn);
+    html.toggleAttribute('data-jotra-tour', isOn);
     isTourPending = isOn;
     if (!isOn) driver.setTourOn(false);
     observeSteps();

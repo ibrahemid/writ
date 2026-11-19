@@ -11,8 +11,8 @@ pub struct StorageInfo {
 /// IPC: absolute paths to the SQLite database file and its parent directory.
 #[tauri::command]
 pub fn get_storage_info(state: State<'_, AppState>) -> StorageInfo {
-    let dir = state.writ_dir.clone();
-    let db_path = dir.join("writ.db");
+    let dir = state.jotra_dir.clone();
+    let db_path = jotra_storage::data_folder::locate_index(&dir);
     StorageInfo {
         db_path: db_path.to_string_lossy().into_owned(),
         dir: dir.to_string_lossy().into_owned(),
@@ -85,11 +85,11 @@ pub(crate) fn open_folder_in_file_manager(dir: &Path) -> Result<(), String> {
 /// storage directory when the database file does not exist yet.
 #[tauri::command]
 pub fn reveal_storage_path(state: State<'_, AppState>) -> Result<(), String> {
-    let db_path = state.writ_dir.join("writ.db");
+    let db_path = jotra_storage::data_folder::locate_index(&state.jotra_dir);
     let target = if db_path.exists() {
         db_path
     } else {
-        state.writ_dir.clone()
+        state.jotra_dir.clone()
     };
     show_in_file_manager(&target)
 }
@@ -128,44 +128,46 @@ mod tests {
             (RevealOs::Windows, "explorer"),
             (RevealOs::Linux, "xdg-open"),
         ] {
-            let (found, args) = open_folder_command(os, Path::new("/home/u/Writ"));
+            let (found, args) = open_folder_command(os, Path::new("/home/u/Jotra"));
             assert_eq!(found, program);
-            assert_eq!(args, vec!["/home/u/Writ".to_string()]);
+            assert_eq!(args, vec!["/home/u/Jotra".to_string()]);
         }
     }
 
     #[test]
     fn macos_reveal_selects_the_file() {
-        let (program, args) = reveal_command(RevealOs::Macos, Path::new("/home/u/.writ/writ.db"));
+        let (program, args) = reveal_command(RevealOs::Macos, Path::new("/home/u/.jotra/jotra.db"));
         assert_eq!(program, "open");
         assert_eq!(
             args,
-            vec!["-R".to_string(), "/home/u/.writ/writ.db".to_string()]
+            vec!["-R".to_string(), "/home/u/.jotra/jotra.db".to_string()]
         );
     }
 
     #[test]
     fn windows_reveal_selects_the_file() {
-        let (program, args) =
-            reveal_command(RevealOs::Windows, Path::new("C:\\Users\\u\\.writ\\writ.db"));
+        let (program, args) = reveal_command(
+            RevealOs::Windows,
+            Path::new("C:\\Users\\u\\.jotra\\jotra.db"),
+        );
         assert_eq!(program, "explorer");
         assert_eq!(
             args,
-            vec!["/select,C:\\Users\\u\\.writ\\writ.db".to_string()]
+            vec!["/select,C:\\Users\\u\\.jotra\\jotra.db".to_string()]
         );
     }
 
     #[test]
     fn linux_reveal_opens_the_parent_directory() {
-        let (program, args) = reveal_command(RevealOs::Linux, Path::new("/home/u/.writ/writ.db"));
+        let (program, args) = reveal_command(RevealOs::Linux, Path::new("/home/u/.jotra/jotra.db"));
         assert_eq!(program, "xdg-open");
-        assert_eq!(args, vec!["/home/u/.writ".to_string()]);
+        assert_eq!(args, vec!["/home/u/.jotra".to_string()]);
     }
 
     #[test]
     fn storage_info_serializes_expected_keys() {
         let info = StorageInfo {
-            db_path: "/a/writ.db".into(),
+            db_path: "/a/jotra.db".into(),
             dir: "/a".into(),
         };
         let json = serde_json::to_string(&info).unwrap();

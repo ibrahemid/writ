@@ -1,0 +1,385 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Fragment>
+        <DirectoryRef Id="INSTALLDIR">
+            <Component Id="LegacyProgIds" Guid="E808E13F-A233-4FE4-929B-FB5AA08886C0">
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.txt">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" KeyPath="yes" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.text">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.log">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.md">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.markdown">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.json">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.yaml">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.yml">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.toml">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.cfg">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.rs">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.js">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.mjs">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.jsx">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.ts">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.tsx">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.mts">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.py">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.go">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.html">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.htm">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.css">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.scss">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.less">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.xml">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.svg">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.sql">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.sh">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.bash">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.zsh">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.java">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.kt">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.kts">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.c">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.h">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.cpp">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.cc">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.hpp">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.swift">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.rb">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.php">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.ini">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.conf">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.env">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.csv">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.graphql">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="Software\Classes\Writ.gql">
+                    <RegistryKey Key="shell\open">
+                        <RegistryValue Type="string" Value="Open with Jotra" />
+                        <RegistryKey Key="command">
+                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                        </RegistryKey>
+                    </RegistryKey>
+                </RegistryKey>
+            </Component>
+        </DirectoryRef>
+    </Fragment>
+</Wix>

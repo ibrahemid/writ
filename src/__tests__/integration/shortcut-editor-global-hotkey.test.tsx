@@ -106,7 +106,7 @@ describe("the chord that shows and hides the window", () => {
 
     const { container } = render(() => <ShortcutEditor />);
 
-    expect(row(container).textContent).toContain("Show and hide Writ");
+    expect(row(container).textContent).toContain("Show and hide Jotra");
     expect(row(container).querySelector('[data-state="taken"]')).toBeNull();
   });
 
@@ -176,7 +176,7 @@ describe("the chord that shows and hides the window", () => {
   });
 
   // `set_global_hotkey` parses before it registers, so a chord the recorder can
-  // capture but `writ_core::hotkey` cannot read comes back as a rejected call.
+  // capture but `jotra_core::hotkey` cannot read comes back as a rejected call.
   // `hotkey/mod.rs` holds the Rust half: both of these chords are `Err` there.
   for (const [key, chord] of [
     ["Backspace", "CmdOrCtrl+Shift+Backspace"],
@@ -211,7 +211,7 @@ describe("the chord that shows and hides the window", () => {
 
       expect(h.setGlobalHotkey).toHaveBeenCalledWith(chord);
       expect(row(container).querySelector('[data-state="unusable"]')?.textContent).toContain(
-        "Writ can't use that key. Pick a letter",
+        "Jotra can't use that key. Pick a letter",
       );
       expect(h.saveConfig).toHaveBeenCalledWith(
         expect.objectContaining({

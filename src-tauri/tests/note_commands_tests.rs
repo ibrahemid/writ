@@ -6,80 +6,80 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use tempfile::TempDir;
-use writ_core::config::WritConfig;
-use writ_core::events::bus::{EventBus, WritEvent};
-use writ_core::hash::sha256_bytes;
-use writ_core::notes::guard::SF_DATALESS;
-use writ_core::notes::line_ending::LineEnding;
-use writ_core::notes::reload::ChangeChoice;
-use writ_core::notes::{WriteOrigin, Writer};
-use writ_core::preview::ContentRendererRegistry;
-use writ_core::text_encoding::TextEncoding;
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::change_event::ExternalChange;
-use writ_core::watcher::pending::hold_window;
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::errors::StorageError;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::{self, NotesIndexStore};
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::{EventBus, JotraEvent};
+use jotra_core::hash::sha256_bytes;
+use jotra_core::notes::guard::SF_DATALESS;
+use jotra_core::notes::line_ending::LineEnding;
+use jotra_core::notes::reload::ChangeChoice;
+use jotra_core::notes::{WriteOrigin, Writer};
+use jotra_core::preview::ContentRendererRegistry;
+use jotra_core::text_encoding::TextEncoding;
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::change_event::ExternalChange;
+use jotra_core::watcher::pending::hold_window;
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::errors::StorageError;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::notes_index::{self, NotesIndexStore};
 #[cfg(unix)]
-use writ_tauri_lib::commands::buffer::ERR_FOLDER_NOT_WRITABLE;
-use writ_tauri_lib::commands::buffer::{
+use jotra_tauri_lib::commands::buffer::ERR_FOLDER_NOT_WRITABLE;
+use jotra_tauri_lib::commands::buffer::{
     note_file_unchanged_inner, read_buffer_content_inner, resolve_external_change_at,
     resolve_external_change_inner, restore_note_file_inner, save_buffer_content_inner,
     ERR_FILE_CHANGED_ON_DISK, ERR_FILE_MISSING, ERR_FILE_NOT_DOWNLOADED, ERR_FILE_REMOVED_ON_DISK,
 };
-use writ_tauri_lib::commands::file::open_file_from_path;
-use writ_tauri_lib::commands::note_index::resolve_note_link_inner;
-use writ_tauri_lib::commands::notes::{
+use jotra_tauri_lib::commands::file::open_file_from_path;
+use jotra_tauri_lib::commands::note_index::resolve_note_link_inner;
+use jotra_tauri_lib::commands::notes::{
     delete_note_inner, move_notes_folder_to, new_note_from_link_inner, new_note_in_folder_inner,
     new_note_inner, new_note_named_inner, note_path_for_id, notes_root_text, path_is_inside_notes,
     rename_note_inner, rename_note_recording, save_note_copy_inner, undo_delete_note_inner,
 };
-use writ_tauri_lib::preview::handler::RenderCache;
-use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
-use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::{
+use jotra_tauri_lib::preview::handler::RenderCache;
+use jotra_tauri_lib::quit::QuitState;
+use jotra_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
+use jotra_tauri_lib::state::AppState;
+use jotra_tauri_lib::watcher::handler::{
     create_ignore_set, start_notes_watcher, NOTES_DEBOUNCE_WINDOW,
 };
-use writ_tauri_lib::watcher::moves::{FileTracking, MoveOutcome};
-use writ_tauri_lib::watcher::open_files::start_open_file_watcher;
+use jotra_tauri_lib::watcher::moves::{FileTracking, MoveOutcome};
+use jotra_tauri_lib::watcher::open_files::start_open_file_watcher;
+use tempfile::TempDir;
 
 fn make_state(dir: &TempDir) -> AppState {
-    let writ_dir = dir.path().to_path_buf();
-    let buffers_dir = writ_dir.join("buffers");
+    let jotra_dir = dir.path().to_path_buf();
+    let buffers_dir = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
 
-    let notes_root = writ_dir.join("Writ");
+    let notes_root = jotra_dir.join("Jotra");
     std::fs::create_dir_all(&notes_root).expect("notes folder");
-    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+    let notes_root = jotra_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
 
     let note_history = Arc::new(
-        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+        jotra_storage::note_history::NoteHistoryStore::open(&jotra_dir).expect("version store"),
     );
 
     AppState {
         store: Mutex::new(BufferStore::new(conn, buffers_dir.clone())),
-        config_store: ConfigStore::new(writ_dir.join("config.toml")),
-        config: Mutex::new(WritConfig::default()),
-        writ_dir,
+        config_store: ConfigStore::new(jotra_dir.join("config.toml")),
+        config: Mutex::new(JotraConfig::default()),
+        jotra_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: std::sync::atomic::AtomicBool::new(false),
         menu_apps: std::sync::Mutex::new(None),
-        retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+        retitle_watch: std::sync::Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -105,7 +105,7 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
-        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+        command_usage: jotra_storage::command_usage::CommandUsageStore::new(
             open_database(&db_path).expect("usage db"),
         ),
         config_diagnostics: std::sync::Mutex::new(Vec::new()),
@@ -115,9 +115,9 @@ fn make_state(dir: &TempDir) -> AppState {
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
-        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(
-            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+            jotra_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
@@ -142,10 +142,10 @@ fn title_of(state: &AppState, id: &str) -> String {
 /// Markdown file does.
 fn defaults_to_markdown(state: &AppState) {
     state.config.lock().expect("config").files.default_extension =
-        writ_core::config::FileExtension::Md;
+        jotra_core::config::FileExtension::Md;
 }
 
-/// Every stem `writ_core::notes::minted_stem` gives a moment from `since` to
+/// Every stem `jotra_core::notes::minted_stem` gives a moment from `since` to
 /// `until`, oldest first. The clock can pass a minute between the app minting
 /// a file and a test naming it, so each minute the span touches is a stem the
 /// file may carry.
@@ -156,10 +156,10 @@ fn minted_stems(
     let mut stems = Vec::new();
     let mut moment = since;
     while moment <= until {
-        stems.push(writ_core::notes::minted_stem(moment));
+        stems.push(jotra_core::notes::minted_stem(moment));
         moment += chrono::Duration::seconds(60);
     }
-    stems.push(writ_core::notes::minted_stem(until));
+    stems.push(jotra_core::notes::minted_stem(until));
     stems.dedup();
     stems
 }
@@ -593,7 +593,7 @@ fn rename_refuses_when_the_file_changed_on_disk() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
     let doc = new_note_inner(&state).expect("new note");
-    save_buffer_content_inner(&state, &doc.id, "what Writ read").expect("save");
+    save_buffer_content_inner(&state, &doc.id, "what Jotra read").expect("save");
     let before = note_file(&state, &doc.id);
     std::fs::write(&before, "what somebody else wrote").expect("outside write");
 
@@ -624,7 +624,7 @@ fn delete_moves_to_trash_and_closes_the_tab() {
     delete_note_inner(&state, &doc.id).expect("delete");
 
     // Where the note went is the platform's business; that it left its path
-    // and left Writ is this test's.
+    // and left Jotra is this test's.
     assert!(!path.exists(), "the note is still at its path");
     let store = state.store.lock().expect("lock");
     assert!(store.get(&doc.id).is_err(), "the row outlived the note");
@@ -709,7 +709,7 @@ fn save_copy_leaves_the_original_untouched() {
     );
     assert_eq!(
         note_file(&state, &id),
-        writ_tauri_lib::security::canonicalize_root(&elsewhere).expect("canonical"),
+        jotra_tauri_lib::security::canonicalize_root(&elsewhere).expect("canonical"),
         "the note followed its copy instead of staying put"
     );
 
@@ -810,7 +810,7 @@ fn a_note_that_never_reached_a_file_only_loses_its_row() {
     let state = make_state(&dir);
     let id = {
         let store = state.store.lock().expect("lock");
-        let mut mgr = writ_core::buffer::manager::BufferManager::new();
+        let mut mgr = jotra_core::buffer::manager::BufferManager::new();
         let doc = mgr.create_buffer(None).expect("mint");
         store.insert(&doc).expect("insert");
         doc.id
@@ -834,7 +834,7 @@ fn a_rename_the_row_cannot_follow_puts_the_file_back() {
     save_buffer_content_inner(&state, &doc.id, "the text").expect("save");
     let before = note_file(&state, &doc.id);
 
-    let refuse = |_: &writ_storage::buffer_store::BufferStore,
+    let refuse = |_: &jotra_storage::buffer_store::BufferStore,
                   _: &str,
                   _: &str,
                   _: &str|
@@ -869,7 +869,7 @@ fn a_rename_the_row_cannot_follow_puts_the_file_back() {
 /// latency, and nowhere near the ignore TTL.
 const SETTLE: Duration = Duration::from_secs(3);
 
-/// Long enough for a write Writ made to be delivered in a batch of its own,
+/// Long enough for a write Jotra made to be delivered in a batch of its own,
 /// so the change a test makes next is judged on its own content.
 const APART: Duration = Duration::from_millis(700);
 
@@ -878,7 +878,7 @@ const APART: Duration = Duration::from_millis(700);
 /// holds this file", then the notes watcher over the notes folder.
 ///
 /// The handles are held by the state, so they live as long as it does.
-fn watching_state(dir: &TempDir) -> (Arc<AppState>, mpsc::Receiver<WritEvent>) {
+fn watching_state(dir: &TempDir) -> (Arc<AppState>, mpsc::Receiver<JotraEvent>) {
     let state = Arc::new(make_state(dir));
     let (tx, rx) = mpsc::channel();
     state.event_bus.subscribe(move |event| {
@@ -921,12 +921,12 @@ fn rewrite_from_outside(path: &std::path::Path, bytes: &[u8]) {
 }
 
 /// Every `BufferExternal` the bus carried within `SETTLE`.
-fn external_events(rx: &mpsc::Receiver<WritEvent>) -> Vec<WritEvent> {
+fn external_events(rx: &mpsc::Receiver<JotraEvent>) -> Vec<JotraEvent> {
     let deadline = Instant::now() + SETTLE;
     let mut seen = Vec::new();
     while let Some(left) = deadline.checked_duration_since(Instant::now()) {
         match rx.recv_timeout(left) {
-            Ok(event @ WritEvent::BufferExternal { .. }) => seen.push(event),
+            Ok(event @ JotraEvent::BufferExternal { .. }) => seen.push(event),
             Ok(_) => {}
             Err(_) => break,
         }
@@ -935,9 +935,9 @@ fn external_events(rx: &mpsc::Receiver<WritEvent>) -> Vec<WritEvent> {
 }
 
 /// The buffer id and path one `BufferExternal` names.
-fn named_by(event: &WritEvent) -> (&str, &str) {
+fn named_by(event: &JotraEvent) -> (&str, &str) {
     match event {
-        WritEvent::BufferExternal {
+        JotraEvent::BufferExternal {
             buffer_id, path, ..
         } => (buffer_id.as_str(), path.as_str()),
         other => panic!("not an external change: {other:?}"),
@@ -969,16 +969,16 @@ fn a_note_created_this_session_hears_that_another_program_rewrote_it() {
 }
 
 /// What one `BufferExternal` says wrote the file.
-fn writer_named_by(event: &WritEvent) -> Option<Writer> {
+fn writer_named_by(event: &JotraEvent) -> Option<Writer> {
     match event {
-        WritEvent::BufferExternal { writer, .. } => writer.clone(),
+        JotraEvent::BufferExternal { writer, .. } => writer.clone(),
         other => panic!("not an external change: {other:?}"),
     }
 }
 
 #[test]
 fn a_programs_write_reaches_the_tab_with_the_programs_name_and_an_unknown_one_without() {
-    // `writ mcp` keeps the text a program's write landed as the note's newest
+    // `jotra mcp` keeps the text a program's write landed as the note's newest
     // version, under the program's name, before the watcher reports the
     // change. The tab is told who wrote it from that entry.
     let dir = TempDir::new().expect("temp dir");
@@ -1066,7 +1066,7 @@ fn a_note_given_its_file_on_first_save_is_followed_from_that_save() {
 
     let doc = {
         let store = state.store.lock().expect("lock");
-        let doc = writ_core::buffer::manager::BufferManager::new()
+        let doc = jotra_core::buffer::manager::BufferManager::new()
             .create_buffer(Some("Fileless".to_string()))
             .expect("create");
         store.insert(&doc).expect("insert");
@@ -1100,7 +1100,7 @@ fn open_tabs_follow_their_files_when_the_notes_folder_moves() {
     assert_eq!(
         state.open_notes().note_at(&after).as_deref(),
         Some(doc.id.as_str()),
-        "the tab is still following the folder Writ left"
+        "the tab is still following the folder Jotra left"
     );
     assert_eq!(
         state.open_notes().note_at(&before),
@@ -1139,7 +1139,7 @@ fn a_file_opened_from_outside_the_notes_folder_survives_the_move() {
     let dir = TempDir::new().expect("temp dir");
     let (state, rx) = watching_state(&dir);
 
-    let workspace = TempDir::new().expect("a folder Writ does not own");
+    let workspace = TempDir::new().expect("a folder Jotra does not own");
     let outside = workspace.path().join("outside.md");
     let id = open_note_at(&state, &outside, "opened from elsewhere");
 
@@ -1156,9 +1156,9 @@ fn a_file_opened_from_outside_the_notes_folder_survives_the_move() {
 }
 
 /// The change one `BufferExternal` reports, and where it says the file went.
-fn change_of(event: &WritEvent) -> (&ExternalChange, Option<&str>) {
+fn change_of(event: &JotraEvent) -> (&ExternalChange, Option<&str>) {
     match event {
-        WritEvent::BufferExternal {
+        JotraEvent::BufferExternal {
             change, new_path, ..
         } => (change, new_path.as_deref()),
         other => panic!("not an external change: {other:?}"),
@@ -1224,7 +1224,7 @@ fn a_note_moved_inside_the_notes_folder_keeps_its_tab_and_leaves_nothing_behind(
 }
 
 #[test]
-fn a_note_deleted_outside_writ_is_not_recreated_by_the_next_save() {
+fn a_note_deleted_outside_jotra_is_not_recreated_by_the_next_save() {
     let dir = TempDir::new().expect("temp dir");
     let (state, rx) = watching_state(&dir);
 
@@ -1253,10 +1253,10 @@ fn a_note_deleted_outside_writ_is_not_recreated_by_the_next_save() {
 }
 
 #[test]
-fn a_note_deleted_outside_writ_goes_back_to_its_path_when_asked_for() {
+fn a_note_deleted_outside_jotra_goes_back_to_its_path_when_asked_for() {
     // The refusal above is about a keystroke. This is the person asking, and
     // the text in the tab is the last copy of the note (ADR-028 §1), so the
-    // one thing that must not happen is Writ having nowhere to put it.
+    // one thing that must not happen is Jotra having nowhere to put it.
     let dir = TempDir::new().expect("temp dir");
     let (state, rx) = watching_state(&dir);
 
@@ -1327,7 +1327,7 @@ fn a_sync_client_replacing_a_file_is_an_external_modification_and_not_a_move() {
     let (state, rx) = watching_state(&dir);
 
     let doc = new_note_inner(&state).expect("new note");
-    save_buffer_content_inner(&state, &doc.id, "as writ left it").expect("save");
+    save_buffer_content_inner(&state, &doc.id, "as jotra left it").expect("save");
     let path = note_file(&state, &doc.id);
     std::thread::sleep(APART);
 
@@ -1352,7 +1352,7 @@ fn a_sync_client_replacing_a_file_is_an_external_modification_and_not_a_move() {
     // decides: the write guard stops the save, writes the text beside the note
     // and says why, rather than the tab refusing to write at all.
     let refused = save_buffer_content_inner(&state, &doc.id, "edited after the sync landed")
-        .expect_err("a file rewritten under writ is the write guard's business");
+        .expect_err("a file rewritten under jotra is the write guard's business");
     assert!(
         refused.starts_with(ERR_FILE_CHANGED_ON_DISK),
         "got {refused}"
@@ -1402,7 +1402,7 @@ fn a_note_put_back_from_the_trash_re_attaches_to_its_file() {
 fn a_tab_restored_at_launch_onto_a_file_that_is_gone_writes_nothing() {
     // Nothing about a deleted file survives a relaunch, so the state is read
     // back from the file when the tab is restored. Without that, a note whose
-    // file was deleted while Writ was closed comes back looking ordinary and
+    // file was deleted while Jotra was closed comes back looking ordinary and
     // recreates the file on its first save.
     let dir = TempDir::new().expect("temp dir");
     let (state, _rx) = watching_state(&dir);
@@ -1410,7 +1410,7 @@ fn a_tab_restored_at_launch_onto_a_file_that_is_gone_writes_nothing() {
     let doc = new_note_inner(&state).expect("new note");
     save_buffer_content_inner(&state, &doc.id, "text worth keeping").expect("save");
     let path = note_file(&state, &doc.id);
-    std::fs::remove_file(&path).expect("delete while writ is not looking");
+    std::fs::remove_file(&path).expect("delete while jotra is not looking");
     state.forget_source_record(&doc.id);
 
     let row = {
@@ -1431,7 +1431,7 @@ fn a_tab_restored_at_launch_onto_a_file_that_is_gone_writes_nothing() {
 #[test]
 fn a_file_opened_from_outside_the_notes_folder_follows_its_move_too() {
     // The other watcher, and the case the notes watcher cannot see: a file in
-    // a folder Writ follows only because a tab holds it.
+    // a folder Jotra follows only because a tab holds it.
     let dir = TempDir::new().expect("temp dir");
     let elsewhere = TempDir::new().expect("some other folder");
     let (state, rx) = watching_state(&dir);
@@ -1556,7 +1556,7 @@ fn a_rewrite_and_a_rename_in_one_window_are_a_removal_that_replaces_no_text() {
     assert!(
         matches!(
             &seen[0],
-            WritEvent::BufferExternal {
+            JotraEvent::BufferExternal {
                 disk_hash: None,
                 ..
             }
@@ -1585,7 +1585,7 @@ fn a_rewrite_and_a_rename_in_one_window_are_a_removal_that_replaces_no_text() {
 #[test]
 fn a_note_dragged_out_of_the_notes_folder_leaves_a_twin_of_its_bytes_alone() {
     // A file that leaves every watched folder carries its id away with it, so
-    // nothing in the window carries it and the note is gone as far as Writ can
+    // nothing in the window carries it and the note is gone as far as Jotra can
     // see. A file holding the same bytes in the same window is a copy, a
     // template, or a sync client's conflicted copy as easily as it is the
     // note, and taking it would let the next save replace its content.
@@ -1813,7 +1813,7 @@ fn a_file_outside_the_notes_folder_re_attaches_when_it_comes_back() {
 fn deleting_one_name_of_a_hard_linked_file_follows_the_name_that_is_left() {
     // A hard link is one file with two names. Deleting one of them deletes a
     // name, not the file: the bytes the tab is editing are still there under
-    // the other name, in a folder Writ watches. Reporting a removal would
+    // the other name, in a folder Jotra watches. Reporting a removal would
     // refuse every later save over a file that exists (ADR-033 §12).
     let dir = TempDir::new().expect("temp dir");
     let (state, rx) = watching_state(&dir);
@@ -1924,8 +1924,8 @@ fn copies_beside(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
 }
 
 /// A note holding `mine`, whose file another program has rewritten to
-/// `theirs` since Writ last read it.
-fn note_changed_under_writ(state: &AppState, mine: &str, theirs: &str) -> (String, PathBuf) {
+/// `theirs` since Jotra last read it.
+fn note_changed_under_jotra(state: &AppState, mine: &str, theirs: &str) -> (String, PathBuf) {
     let doc = new_note_inner(state).expect("new note");
     save_buffer_content_inner(state, &doc.id, mine).expect("save");
     let path = note_file(state, &doc.id);
@@ -1937,7 +1937,7 @@ fn note_changed_under_writ(state: &AppState, mine: &str, theirs: &str) -> (Strin
 fn keeping_mine_writes_the_file_s_text_beside_the_note_before_the_save_lands() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
-    let (id, path) = note_changed_under_writ(&state, "what I typed", "what they wrote");
+    let (id, path) = note_changed_under_jotra(&state, "what I typed", "what they wrote");
 
     let outcome =
         resolve_external_change_inner(&state, &id, ChangeChoice::KeepMine, "what I typed, still")
@@ -1961,7 +1961,7 @@ fn keeping_mine_writes_the_file_s_text_beside_the_note_before_the_save_lands() {
     assert_eq!(outcome.content, None, "the tab keeps what it is holding");
     assert_eq!(
         outcome.disk_hash,
-        writ_core::hash::comparison_digest_hex(b"what I typed, still")
+        jotra_core::hash::comparison_digest_hex(b"what I typed, still")
     );
 
     // The record moved with the resolve, so the next ordinary save is not
@@ -1974,7 +1974,7 @@ fn keeping_mine_writes_the_file_s_text_beside_the_note_before_the_save_lands() {
 fn taking_the_file_writes_the_document_s_text_beside_the_note() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
-    let (id, path) = note_changed_under_writ(&state, "what I typed", "what they wrote");
+    let (id, path) = note_changed_under_jotra(&state, "what I typed", "what they wrote");
 
     let outcome =
         resolve_external_change_inner(&state, &id, ChangeChoice::UseDisk, "what I typed, still")
@@ -1994,7 +1994,7 @@ fn taking_the_file_writes_the_document_s_text_beside_the_note() {
     assert_eq!(outcome.content.as_deref(), Some("what they wrote"));
     assert_eq!(
         outcome.disk_hash,
-        writ_core::hash::comparison_digest_hex(b"what they wrote")
+        jotra_core::hash::comparison_digest_hex(b"what they wrote")
     );
 
     save_buffer_content_inner(&state, &id, "what they wrote, edited").expect("save");
@@ -2079,7 +2079,7 @@ fn a_rename_whose_halves_land_in_two_windows_is_still_a_move() {
 fn showing_both_leaves_a_file_the_second_tab_can_open() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
-    let (id, path) = note_changed_under_writ(&state, "what I typed", "what they wrote");
+    let (id, path) = note_changed_under_jotra(&state, "what I typed", "what they wrote");
 
     let outcome =
         resolve_external_change_inner(&state, &id, ChangeChoice::KeepBoth, "what I typed, still")
@@ -2115,7 +2115,7 @@ fn two_texts_that_are_the_same_text_leave_no_copy_behind() {
     // duplicate of the note in the folder.
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
-    let (id, path) = note_changed_under_writ(&state, "one line\n", "one line\n");
+    let (id, path) = note_changed_under_jotra(&state, "one line\n", "one line\n");
 
     for choice in [
         ChangeChoice::KeepMine,
@@ -2128,7 +2128,7 @@ fn two_texts_that_are_the_same_text_leave_no_copy_behind() {
         assert_eq!(outcome.content, None, "{choice:?}");
         assert_eq!(
             outcome.disk_hash,
-            writ_core::hash::comparison_digest_hex(b"one line\n")
+            jotra_core::hash::comparison_digest_hex(b"one line\n")
         );
     }
     assert_eq!(copies_beside(&state.notes_root()), Vec::<PathBuf>::new());
@@ -2169,7 +2169,7 @@ fn the_copy_of_an_lf_note_gains_no_carriage_returns() {
     // so a note that never had a carriage return does not acquire one.
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
-    let (id, _) = note_changed_under_writ(&state, "one\ntwo\n", "what they wrote\n");
+    let (id, _) = note_changed_under_jotra(&state, "one\ntwo\n", "what they wrote\n");
 
     resolve_external_change_inner(&state, &id, ChangeChoice::UseDisk, "one\ntwo\nthree\n")
         .expect("resolve");
@@ -2213,7 +2213,7 @@ fn a_file_that_is_not_downloaded_is_refused_without_being_read() {
     // network (ADR-028 §5), and this is a path that reads the file twice over.
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
-    let (id, path) = note_changed_under_writ(&state, "what I typed", "what they wrote");
+    let (id, path) = note_changed_under_jotra(&state, "what I typed", "what they wrote");
 
     let error = resolve_external_change_at(
         &state,
@@ -2244,7 +2244,7 @@ fn a_copy_that_cannot_be_written_stops_the_note_being_touched() {
 
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
-    let (id, path) = note_changed_under_writ(&state, "what I typed", "what they wrote");
+    let (id, path) = note_changed_under_jotra(&state, "what I typed", "what they wrote");
     let folder = state.notes_root();
     let before = std::fs::metadata(&folder).expect("metadata").permissions();
     std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).expect("read-only");
@@ -2287,7 +2287,7 @@ fn a_removal_nothing_answers_is_announced_when_the_hold_passes() {
     let mut seen = Vec::new();
     while let Some(left) = deadline.checked_duration_since(Instant::now()) {
         match rx.recv_timeout(left) {
-            Ok(event @ WritEvent::BufferExternal { .. }) => {
+            Ok(event @ JotraEvent::BufferExternal { .. }) => {
                 if named_by(&event).0 == doc.id {
                     told_at.get_or_insert_with(Instant::now);
                 }
@@ -2638,7 +2638,7 @@ fn a_save_inside_a_hold_waits_for_the_answer_and_no_longer() {
         let mut at = None;
         while let Some(left) = deadline.checked_duration_since(Instant::now()) {
             match rx.recv_timeout(left) {
-                Ok(event @ WritEvent::BufferExternal { .. }) if named_by(&event).0 == doc.id => {
+                Ok(event @ JotraEvent::BufferExternal { .. }) if named_by(&event).0 == doc.id => {
                     at = Some(Instant::now());
                     break;
                 }
@@ -2886,7 +2886,7 @@ fn a_note_whose_birth_time_was_pulled_back_still_follows_its_rename() {
     // A metadata pass that backdates a note in place — `touch -t`, `SetFile
     // -d`, a restore tool — leaves the inode alone and, on APFS, drags the
     // birth time down to the modification time it set. It writes no bytes, so
-    // the ignore stamp Writ's own save left takes the event for Writ's and
+    // the ignore stamp Jotra's own save left takes the event for Jotra's and
     // nothing refreshes the id. The record then holds a birth time later than
     // the file's, and reading that as a different file leaves the tab refusing
     // every save over a file sitting at its new name (ADR-033 §12).
@@ -2956,8 +2956,8 @@ fn forward_date(path: &std::path::Path) {
 fn a_note_whose_birth_time_was_pushed_forward_still_follows_its_rename() {
     // The mirror of the test above. A restore tool stamping the creation date
     // it read out of an archive writes the birth time forward on the inode the
-    // tab is editing, and writes no bytes, so the ignore stamp Writ's own save
-    // left takes the event for Writ's and nothing refreshes the id. A record
+    // tab is editing, and writes no bytes, so the ignore stamp Jotra's own save
+    // left takes the event for Jotra's and nothing refreshes the id. A record
     // that compared birth times would read the file as a different one and
     // leave the tab refusing every save over a file at its new name.
     let dir = TempDir::new().expect("temp dir");

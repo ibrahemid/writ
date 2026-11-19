@@ -1,8 +1,8 @@
 import { SCENE_NAMES, type SceneName, type ScenePlayer, type SceneState } from "./types";
 
-export const SCENE_MESSAGE = "writ-demo-scene";
-export const READY_MESSAGE = "writ-demo-ready";
-export const ENGAGED_MESSAGE = "writ-demo-engaged";
+export const SCENE_MESSAGE = "jotra-demo-scene";
+export const READY_MESSAGE = "jotra-demo-ready";
+export const ENGAGED_MESSAGE = "jotra-demo-engaged";
 
 export interface SceneMessage {
   data: unknown;

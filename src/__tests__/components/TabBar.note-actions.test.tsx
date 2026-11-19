@@ -5,7 +5,7 @@ import type { MenuItem } from "../../components/ContextMenu/ContextMenu";
 
 // Renaming a tab renames the note's file and Delete moves it to the Trash, so
 // both can be stopped. What the backend decides has to reach the person who
-// asked, and an action Writ would stop is never offered.
+// asked, and an action Jotra would stop is never offered.
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -213,7 +213,7 @@ describe("TabBar note actions", () => {
 
     await waitFor(() =>
       expect(mocks.showToast).toHaveBeenCalledWith(
-        "The file changed outside Writ, so it was not renamed.",
+        "The file changed outside Jotra, so it was not renamed.",
         "error",
       ),
     );

@@ -1,26 +1,26 @@
 /* Live markdown typography decorations — scoped to .cm-editor so they
-   never bleed outside a CodeMirror instance. Every value is a --writ-*
+   never bleed outside a CodeMirror instance. Every value is a --jotra-*
    token, so the rules follow the active preset and polarity. */
 
 /* Heading scale — applied as line decorations by the ViewPlugin. The class on
    the line widget drives size and weight from the type scale; CodeMirror
    accounts for the changed line height via its block-height cache. Headings
    inherit the body ink (ADR-030 decision 3). */
-.cm-editor .cm-line-md-h1 { font-size: var(--writ-h1-size); line-height: var(--writ-h1-lh); font-weight: var(--writ-h1-weight); }
-.cm-editor .cm-line-md-h2 { font-size: var(--writ-h2-size); line-height: var(--writ-h2-lh); font-weight: var(--writ-h2-weight); }
-.cm-editor .cm-line-md-h3 { font-size: var(--writ-h3-size); line-height: var(--writ-h3-lh); font-weight: var(--writ-h3-weight); }
-.cm-editor .cm-line-md-h4 { font-size: var(--writ-h4-size); line-height: var(--writ-h4-lh); font-weight: var(--writ-h4-weight); }
-.cm-editor .cm-line-md-h5 { font-size: var(--writ-h5-size); line-height: var(--writ-h5-lh); font-weight: var(--writ-h5-weight); }
-.cm-editor .cm-line-md-h6 { font-size: var(--writ-h6-size); line-height: var(--writ-h6-lh); font-weight: var(--writ-h6-weight); }
+.cm-editor .cm-line-md-h1 { font-size: var(--jotra-h1-size); line-height: var(--jotra-h1-lh); font-weight: var(--jotra-h1-weight); }
+.cm-editor .cm-line-md-h2 { font-size: var(--jotra-h2-size); line-height: var(--jotra-h2-lh); font-weight: var(--jotra-h2-weight); }
+.cm-editor .cm-line-md-h3 { font-size: var(--jotra-h3-size); line-height: var(--jotra-h3-lh); font-weight: var(--jotra-h3-weight); }
+.cm-editor .cm-line-md-h4 { font-size: var(--jotra-h4-size); line-height: var(--jotra-h4-lh); font-weight: var(--jotra-h4-weight); }
+.cm-editor .cm-line-md-h5 { font-size: var(--jotra-h5-size); line-height: var(--jotra-h5-lh); font-weight: var(--jotra-h5-weight); }
+.cm-editor .cm-line-md-h6 { font-size: var(--jotra-h6-size); line-height: var(--jotra-h6-lh); font-weight: var(--jotra-h6-weight); }
 
 /* Hung markers. A negative first-line indent plus matching padding pulls the
    leading '#' or '>' into the left margin while the marker stays in flow, so a
-   wrapped line keeps one box. Widen --writ-md-hang per class if a marker ever
+   wrapped line keeps one box. Widen --jotra-md-hang per class if a marker ever
    outgrows it; do not reach for absolute positioning, which loses the box and
    mis-measures CodeMirror's block height. */
 .cm-editor .cm-line-md-hang {
-  text-indent: calc(-1 * var(--writ-md-hang, 1.6em));
-  padding-left: var(--writ-md-hang, 1.6em);
+  text-indent: calc(-1 * var(--jotra-md-hang, 1.6em));
+  padding-left: var(--jotra-md-hang, 1.6em);
 }
 
 /* The marker itself: readable, quiet, never bold with the heading it opens.
@@ -30,22 +30,22 @@
    shares a range with a highlighted token does the same. */
 .cm-editor .cm-md-marker-hung,
 .cm-editor .cm-md-marker-hung span {
-  color: var(--writ-heading-formatting);
+  color: var(--jotra-heading-formatting);
   font-weight: 400;
 }
 
 /* Inline styling — mark decorations that do not touch cursor positions. */
 .cm-editor .cm-md-strong { font-weight: 700; }
 .cm-editor .cm-md-em     { font-style: italic; }
-.cm-editor .cm-md-strike { text-decoration: line-through; color: var(--writ-fg-muted); }
+.cm-editor .cm-md-strike { text-decoration: line-through; color: var(--jotra-fg-muted); }
 
 /* Inline code chip: sunken fill, no added margin so cursor motion is
    unaffected. Mono is scoped to code and nothing else. */
 .cm-editor .cm-md-code {
-  background: var(--writ-bg-sunken);
-  border-radius: var(--writ-r-media);
+  background: var(--jotra-bg-sunken);
+  border-radius: var(--jotra-r-media);
   padding: 0.1em 0.35em;
-  font-family: var(--writ-font-mono);
+  font-family: var(--jotra-font-mono);
   font-size: 0.875em;
 }
 
@@ -53,8 +53,8 @@
    the corner radius and the block padding land on the edge lines only and the
    run reads as one slab. */
 .cm-editor .cm-md-codeblock {
-  background: var(--writ-bg-sunken);
-  font-family: var(--writ-font-mono);
+  background: var(--jotra-bg-sunken);
+  font-family: var(--jotra-font-mono);
   font-size: 0.875em;
   line-height: 1.6;
   padding-left: 1em;
@@ -62,13 +62,13 @@
 }
 .cm-editor .cm-md-codeblock-first {
   padding-top: 0.875em;
-  border-top-left-radius: var(--writ-r-media);
-  border-top-right-radius: var(--writ-r-media);
+  border-top-left-radius: var(--jotra-r-media);
+  border-top-right-radius: var(--jotra-r-media);
 }
 .cm-editor .cm-md-codeblock-last {
   padding-bottom: 0.875em;
-  border-bottom-left-radius: var(--writ-r-media);
-  border-bottom-right-radius: var(--writ-r-media);
+  border-bottom-left-radius: var(--jotra-r-media);
+  border-bottom-right-radius: var(--jotra-r-media);
 }
 
 /* Fence info string, sized to 0.75em of the prose face from inside the
@@ -78,18 +78,18 @@
 }
 .cm-editor .cm-md-code-info,
 .cm-editor .cm-md-code-info span {
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
 }
 
 /* Blockquote left rail + muted text. Applied per content line, starting after
    the '>' so the rail keeps its column while the marker hangs. */
 .cm-editor .cm-md-blockquote {
-  border-left: 2px solid var(--writ-border);
+  border-left: 2px solid var(--jotra-border);
   padding-left: 0.75em;
 }
 .cm-editor .cm-md-blockquote,
 .cm-editor .cm-md-blockquote span {
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
 }
 
 /* The '[!type]' that opens a callout. The grammar reads it as a link and the
@@ -104,7 +104,7 @@
    abut. */
 .cm-editor .cm-md-link-text,
 .cm-editor .cm-md-link-text span {
-  color: var(--writ-accent);
+  color: var(--jotra-accent);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -114,7 +114,7 @@
 }
 .cm-editor .cm-md-url-dim,
 .cm-editor .cm-md-url-dim span {
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
   text-decoration: none;
 }
 
@@ -123,7 +123,7 @@
    opacity stops being legible. */
 .cm-editor .cm-md-marker-dim,
 .cm-editor .cm-md-marker-dim span {
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
 }
 
 /* Task checkbox widget — replaces the [ ]/[x] marker on inactive lines.
@@ -137,13 +137,13 @@
   height: 0.95em;
   margin: 0 0.15em;
   vertical-align: -0.1em;
-  border: 1px solid var(--writ-border);
-  border-radius: calc(var(--writ-r-control) * 2 / 3);
-  background: var(--writ-bg-sunken);
+  border: 1px solid var(--jotra-border);
+  border-radius: calc(var(--jotra-r-control) * 2 / 3);
+  background: var(--jotra-bg-sunken);
 }
 .cm-editor .cm-md-task-box[data-checked] {
-  border-color: var(--writ-accent);
-  background: var(--writ-accent);
+  border-color: var(--jotra-accent);
+  background: var(--jotra-accent);
 }
 /* Covers the wrapper's border ring too: a click landing on it would otherwise
    move the cursor and dissolve the widget instead of toggling. */
@@ -165,7 +165,7 @@
   inset: 0;
   width: 100%;
   height: 100%;
-  color: var(--writ-accent-fg);
+  color: var(--jotra-accent-fg);
   pointer-events: none;
 }
 .cm-editor .cm-md-task-done {
@@ -173,17 +173,17 @@
 }
 .cm-editor .cm-md-task-done,
 .cm-editor .cm-md-task-done span {
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
 }
 
 /* Bullet dot — replaces -, + and * list marks on inactive lines. */
 .cm-editor .cm-md-bullet {
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
 }
 
 /* Ordered list numbers stay as text, slightly muted. */
 .cm-editor .cm-md-list-num {
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
 }
 
 /* Thematic break — replaces --- on inactive lines with a drawn rule. */
@@ -191,20 +191,20 @@
   display: inline-block;
   width: 100%;
   height: 0;
-  border-top: 1px solid var(--writ-border);
+  border-top: 1px solid var(--jotra-border);
   vertical-align: middle;
 }
 
 .cm-editor .cm-md-wikilink-resolved {
-  color: var(--writ-accent);
+  color: var(--jotra-accent);
 }
 .cm-editor .cm-md-wikilink-missing {
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
   text-decoration: underline dotted;
   text-decoration-thickness: from-font;
   text-underline-offset: 0.18em;
 }
-.cm-editor.writ-link-active .cm-md-wikilink {
+.cm-editor.jotra-link-active .cm-md-wikilink {
   cursor: pointer;
 }
 
@@ -217,21 +217,21 @@
    arriving later do not move the lines under it. Declared here rather than in
    the generated token pipeline: it describes this widget, nothing else. */
 .cm-editor .cm-md-image {
-  --writ-md-image-reserve: 8rem;
+  --jotra-md-image-reserve: 8rem;
   display: block;
-  min-height: var(--writ-md-image-reserve, 8rem);
+  min-height: var(--jotra-md-image-reserve, 8rem);
   margin: 0.5em 0;
 }
 .cm-editor .cm-md-image img {
   display: block;
   max-width: 100%;
   height: auto;
-  border-radius: var(--writ-r-media);
+  border-radius: var(--jotra-r-media);
 }
 .cm-editor .cm-md-image[data-status="pending"],
 .cm-editor .cm-md-image[data-loaded="false"] {
-  background: var(--writ-bg-sunken);
-  border-radius: var(--writ-r-media);
+  background: var(--jotra-bg-sunken);
+  border-radius: var(--jotra-r-media);
 }
 .cm-editor .cm-md-image[data-status="failed"],
 .cm-editor .cm-md-image[data-status="downloading"],
@@ -239,11 +239,11 @@
   min-height: 0;
 }
 .cm-editor .cm-md-image-caption {
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
   font-size: 0.875em;
 }
 .cm-editor .cm-md-image-download {
-  margin-inline-start: var(--writ-space-3);
+  margin-inline-start: var(--jotra-space-3);
 }
 
 /* Tables and html blocks are styled where they are written, never rendered.
@@ -253,16 +253,16 @@
    the window's own policy, which is what the preview pane is for. Mono with
    tabular figures keeps the pipes of a table in one column. */
 .cm-editor .cm-md-table {
-  font-family: var(--writ-font-mono);
+  font-family: var(--jotra-font-mono);
   font-size: 0.875em;
   font-variant-numeric: tabular-nums;
 }
 .cm-editor .cm-md-table-delimiter,
 .cm-editor .cm-md-table-delimiter span {
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
 }
 .cm-editor .cm-md-html {
-  font-family: var(--writ-font-mono);
+  font-family: var(--jotra-font-mono);
   font-size: 0.875em;
 }
 
@@ -284,17 +284,17 @@
   justify-content: center;
   width: 1em;
   height: 1em;
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
   cursor: pointer;
   opacity: 0;
-  transition: opacity var(--writ-motion);
+  transition: opacity var(--jotra-motion);
 }
 .cm-editor .cm-line:hover .cm-md-fold-control,
 .cm-editor .cm-md-fold[data-folded] .cm-md-fold-control {
   opacity: 1;
 }
 .cm-editor .cm-md-fold-control:hover {
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
 }
 .cm-editor .cm-md-fold[data-folded] .cm-fold-chevron {
   transform: rotate(-90deg);
@@ -311,7 +311,7 @@
      text's column. The space above and below is padding: CodeMirror measures
      a block widget's border box, and a vertical margin would put every line
      under it out of step with the height map. */
-  margin: 0 var(--writ-space-1) 0 var(--writ-space-2-5);
+  margin: 0 var(--jotra-space-1) 0 var(--jotra-space-2-5);
   padding: 0.5em 0;
   white-space: normal;
   cursor: text;
@@ -325,14 +325,14 @@
 }
 .cm-editor .cm-md-table-widget th,
 .cm-editor .cm-md-table-widget td {
-  border: 1px solid var(--writ-border);
+  border: 1px solid var(--jotra-border);
   padding: 0.3em 0.75em;
   text-align: left;
   vertical-align: top;
 }
 .cm-editor .cm-md-table-widget th {
   font-weight: 600;
-  background: var(--writ-bg-sunken);
+  background: var(--jotra-bg-sunken);
 }
 .cm-editor .cm-md-math-block {
   overflow-x: auto;
@@ -364,27 +364,27 @@
 .cm-editor .cm-md-math-pending,
 .cm-editor .cm-md-math-inline[data-status="pending"],
 .cm-editor .cm-md-math-inline[data-status="failed"] {
-  font-family: var(--writ-font-mono);
+  font-family: var(--jotra-font-mono);
   font-size: 0.875em;
 }
 .cm-editor .cm-md-math-pending,
 .cm-editor .cm-md-math-inline[data-status="pending"] {
-  color: var(--writ-fg-muted);
+  color: var(--jotra-fg-muted);
 }
 
 /* A block that could not be drawn: its source, and one line saying so. */
 .cm-editor .cm-md-block-source {
   margin: 0;
   padding: 0.875em 1em;
-  font-family: var(--writ-font-mono);
+  font-family: var(--jotra-font-mono);
   font-size: 0.875em;
   white-space: pre-wrap;
-  background: var(--writ-bg-sunken);
-  border-radius: var(--writ-r-media);
+  background: var(--jotra-bg-sunken);
+  border-radius: var(--jotra-r-media);
 }
 .cm-editor .cm-md-block-caption {
   display: block;
   margin-top: 0.4em;
-  color: var(--writ-danger);
+  color: var(--jotra-danger);
   font-size: 0.875em;
 }

@@ -65,7 +65,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   h.activityRecent.mockResolvedValue([]);
   h.mcpClients.mockResolvedValue({ approved: [], waiting: [] });
-  h.mcpServerCommand.mockResolvedValue({ path: "/usr/local/bin/writ", command: "writ mcp" });
+  h.mcpServerCommand.mockResolvedValue({ path: "/usr/local/bin/jotra", command: "jotra mcp" });
   h.mcpSetClientPermission.mockClear();
   h.mcpForgetClient.mockClear();
   h.mcpDenyClient.mockReset();

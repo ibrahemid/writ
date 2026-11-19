@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Writ uses the microphone while you dictate.</string>
+	<string>Jotra uses the microphone while you dictate.</string>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>

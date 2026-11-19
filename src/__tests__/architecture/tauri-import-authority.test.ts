@@ -83,7 +83,7 @@ describe("tauri import authority", () => {
   // The rule is only enforced if breaking it fails. Asserted on a fixture tree,
   // so the check runs against a planted violation without a real file changing.
   it("fails on a component that reaches Tauri", () => {
-    const root = mkdtempSync(join(tmpdir(), "writ-tauri-authority-"));
+    const root = mkdtempSync(join(tmpdir(), "jotra-tauri-authority-"));
     try {
       mkdirSync(join(root, "services"), { recursive: true });
       mkdirSync(join(root, "components", "Widget"), { recursive: true });

@@ -3,15 +3,15 @@ import type { BufferDocument } from "../../types/buffer";
 import { unreadTabFor, type UnreadTab } from "../../lib/unread-tab";
 
 /**
- * The open tabs whose files Writ has not read, by row id.
+ * The open tabs whose files Jotra has not read, by row id.
  *
  * Taken from the rows the launch listed, and from a read Rust declined
- * because the file had grown past the size Writ opens since it was measured:
+ * because the file had grown past the size Jotra opens since it was measured:
  * every other tab came through an open that measured its file. A tab leaves
  * the set when its open answers with its row, or when it closes.
  */
 function createUnreadTabs() {
-  // Singleton state — Writ is single-window
+  // Singleton state — Jotra is single-window
   const [unread, setUnread] = createSignal<ReadonlyMap<string, UnreadTab>>(new Map());
 
   function stateOf(id: string): UnreadTab | null {
@@ -37,7 +37,7 @@ function createUnreadTabs() {
     setUnread((prev) => (prev.has(id) ? new Map(prev).set(id, tab) : prev));
   }
 
-  /** The unread tab's file is over the size Writ opens without asking. */
+  /** The unread tab's file is over the size Jotra opens without asking. */
   function wait(id: string, sizeBytes: number): void {
     update(id, { kind: "waiting", sizeBytes });
   }
@@ -48,7 +48,7 @@ function createUnreadTabs() {
   }
 
   /**
-   * Takes a tab whose read Rust declined: its file is past the size Writ
+   * Takes a tab whose read Rust declined: its file is past the size Jotra
    * opens, for `reason`, and stays unread until its open answers.
    */
   function takeRefused(id: string, reason: string): void {

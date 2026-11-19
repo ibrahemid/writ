@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-// The chrome reads --writ-ui-*, so raising the interface text size to 22px
+// The chrome reads --jotra-ui-*, so raising the interface text size to 22px
 // raises every label with it. These tests pin the rules that decide what a
 // strip, a bar and a row do when the text no longer fits: truncate, keep one
 // line, and grow the box rather than cut the control off.
@@ -40,7 +40,7 @@ function declares(css: string, selector: string, property: string, value: RegExp
   );
 }
 
-/** A box whose text comes from a --writ-ui-* step must not be a fixed height. */
+/** A box whose text comes from a --jotra-ui-* step must not be a fixed height. */
 function isNotFixedHeight(css: string, selector: string): void {
   expect(rule(css, selector), `${selector} sets a fixed height`).not.toMatch(
     /(^|[\s;])height:\s*(\d|var\()/,
@@ -85,7 +85,7 @@ describe("the status bar at the top of the interface text range", () => {
 
   it("grows rather than clipping when the line box passes the bar metric", () => {
     isNotFixedHeight(STATUSBAR, ".statusbar");
-    declares(STATUSBAR, ".statusbar", "min-height", /var\(--writ-statusbar-height\)/);
+    declares(STATUSBAR, ".statusbar", "min-height", /var\(--jotra-statusbar-height\)/);
   });
 
   it("sheds its fields on a text-relative width, not a pixel one", () => {
@@ -136,7 +136,7 @@ describe("a settings row at the top of the interface text range", () => {
     }
     // The accent swatch takes its box from the row, which sets it against the
     // pitch the row has to keep (settings-area-chrome.test.ts).
-    const box = rule(SETTINGS, ".settings-accents").match(/--writ-accent-box:\s*(\d+)px/);
+    const box = rule(SETTINGS, ".settings-accents").match(/--jotra-accent-box:\s*(\d+)px/);
     expect(box, "the accent row states its box").toBeTruthy();
     expect(Number(box![1]), ".settings-accent").toBeGreaterThanOrEqual(24);
   });
@@ -145,7 +145,7 @@ describe("a settings row at the top of the interface text range", () => {
 describe("the sidebar and the chrome menus at the top of the interface text range", () => {
   it("treats the row pitch as a floor, so a descender is not clipped", () => {
     isNotFixedHeight(SIDEBAR, ".sidebar-row");
-    declares(SIDEBAR, ".sidebar-row", "min-height", /var\(--writ-sidebar-row-fill\)/);
+    declares(SIDEBAR, ".sidebar-row", "min-height", /var\(--jotra-sidebar-row-fill\)/);
   });
 
   it("treats the app menu, a menu item and the search field as floors too", () => {
@@ -153,7 +153,7 @@ describe("the sidebar and the chrome menus at the top of the interface text rang
       [TITLEBAR, ".titlebar-appmenu"],
       [CONTEXTMENU, ".context-menu-item"],
       [SEARCHBAR, ".search-field"],
-      [TOOLBAR, '.writ-toolbar[data-platform="win"] .search-field'],
+      [TOOLBAR, '.jotra-toolbar[data-platform="win"] .search-field'],
     ] as const) {
       isNotFixedHeight(css, selector);
       declares(css, selector, "min-height", /\d+px/);
@@ -164,9 +164,9 @@ describe("the sidebar and the chrome menus at the top of the interface text rang
 describe("a button at the top of the interface text range", () => {
   it("treats its platform height as a floor on all three shells", () => {
     for (const selector of [
-      ".writ-btn",
-      ':root[data-platform="win"] .writ-btn',
-      ':root[data-platform="linux"] .writ-btn',
+      ".jotra-btn",
+      ':root[data-platform="win"] .jotra-btn',
+      ':root[data-platform="linux"] .jotra-btn',
     ]) {
       isNotFixedHeight(BUTTON, selector);
       declares(BUTTON, selector, "min-height", /\d+px/);

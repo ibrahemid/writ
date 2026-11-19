@@ -1,4 +1,4 @@
-// Cross-platform path splitting on either separator. Writ handles paths from
+// Cross-platform path splitting on either separator. Jotra handles paths from
 // both the host OS and stored records, so "/" and "\" are both treated as
 // separators regardless of the running platform.
 

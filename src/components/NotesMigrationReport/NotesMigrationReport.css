@@ -4,53 +4,53 @@
    the update banner, which shares this left edge (UpdateBanner.css). */
 .notes-report {
   position: fixed;
-  left: var(--writ-space-5);
-  bottom: calc(var(--writ-statusbar-height) + 12px + 64px);
-  z-index: var(--writ-z-banner);
+  left: var(--jotra-space-5);
+  bottom: calc(var(--jotra-statusbar-height) + 12px + 64px);
+  z-index: var(--jotra-z-banner);
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
   max-width: min(420px, calc(100vw - 32px));
-  padding: var(--writ-space-4) var(--writ-space-6) var(--writ-space-4) var(--writ-space-5);
-  background: var(--writ-bg-selected);
-  border: 1px solid var(--writ-border);
-  border-radius: var(--writ-r-card);
-  color: var(--writ-fg);
-  font-size: var(--writ-ui-sm);
-  box-shadow: var(--writ-shadow-modal);
+  padding: var(--jotra-space-4) var(--jotra-space-6) var(--jotra-space-4) var(--jotra-space-5);
+  background: var(--jotra-bg-selected);
+  border: 1px solid var(--jotra-border);
+  border-radius: var(--jotra-r-card);
+  color: var(--jotra-fg);
+  font-size: var(--jotra-ui-sm);
+  box-shadow: var(--jotra-shadow-modal);
 }
 
 .notes-report::before {
   content: '';
   position: absolute;
-  top: var(--writ-space-3);
-  bottom: var(--writ-space-3);
-  left: var(--writ-space-2-5);
+  top: var(--jotra-space-3);
+  bottom: var(--jotra-space-3);
+  left: var(--jotra-space-2-5);
   width: 3px;
-  border-radius: var(--writ-r-pill);
-  background: var(--writ-accent);
+  border-radius: var(--jotra-r-pill);
+  background: var(--jotra-accent);
 }
 
 .notes-report-line {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: var(--writ-space-1);
+  gap: var(--jotra-space-1);
 }
 
 .notes-report-text {
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
   overflow-wrap: anywhere;
   -webkit-user-select: text;
   user-select: text;
 }
 
 .notes-report-btn {
-  margin-left: calc(var(--writ-space-3) * -1);
+  margin-left: calc(var(--jotra-space-3) * -1);
 }
 
 .notes-report-dismiss {
   position: absolute;
-  top: var(--writ-space-1);
-  right: var(--writ-space-1);
+  top: var(--jotra-space-1);
+  right: var(--jotra-space-1);
 }

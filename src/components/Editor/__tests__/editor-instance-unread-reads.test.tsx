@@ -3,16 +3,16 @@ import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 import { Show } from "solid-js";
 import type { BufferDocument, FileOpenResult } from "../../../types/buffer";
 
-// A file Writ has not read is not read by anything but its open: closing its
-// tab reads nothing, and a file that grew past the size Writ opens after the
+// A file Jotra has not read is not read by anything but its open: closing its
+// tab reads nothing, and a file that grew past the size Jotra opens after the
 // launch measured it is refused by the read itself, in the tab and on the
-// reload after a change outside Writ. These run the real registry, tab store
+// reload after a change outside Jotra. These run the real registry, tab store
 // and editor, mounted the way the editor area mounts them.
 
 const SIXTY_MB = 60_000_000;
 const SIX_HUNDRED_MB = 600_000_000;
-const TOO_LARGE = "ERR_OPEN_TOO_LARGE: the file is 600000000 bytes, over the size Writ opens";
-const REFUSED_LINE = "Could not open this file: it is 600 MB, and Writ opens files up to 524 MB.";
+const TOO_LARGE = "ERR_OPEN_TOO_LARGE: the file is 600000000 bytes, over the size Jotra opens";
+const REFUSED_LINE = "Could not open this file: it is 600 MB, and Jotra opens files up to 524 MB.";
 
 function row(id: string, name: string, overrides: Partial<BufferDocument> = {}): BufferDocument {
   return {
@@ -179,7 +179,7 @@ describe("closing tabs with an unread tab in front", () => {
     expect(unreadTabs.stateOf(big.id)).toBeNull();
   });
 
-  it("Close all tabs reads nothing of a tab past the size Writ opens", async () => {
+  it("Close all tabs reads nothing of a tab past the size Jotra opens", async () => {
     const { win, container } = await launchWithInFront(huge);
     expect(paneLine(container)).toBe(REFUSED_LINE);
     h.read.mockClear();
@@ -229,7 +229,7 @@ describe("closing tabs with an unread tab in front", () => {
 });
 
 // The launch measured `grown` at 1,000 bytes; by the time it is read, its
-// file is past the size Writ opens. Rust measures before it reads, records the
+// file is past the size Jotra opens. Rust measures before it reads, records the
 // size on the row and answers the refusal's code.
 function growPastTheLimit(): void {
   h.read.mockImplementation(async (id: string) => {
@@ -241,7 +241,7 @@ function growPastTheLimit(): void {
   );
 }
 
-describe("a tab whose file grew past the size Writ opens", () => {
+describe("a tab whose file grew past the size Jotra opens", () => {
   it("says why in its place when it is shown, with no read failure and no text", async () => {
     restored = [small, grown];
     await bufferRegistry.loadSession();
@@ -272,7 +272,7 @@ describe("a tab whose file grew past the size Writ opens", () => {
     expect(h.read).not.toHaveBeenCalledWith(grown.id);
   });
 
-  it("says why in its place on the reload after a change outside Writ", async () => {
+  it("says why in its place on the reload after a change outside Jotra", async () => {
     restored = [grown];
     await bufferRegistry.loadSession();
     const { win, container } = await mountArea();
@@ -292,7 +292,7 @@ describe("a tab whose file grew past the size Writ opens", () => {
 
   // A log that keeps growing changes under its tab with every line. A tab
   // whose question was cancelled is not asked about again for each change.
-  it("asks nothing again when a cancelled tab's file changes outside Writ", async () => {
+  it("asks nothing again when a cancelled tab's file changes outside Jotra", async () => {
     const { win, container } = await launchWithInFront(big);
     expect(mockedApi.restoreBuffer).toHaveBeenCalledTimes(1);
     h.read.mockClear();
@@ -306,7 +306,7 @@ describe("a tab whose file grew past the size Writ opens", () => {
     expect(paneLine(container)).toBe("This file is 60 MB and is not open.");
   });
 
-  it("opens once Try again finds the file back under the size Writ opens without asking", async () => {
+  it("opens once Try again finds the file back under the size Jotra opens without asking", async () => {
     restored = [grown];
     await bufferRegistry.loadSession();
     const { win, container, getByRole } = await mountArea();

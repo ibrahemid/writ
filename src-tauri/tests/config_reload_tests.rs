@@ -1,23 +1,23 @@
-//! An edit to config.toml from outside Writ reaches the running app:
+//! An edit to config.toml from outside Jotra reaches the running app:
 //! `AppState::reload_config_from_disk` replaces the copy every command
 //! answers from, and leaves it alone when the file no longer parses.
 
 use std::sync::Mutex as StdMutex;
 
+use jotra_tauri_lib::state::AppState;
 use tempfile::TempDir;
-use writ_tauri_lib::state::AppState;
 
-// `AppState::initialize` reads `WRIT_DATA_DIR` and `WRIT_NOTES_DIR`; the tests
+// `AppState::initialize` reads `JOTRA_DATA_DIR` and `JOTRA_NOTES_DIR`; the tests
 // in this file all set them, so they take turns.
 static ENV_LOCK: StdMutex<()> = StdMutex::new(());
 
 fn launch(data_dir: &std::path::Path, notes_dir: &std::path::Path) -> AppState {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("WRIT_DATA_DIR", data_dir);
-    std::env::set_var("WRIT_NOTES_DIR", notes_dir);
+    std::env::set_var("JOTRA_DATA_DIR", data_dir);
+    std::env::set_var("JOTRA_NOTES_DIR", notes_dir);
     let state = AppState::initialize().expect("app state");
-    std::env::remove_var("WRIT_DATA_DIR");
-    std::env::remove_var("WRIT_NOTES_DIR");
+    std::env::remove_var("JOTRA_DATA_DIR");
+    std::env::remove_var("JOTRA_NOTES_DIR");
     state
 }
 

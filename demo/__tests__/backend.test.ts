@@ -76,8 +76,8 @@ describe("the demo backend", () => {
   it("reports the digest of the text with its line breaks as LF", async () => {
     const { handle } = backend();
     const [doc] = (await handle("list_active_buffers", {})) as { id: string }[];
-    const saved = await handle("save_buffer_content", { id: doc.id, content: "writ\r\n" });
-    expect(saved).toBe(await digestText("writ\n"));
+    const saved = await handle("save_buffer_content", { id: doc.id, content: "jotra\r\n" });
+    expect(saved).toBe(await digestText("jotra\n"));
   });
 
   it("applies a change set to the text the last save left, and refuses one made against another", async () => {
@@ -106,12 +106,12 @@ describe("the demo backend", () => {
   it("writes a new file on its first save and renames it from its first line", async () => {
     const { handle, emitted } = backend();
     const doc = (await handle("create_buffer", { title: null })) as { id: string; filename: string };
-    expect(doc.filename).toMatch(/^writ-\d{6}-\d{4}\.txt$/);
+    expect(doc.filename).toMatch(/^jotra-\d{6}-\d{4}\.txt$/);
     await handle("save_buffer_content", { id: doc.id, content: "Packing for Lisbon\nsocks" });
     const outcome = (await handle("auto_retitle_note", { id: doc.id })) as { kind: string; note?: { source_path: string } };
     expect(outcome.kind).toBe("renamed");
     expect(outcome.note?.source_path).toBe(`${NOTES_ROOT}/Packing for Lisbon.txt`);
-    expect(emitted.some((e) => e.event === "writ://notes-changed")).toBe(true);
+    expect(emitted.some((e) => e.event === "jotra://notes-changed")).toBe(true);
   });
 
   it("finds content across .txt and .md files and streams it on the channel", async () => {
@@ -148,7 +148,7 @@ describe("the demo backend", () => {
 
   it("answers the preview URL base the app loads at startup", async () => {
     const { handle } = backend();
-    expect(await handle("preview_url_prefix", {})).toBe("writ-preview://");
+    expect(await handle("preview_url_prefix", {})).toBe("jotra-preview://");
   });
 
   it("keeps a file's preview scripts off until it is turned on, and remembers it", async () => {
@@ -241,7 +241,7 @@ describe("the demo backend", () => {
     const original = versions[1];
     expect(await handle("note_version_content", { versionId: original.id })).toContain("Garden committee");
     await handle("restore_note_version", { versionId: original.id });
-    expect(emitted.some((e) => e.event === "writ://buffer-external")).toBe(true);
+    expect(emitted.some((e) => e.event === "jotra://buffer-external")).toBe(true);
     await expect(handle("note_version_content", { versionId: 999 })).rejects.toBe("That version is not here any more.");
   });
 
@@ -293,11 +293,11 @@ describe("the demo backend", () => {
     expect(texts).toEqual(SEED_VERSIONS.map((version) => version.text).reverse());
     const bytes = (await handle("read_buffer_content", { id: opened.doc.id })) as ArrayBuffer;
     expect(new TextDecoder().decode(bytes)).toBe(SEED_FILES["Newsletter draft.md"]);
-    expect(emitted.filter((e) => e.event === "writ://buffer-external")).toHaveLength(1);
+    expect(emitted.filter((e) => e.event === "jotra://buffer-external")).toHaveLength(1);
 
     await controls.resetVersions(path);
     expect(await listed()).toHaveLength(3);
-    expect(emitted.filter((e) => e.event === "writ://buffer-external")).toHaveLength(1);
+    expect(emitted.filter((e) => e.event === "jotra://buffer-external")).toHaveLength(1);
     await expect(controls.resetVersions(`${NOTES_ROOT}/To do.txt`)).rejects.toBeInstanceOf(VersionsNotSeededError);
   });
 
@@ -324,7 +324,7 @@ describe("the demo backend", () => {
     const chat = (await handle("chat_new", {})) as { id: string };
     await handle("chat_send", { conversationId: chat.id, text: "What is due?", contextPaths: [], requestId: "q1" });
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const frame = emitted.find((e) => e.event === "writ://ai-chat")?.payload as { payload: { error: { kind: string } } };
+    const frame = emitted.find((e) => e.event === "jotra://ai-chat")?.payload as { payload: { error: { kind: string } } };
     expect(frame.payload.error.kind).toBe("local_server_offline");
     const list = (await handle("chat_list", {})) as { title: string; turns: number }[];
     expect(list).toEqual([expect.objectContaining({ title: "What is due?", turns: 1 })]);

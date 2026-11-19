@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { BufferDocument, FileOpenResult } from "../../types/buffer";
 
-// Two files over the size Writ opens without asking, asked about at once: the
+// Two files over the size Jotra opens without asking, asked about at once: the
 // later question waits until the earlier one is answered and its file is
 // shown. No open is answered for the person, and no progress gives way to a
 // question.

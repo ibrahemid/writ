@@ -12,14 +12,14 @@ describe("userErrorText", () => {
     );
   });
 
-  it("holds back the Display text of writ-core's and writ-storage's errors", () => {
+  it("holds back the Display text of jotra-core's and jotra-storage's errors", () => {
     for (const display of [
       "buffer not found: 3f2a9c1e",
       "consistency error: buffer not found: 3f2a9c1e",
       "io error: Permission denied (os error 13)",
       "database error: database is locked",
       "version 12 is not in the store",
-      "the name Plan.md is already taken in /Users/a/Writ",
+      "the name Plan.md is already taken in /Users/a/Jotra",
     ]) {
       expect(userErrorText(display), display).toBeNull();
       expect(userErrorText(new Error(display)), display).toBeNull();

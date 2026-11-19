@@ -9,12 +9,12 @@ import GraphCanvas from "../../components/Graph/GraphCanvas";
 // hard-coded can pass for one.
 
 const TOKEN_VALUES: Record<string, string> = {
-  "--writ-bg-canvas": "rgb(1, 1, 1)",
-  "--writ-fg-muted": "rgb(2, 2, 2)",
-  "--writ-fg": "rgb(3, 3, 3)",
-  "--writ-accent": "rgb(4, 4, 4)",
-  "--writ-border": "rgb(5, 5, 5)",
-  "--writ-bg-raised": "rgb(6, 6, 6)",
+  "--jotra-bg-canvas": "rgb(1, 1, 1)",
+  "--jotra-fg-muted": "rgb(2, 2, 2)",
+  "--jotra-fg": "rgb(3, 3, 3)",
+  "--jotra-accent": "rgb(4, 4, 4)",
+  "--jotra-border": "rgb(5, 5, 5)",
+  "--jotra-bg-raised": "rgb(6, 6, 6)",
 };
 
 // The store writes its signal before it writes the custom properties to the
@@ -207,15 +207,15 @@ describe("the drawing's colours", () => {
 
   it("are read again after a theme change lands, not while it is landing", async () => {
     mount();
-    expect(recorder.fills).toContain(TOKEN_VALUES["--writ-bg-canvas"]);
+    expect(recorder.fills).toContain(TOKEN_VALUES["--jotra-bg-canvas"]);
 
     // What the store does: move the signal first, write the root second.
     setThemeChanged(1);
-    TOKEN_VALUES["--writ-bg-canvas"] = "rgb(7, 7, 7)";
+    TOKEN_VALUES["--jotra-bg-canvas"] = "rgb(7, 7, 7)";
     await Promise.resolve();
 
     expect(recorder.fills).toContain("rgb(7, 7, 7)");
-    TOKEN_VALUES["--writ-bg-canvas"] = "rgb(1, 1, 1)";
+    TOKEN_VALUES["--jotra-bg-canvas"] = "rgb(1, 1, 1)";
   });
 
   it("are read again when the theme changes, not once per frame", () => {

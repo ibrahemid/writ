@@ -73,7 +73,7 @@ export interface ClientApproval {
   first_seen: string;
   read: boolean;
   write: boolean;
-  /** May see the file open in Writ and its selection (ADR-053). */
+  /** May see the file open in Jotra and its selection (ADR-053). */
   context: boolean;
   /** Each write waits for the person to apply or discard it (ADR-053). */
   review?: boolean;
@@ -187,7 +187,7 @@ export interface DictationConfig {
   consented_hosts: string[];
 }
 
-export interface WritConfig {
+export interface JotraConfig {
   hotkey: { toggle: string; capture?: string };
   sidebar: SidebarConfig;
   panel: PanelConfig;

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup } from "@solidjs/testing-library";
 
-// The panel follows Writ's own writes. The watcher drops them, so a save, a
+// The panel follows Jotra's own writes. The watcher drops them, so a save, a
 // rename, a create or a delete reaches the panel as `notes:indexed`, sent once
 // the index holds the new rows; the panel reads its note again on it.
 
@@ -122,7 +122,7 @@ beforeEach(async () => {
 
 afterEach(cleanup);
 
-describe("the panel after Writ's own writes", () => {
+describe("the panel after Jotra's own writes", () => {
   it("shows a heading a save added once the save's index event arrives", async () => {
     const { container } = render(() => <RightPanel />);
     await settle();

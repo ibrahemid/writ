@@ -5,7 +5,7 @@ import type { PendingDownload } from "../../stores/window/download-store";
 
 function download(overrides: Partial<PendingDownload> = {}): PendingDownload {
   return {
-    path: "/home/user/Writ/away.md",
+    path: "/home/user/Jotra/away.md",
     title: "away.md",
     provider: "iCloud Drive",
     state: "downloading",
@@ -96,7 +96,7 @@ describe("NoteDownloading", () => {
       />
     ));
 
-    expect(getByText("Writ lost track of this download.")).toBeTruthy();
+    expect(getByText("Jotra lost track of this download.")).toBeTruthy();
   });
 
   it("says what to do after the wait ran out", () => {

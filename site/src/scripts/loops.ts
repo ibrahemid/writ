@@ -13,7 +13,7 @@ export function startLoopPlayback(env: LoopEnv): void {
     primed.add(video);
     const figure = video.parentElement;
     if (figure && video.poster) {
-      figure.style.setProperty('--writ-loop-poster', `url("${video.poster}")`);
+      figure.style.setProperty('--jotra-loop-poster', `url("${video.poster}")`);
       figure.dataset.fade = '';
       // Commits the hidden state now: if `playing` lands before the next style pass, is-playing would
       // otherwise go from 1 to 1 and frame 1 would cut in over the poster instead of fading.

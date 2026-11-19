@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 import { themeStore } from "../../stores/global/theme";
 import { TOKEN_GROUPS, GROUP_LABELS } from "../../types/theme";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 
 const h = vi.hoisted(() => ({
   save: vi.fn().mockResolvedValue(undefined),
@@ -27,7 +27,7 @@ vi.mock("../../stores/global/notifications", () => ({
 
 import ThemeEditor, { openThemeEditor, closeThemeEditor } from "../../components/ThemeEditor/ThemeEditor";
 
-function baseConfig(): Partial<WritConfig> {
+function baseConfig(): Partial<JotraConfig> {
   return { theme: { preset: "writ-light", overrides: {} } };
 }
 
@@ -93,7 +93,7 @@ describe("ThemeEditor", () => {
     fireEvent.click(container.querySelector<HTMLButtonElement>("[data-action='save-theme']")!);
     await waitFor(() => expect(h.save).toHaveBeenCalledTimes(1));
 
-    const saved = h.save.mock.calls[0][0] as WritConfig;
+    const saved = h.save.mock.calls[0][0] as JotraConfig;
     expect(saved.theme.overrides).toEqual({ "bg.canvas": "#123456" });
 
     themeStore.loadConfig({ preset: "writ-light", overrides: {} });
@@ -119,18 +119,18 @@ describe("ThemeEditor", () => {
 
   it("the preset select names the half of the pair that renders", () => {
     // The swatches below it are the active preset's, so naming the stored half
-    // would label a dark palette "Writ Light".
+    // would label a dark palette "Jotra Light".
     const { container } = render(() => <ThemeEditor />);
     themeStore.setAppearance({ polarity: "dark", accent: "pine", prose_face: "system", interface_text_size: null });
     themeStore.loadConfig({ preset: "writ-light", overrides: {} });
     openThemeEditor();
     const select = container.querySelector<HTMLSelectElement>(".theme-editor-preset")!;
     expect(select.value).toBe("writ-dark");
-    expect(select.selectedOptions[0].textContent).toBe("Writ Dark");
+    expect(select.selectedOptions[0].textContent).toBe("Jotra Dark");
   });
 
   it("the select shows the preset just chosen, under a dark system", () => {
-    // The bug: with polarity on system and the system dark, choosing Writ
+    // The bug: with polarity on system and the system dark, choosing Jotra
     // Light swapped straight back to writ-dark under the light label.
     const { container } = render(() => <ThemeEditor />);
     themeStore.loadConfig(
@@ -158,7 +158,7 @@ describe("ThemeEditor", () => {
     });
     fireEvent.click(container.querySelector<HTMLButtonElement>("[data-action='save-theme']")!);
     await waitFor(() => expect(h.save).toHaveBeenCalledTimes(1));
-    const saved = h.save.mock.calls[0][0] as WritConfig;
+    const saved = h.save.mock.calls[0][0] as JotraConfig;
     expect(saved.theme.preset).toBe("writ-dark");
     expect(saved.appearance.polarity).toBe("dark");
   });
@@ -198,7 +198,7 @@ describe("ThemeEditor", () => {
     expect(names).toContain("Hovered row");
     expect(names).toContain("Selected row");
     expect(names).toContain("Recessed surfaces");
-    // --writ-status-foreground has no reader, so it is not a row.
+    // --jotra-status-foreground has no reader, so it is not a row.
     expect(names).not.toContain("Text on status");
     expect(names).not.toContain("fg");
     expect(names).not.toContain("foreground");

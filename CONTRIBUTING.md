@@ -1,4 +1,4 @@
-# Contributing to Writ
+# Contributing to Jotra
 
 Thank you for your interest in contributing. This document covers everything you need to get a working development environment, understand the codebase, and submit quality pull requests.
 
@@ -15,8 +15,8 @@ Thank you for your interest in contributing. This document covers everything you
 ## Building from Source
 
 ```bash
-git clone https://github.com/ibrahemid/writ.git
-cd writ
+git clone https://github.com/ibrahemid/writ.git jotra
+cd jotra
 pnpm install
 cargo tauri dev          # development (hot-reload)
 cargo tauri build        # production bundle
@@ -37,19 +37,19 @@ New public Rust functions ship with tests, and a new IPC command ships with cove
 ## Project Structure
 
 ```
-writ/
+jotra/
 ├── crates/
-│   ├── writ-core/       # Domain model and policy, no Tauri
-│   ├── writ-storage/    # SQLite persistence, FTS5, migrations, file I/O
-│   ├── writ-plugin/     # Plugin boundary types and the text-transform runtime
-│   ├── writ-render/     # Markdown to HTML fragments for the preview pane
-│   ├── writ-lint/       # Spell check and mechanical-writing rules (spellbook)
-│   └── writ-cli/        # The `writ` command, bundled as a Tauri sidecar
+│   ├── jotra-core/       # Domain model and policy, no Tauri
+│   ├── jotra-storage/    # SQLite persistence, FTS5, migrations, file I/O
+│   ├── jotra-plugin/     # Plugin boundary types and the text-transform runtime
+│   ├── jotra-render/     # Markdown to HTML fragments for the preview pane
+│   ├── jotra-lint/       # Spell check and mechanical-writing rules (spellbook)
+│   └── jotra-cli/        # The `jotra` command, bundled as a Tauri sidecar
 ├── src-tauri/           # Tauri adapter: IPC commands, app lifecycle, file watcher
 └── src/                 # SolidJS frontend: components, stores, services
 ```
 
-The crate separation is intentional and compiler-enforced. `writ-core` must never import `tauri` or `writ-storage` directly. See [ADR-005](docs/adr/005-cargo-workspace-split.md) for the split and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the current dependency graph and the frontend layering rules.
+The crate separation is intentional and compiler-enforced. `jotra-core` must never import `tauri` or `jotra-storage` directly. See [ADR-005](docs/adr/005-cargo-workspace-split.md) for the split and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the current dependency graph and the frontend layering rules.
 
 ## Code Style
 

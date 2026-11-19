@@ -13,12 +13,12 @@ interface FixtureCase {
 }
 
 const cases: FixtureCase[] = JSON.parse(
-  readFileSync(resolve(__dirname, "../../../crates/writ-core/tests/fixtures/change-sets.json"), "utf8"),
+  readFileSync(resolve(__dirname, "../../../crates/jotra-core/tests/fixtures/change-sets.json"), "utf8"),
 ).cases;
 
 const textOf = (value: string) => Text.of(value.split("\n"));
 
-describe("the change-set fixture shared with writ-core", () => {
+describe("the change-set fixture shared with jotra-core", () => {
   it("carries the cases the contract needs", () => {
     expect(cases.length).toBeGreaterThanOrEqual(10);
     const names = cases.map((one) => one.name);
@@ -30,7 +30,7 @@ describe("the change-set fixture shared with writ-core", () => {
     expect(ChangeSet.of(one.specs, textOf(one.base).length).toJSON()).toEqual(one.changes);
   });
 
-  it.each(cases)("$name gives the document writ-core gives", (one) => {
+  it.each(cases)("$name gives the document jotra-core gives", (one) => {
     const applied = ChangeSet.fromJSON(one.changes).apply(textOf(one.base));
     expect(applied.toString()).toBe(one.result);
   });

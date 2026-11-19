@@ -16,15 +16,15 @@ import { showToast } from "./notifications";
  * to ask. The Apps step is also opened later from Settings, Apps. */
 export type FirstRunStep = "format" | "apps";
 
-// Singleton state — Writ is single-window. What the first launch shows is
+// Singleton state — Jotra is single-window. What the first launch shows is
 // read once and answered once, and the answer outlives the window.
 
-/** The one line Writ shows under the cursor on a first launch. */
+/** The one line Jotra shows under the cursor on a first launch. */
 export function hintText(fileManager: string): string {
   return `Your files are saved automatically to a folder you can open in ${fileManager}.`;
 }
 
-/** The question Writ asks when it may not rename a note without asking. */
+/** The question Jotra asks when it may not rename a note without asking. */
 export function offerText(title: string): string {
   return `Rename this file to "${title}"?`;
 }
@@ -189,7 +189,7 @@ export function createFirstRunStore() {
    *
    * One at a time. A held Enter repeats well inside one round trip, and two
    * calls that both reach the mint leave the folder with a
-   * `writ-<yymmdd>-<hhmm>-2` nobody asked for. `busy()` is what the button
+   * `jotra-<yymmdd>-<hhmm>-2` nobody asked for. `busy()` is what the button
    * reads to say so.
    */
   async function continueSetup(): Promise<void> {
@@ -222,7 +222,7 @@ export function createFirstRunStore() {
   }
 
   // The line goes on the first keystroke and stays gone. The signal drops
-  // first: a line still on screen while Writ writes the config reads as a
+  // first: a line still on screen while Jotra writes the config reads as a
   // keystroke that did nothing.
   function dismissHint(): void {
     if (!showHint()) return;
@@ -235,7 +235,7 @@ export function createFirstRunStore() {
    * Asks what a note's first line may do to the note's file name.
    *
    * Rust holds the two facts that decide it — whether the tab has been closed,
-   * and whether anything outside Writ has touched the path — and reads the
+   * and whether anything outside Jotra has touched the path — and reads the
    * line off the file the save just wrote. The answer is the rename, a
    * question, a note with no first line yet, or nothing at all.
    */
@@ -262,7 +262,7 @@ export function createFirstRunStore() {
    * The unasked rename skips the links because the note was minted this
    * launch and its tab has never been closed, so a `[[…]]` naming its date can
    * only have been typed in the same session. The offer is the other case: it
-   * is reached because the tab was closed or something outside Writ touched
+   * is reached because the tab was closed or something outside Jotra touched
    * the file, which is when a link to it can already exist.
    */
   async function acceptOffer(): Promise<void> {

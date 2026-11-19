@@ -7,7 +7,7 @@ import type { BufferDocument } from "../../types/buffer";
 
 // Regression for #97: the stale-cache flash on tab switch between two
 // renderable buffers. PreviewPane is a single persistent instance (recreating
-// a loaded writ-preview:// iframe freezes the macOS webview, #124), so on a
+// a loaded jotra-preview:// iframe freezes the macOS webview, #124), so on a
 // switch props.buffer.id flips reactively while the editor is still mid-load
 // on the OUTGOING buffer. Two defects produced the flash:
 //   1. doRender read the shared editor text and could render the incoming id
@@ -109,7 +109,7 @@ describe("PreviewPane — buffer switch (regression #97)", () => {
     showInEditor(win!, "A", "<body>A</body>");
 
     await waitFor(() => {
-      expect(iframeSrc(container)).toMatch(/writ-preview:\/\/document\/A\?v=[1-9]\d*$/);
+      expect(iframeSrc(container)).toMatch(/jotra-preview:\/\/document\/A\?v=[1-9]\d*$/);
     });
     expect(mocks.forceRender).toHaveBeenCalledWith("A", "html", "<body>A</body>", "light", 1);
     const srcShowingA = iframeSrc(container);
@@ -132,7 +132,7 @@ describe("PreviewPane — buffer switch (regression #97)", () => {
     showInEditor(win!, "B", "<body>B</body>");
 
     await waitFor(() => {
-      expect(iframeSrc(container)).toMatch(/writ-preview:\/\/document\/B\?v=[1-9]\d*$/);
+      expect(iframeSrc(container)).toMatch(/jotra-preview:\/\/document\/B\?v=[1-9]\d*$/);
     });
     expect(mocks.forceRender).toHaveBeenCalledWith("B", "html", "<body>B</body>", "light", 1);
     // B was never rendered with A's text under either id.

@@ -15,8 +15,8 @@ function report(overrides: Record<string, unknown> = {}) {
   return {
     ran_at: "2026-08-30T09:00:00Z",
     first_ran_at: "2026-08-30T09:00:00Z",
-    notes_folder: "/home/user/Writ",
-    archive_folder: "/home/user/.writ/archive",
+    notes_folder: "/home/user/Jotra",
+    archive_folder: "/home/user/.jotra/archive",
     migrated: 3,
     archived: 2,
     recovered: 1,
@@ -43,8 +43,8 @@ describe("notes migration report store", () => {
     h.showNotesFolderInFinder.mockReset().mockResolvedValue(undefined);
     h.showNotesFileInFileManager.mockReset().mockResolvedValue(undefined);
     h.getNotesFolder.mockReset().mockResolvedValue({
-      path: "/home/user/Writ",
-      display_path: "~/Writ",
+      path: "/home/user/Jotra",
+      display_path: "~/Jotra",
       fallback: null,
     });
   });
@@ -102,6 +102,6 @@ describe("notes migration report store", () => {
     const store = await freshStore();
     await store.load();
     await store.showRecovered();
-    expect(h.showNotesFileInFileManager).toHaveBeenCalledWith("/home/user/Writ/Recovered");
+    expect(h.showNotesFileInFileManager).toHaveBeenCalledWith("/home/user/Jotra/Recovered");
   });
 });

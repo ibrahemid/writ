@@ -12,7 +12,7 @@ export type DownloadStore = ReturnType<typeof createDownloadStore>;
 export type DownloadState = "downloading" | "failed" | "timed_out";
 
 // Which part of getting the note here gave out. The provider's own failures
-// are the "download" ones; the other two are Writ's, and each needs its own
+// are the "download" ones; the other two are Jotra's, and each needs its own
 // sentence because "this file could not be downloaded" would be untrue.
 export type DownloadFailure = "download" | "open" | "listener";
 
@@ -114,7 +114,7 @@ export function createDownloadStore() {
       ]);
     }
     // Asked for only once the listener is attached: the download reports every
-    // state it passes through as an event, so one that starts before Writ is
+    // state it passes through as an event, so one that starts before Jotra is
     // listening can finish unheard and leave the tab downloading for good.
     if (listening !== null && !(await listening)) {
       update(entry.path, { state: "failed", reason: "listener", message: null });

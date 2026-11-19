@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The files a Writ release publishes, named from its version.
+"""The files a Jotra release publishes, named from its version.
 
 The release workflow signs, checksums, attests and uploads exactly this set, so
 a file no job meant to publish never reaches the release. `check` also reads
@@ -27,8 +27,8 @@ SUMS_SIGNATURE = "SHA256SUMS.txt.minisig"
 UPDATER_MANIFEST = "latest.json"
 RELEASE_META = "release-meta.json"
 
-SBOM_CRATES = ("writ-tauri", "writ-cli")
-FRONTEND_PACKAGE_NAME = "writ"
+SBOM_CRATES = ("jotra-tauri", "jotra-cli")
+FRONTEND_PACKAGE_NAME = "jotra"
 SBOM_TARGETS = (
     "aarch64-apple-darwin",
     "x86_64-apple-darwin",
@@ -80,12 +80,12 @@ def target_platform(target: str) -> str:
 def installers(version: str) -> list[Installer]:
     v = require_version(version)
     return [
-        Installer(f"Writ_{v}_universal.pkg", "macos", False),
-        Installer(f"Writ_{v}_universal.dmg", "macos", False),
-        Installer(f"Writ_{v}_universal.app.tar.gz", "macos", True),
-        Installer(f"Writ_{v}_x64_en-US.msi", "windows", True),
-        Installer(f"Writ_{v}_amd64.deb", "linux", True),
-        Installer(f"Writ_{v}_amd64.AppImage", "linux", True),
+        Installer(f"Jotra_{v}_universal.pkg", "macos", False),
+        Installer(f"Jotra_{v}_universal.dmg", "macos", False),
+        Installer(f"Jotra_{v}_universal.app.tar.gz", "macos", True),
+        Installer(f"Jotra_{v}_x64_en-US.msi", "windows", True),
+        Installer(f"Jotra_{v}_amd64.deb", "linux", True),
+        Installer(f"Jotra_{v}_amd64.AppImage", "linux", True),
     ]
 
 
@@ -104,7 +104,7 @@ def sboms(version: str) -> list[Sbom]:
         for crate in SBOM_CRATES
         for target in SBOM_TARGETS
     ]
-    return rust + [Sbom(f"writ-frontend_{v}.cdx.json", PLATFORMS, FRONTEND_PACKAGE_NAME)]
+    return rust + [Sbom(f"jotra-frontend_{v}.cdx.json", PLATFORMS, FRONTEND_PACKAGE_NAME)]
 
 
 def sbom_subjects(version: str, sbom: Sbom) -> list[str]:

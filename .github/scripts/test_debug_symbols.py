@@ -61,10 +61,10 @@ def exe_with_codeview(pdb_path: str, guid: bytes, age: int) -> bytes:
 
 
 def write_dsym(root: pathlib.Path, dwarf: bytes) -> pathlib.Path:
-    dsym = root / "writ-tauri.dSYM"
+    dsym = root / "jotra-tauri.dSYM"
     folder = dsym / "Contents" / "Resources" / "DWARF"
     folder.mkdir(parents=True)
-    (folder / "writ-tauri").write_bytes(dwarf)
+    (folder / "jotra-tauri").write_bytes(dwarf)
     (dsym / "Contents" / "Info.plist").write_text("<plist/>")
     return dsym
 
@@ -96,13 +96,13 @@ class CodeViewTests(unittest.TestCase):
     GUID = struct.pack("<IHH", 0x12345678, 0x9ABC, 0xDEF0) + bytes.fromhex("0102030405060708")
 
     def test_the_key_is_guid_then_age_for_the_named_pdb(self) -> None:
-        exe = exe_with_codeview("D:\\a\\writ\\target\\release\\deps\\writ_tauri.pdb", self.GUID, 3)
-        self.assertEqual(debug_symbols.pdb_key(exe, "writ_tauri.pdb"), "123456789ABCDEF001020304050607083")
+        exe = exe_with_codeview("D:\\a\\jotra\\target\\release\\deps\\jotra_tauri.pdb", self.GUID, 3)
+        self.assertEqual(debug_symbols.pdb_key(exe, "jotra_tauri.pdb"), "123456789ABCDEF001020304050607083")
 
     def test_an_executable_naming_another_pdb_is_refused(self) -> None:
         exe = exe_with_codeview("D:\\a\\other.pdb", self.GUID, 1)
         with self.assertRaises(debug_symbols.SymbolError):
-            debug_symbols.pdb_key(exe, "writ_tauri.pdb")
+            debug_symbols.pdb_key(exe, "jotra_tauri.pdb")
 
 
 class ElfTests(unittest.TestCase):
@@ -139,37 +139,37 @@ class CollectTests(unittest.TestCase):
         self.assertEqual(self.run_main("dsym", "--out", str(self.out), str(arm), str(intel)), 0)
 
         uuid_a = debug_symbols.format_uuid(UUID_A)
-        self.assertTrue((self.out / uuid_a / "writ-tauri.dSYM" / "Contents" / "Resources" / "DWARF" / "writ-tauri").is_file())
+        self.assertTrue((self.out / uuid_a / "jotra-tauri.dSYM" / "Contents" / "Resources" / "DWARF" / "jotra-tauri").is_file())
         self.assertEqual(
             self.manifest(),
             [
-                [uuid_a, "arm64", f"{uuid_a}/writ-tauri.dSYM"],
-                [debug_symbols.format_uuid(UUID_B), "x86_64", f"{debug_symbols.format_uuid(UUID_B)}/writ-tauri.dSYM"],
+                [uuid_a, "arm64", f"{uuid_a}/jotra-tauri.dSYM"],
+                [debug_symbols.format_uuid(UUID_B), "x86_64", f"{debug_symbols.format_uuid(UUID_B)}/jotra-tauri.dSYM"],
             ],
         )
 
     def test_the_pdb_is_filed_under_the_executables_key(self) -> None:
-        exe = self.root / "writ-tauri.exe"
-        exe.write_bytes(exe_with_codeview("D:\\a\\writ_tauri.pdb", CodeViewTests.GUID, 1))
-        pdb = self.root / "writ_tauri.pdb"
+        exe = self.root / "jotra-tauri.exe"
+        exe.write_bytes(exe_with_codeview("D:\\a\\jotra_tauri.pdb", CodeViewTests.GUID, 1))
+        pdb = self.root / "jotra_tauri.pdb"
         pdb.write_bytes(b"Microsoft C/C++ MSF 7.00\r\n")
 
         self.assertEqual(self.run_main("pdb", "--out", str(self.out), "--exe", str(exe), str(pdb)), 0)
 
-        self.assertEqual((self.out / "123456789ABCDEF001020304050607081" / "writ_tauri.pdb").read_bytes(), pdb.read_bytes())
+        self.assertEqual((self.out / "123456789ABCDEF001020304050607081" / "jotra_tauri.pdb").read_bytes(), pdb.read_bytes())
 
     def test_the_debug_file_is_filed_under_the_shipped_binarys_build_id(self) -> None:
-        binary = self.root / "writ-tauri"
+        binary = self.root / "jotra-tauri"
         binary.write_bytes(elf_with_build_id(bytes.fromhex("ab" * 20)))
-        debug = self.root / "writ-tauri.debug"
+        debug = self.root / "jotra-tauri.debug"
         debug.write_bytes(b"\x7fELF debug")
 
         self.assertEqual(self.run_main("elf", "--out", str(self.out), "--binary", str(binary), str(debug)), 0)
 
-        self.assertTrue((self.out / ("ab" * 20) / "writ-tauri.debug").is_file())
+        self.assertTrue((self.out / ("ab" * 20) / "jotra-tauri.debug").is_file())
 
     def test_a_dsym_without_its_dwarf_file_fails_the_step(self) -> None:
-        empty = self.root / "writ-tauri.dSYM"
+        empty = self.root / "jotra-tauri.dSYM"
         empty.mkdir()
         self.assertEqual(self.run_main("dsym", "--out", str(self.out), str(empty)), 1)
 

@@ -10,7 +10,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirro
 import { syntaxHighlighting, bracketMatching, indentOnInput } from "@codemirror/language";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { search, highlightSelectionMatches } from "@codemirror/search";
-import { editorThemeFor, writCodeFace, writHighlight } from "./cm-theme";
+import { editorThemeFor, jotraCodeFace, jotraHighlight } from "./cm-theme";
 import { themeStore } from "../../stores/global/theme";
 import { isMarkdownBuffer } from "../../lib/content-type";
 import { markdownInlineExtension } from "../../editor/markdown-typography";
@@ -18,7 +18,7 @@ import { sharedBlockRenderer } from "../../editor/block-renderer";
 import { loadAllRemoteImages, type InlineImageDeps } from "../../editor/markdown-images";
 import { imagePaste, type ImagePasteDeps } from "../../editor/image-paste";
 import { markdownEditingExtension } from "../../editor/markdown-editing";
-import { writSelection } from "../../editor/selection-layer";
+import { jotraSelection } from "../../editor/selection-layer";
 import { MARKDOWN_FORMAT_KEYS } from "../../editor/editor-command-keys";
 import {
   recheckSpelling,
@@ -253,7 +253,7 @@ export default function EditorInstance(props: Props) {
     return surfaceFollowsLanguage(mode) || features.highlight;
   }
 
-  // A destination without a scheme is a file reference. It opens in Writ when
+  // A destination without a scheme is a file reference. It opens in Jotra when
   // it resolves inside the open workspace or inside the notes folder; anything
   // else stays inert, because a bare word that looks path-like is not an error
   // worth a toast.
@@ -327,7 +327,7 @@ export default function EditorInstance(props: Props) {
     candidates: (query: string) => linkStore.linkCandidates(query, props.buffer.source_path ?? null),
   };
 
-  // Writ's own right-click menu. The native WKWebView menu is suppressed
+  // Jotra's own right-click menu. The native WKWebView menu is suppressed
   // app-wide, so every editor action a user expects from a right click has to
   // live here.
   // The buffer the menu was opened over. Pinned alongside the range, because a
@@ -505,7 +505,7 @@ export default function EditorInstance(props: Props) {
   // so it takes mono for the whole surface (ADR-030 decision 7). Markdown and
   // an undetected buffer stay prose.
   function codeFaceExtension(lang: string | null): Extension {
-    return isCodeBuffer(lang) ? writCodeFace : [];
+    return isCodeBuffer(lang) ? jotraCodeFace : [];
   }
 
   function editingExtension(markdown: boolean, features: EditorFeatures): Extension {
@@ -651,7 +651,7 @@ export default function EditorInstance(props: Props) {
       ),
       EditorState.allowMultipleSelections.of(true),
       agentEditMarks,
-      writSelection(),
+      jotraSelection(),
       rectangularSelection(),
       crosshairCursor(),
       bracketMatching(),
@@ -661,7 +661,7 @@ export default function EditorInstance(props: Props) {
       highlightSelectionMatches(),
       search({ top: true }),
       findMatches({ onChange: refreshOpenFind }),
-      syntaxHighlighting(writHighlight, { fallback: true }),
+      syntaxHighlighting(jotraHighlight, { fallback: true }),
       keymap.of([
         ...stripOwnedBindings(defaultKeymap, OWNED_CM_COMMANDS),
         ...historyKeymap,
@@ -1003,9 +1003,9 @@ export default function EditorInstance(props: Props) {
     lastDetectLen = 0;
     unreadPaneFor = null;
 
-    // A tab the last session left open whose file is over the size Writ opens
+    // A tab the last session left open whose file is over the size Jotra opens
     // without asking is read only once its open answers, and one past the
-    // size Writ opens is not read at all.
+    // size Jotra opens is not read at all.
     const unread = unreadTabs.stateOf(buffer.id);
     if (unread) {
       showUnreadPane(buffer.id, unread);
@@ -1052,7 +1052,7 @@ export default function EditorInstance(props: Props) {
     try {
       const pending = await ed.flushAutosave(buffer.id);
       if (ticket !== loadTicket) return;
-      // The kept state comes back unread while the file is as Writ last read
+      // The kept state comes back unread while the file is as Jotra last read
       // or wrote it. It is taken right after the ticket check, with no wait
       // between them, so a later load cannot lose it.
       const check = pending.ok && !buffer.read_only ? await ed.checkKeptState(buffer.id) : null;
@@ -1065,7 +1065,7 @@ export default function EditorInstance(props: Props) {
       const loaded = await loadText(buffer, pending.ok);
       if (ticket !== loadTicket) return;
       if (!loaded.ok) {
-        // A file that grew past the size Writ opens was measured and not
+        // A file that grew past the size Jotra opens was measured and not
         // read, and the tab is unread now.
         const unreadNow = unreadTabs.stateOf(buffer.id);
         if (unreadNow) showUnreadPane(buffer.id, unreadNow);
@@ -1193,7 +1193,7 @@ export default function EditorInstance(props: Props) {
     try {
       content = await bufferRegistry.readContent(id);
     } catch {
-      // A file that grew past the size Writ opens was measured and not read:
+      // A file that grew past the size Jotra opens was measured and not read:
       // the view in front is dropped rather than left on text the file no
       // longer holds. A tab that was unread already keeps its pane, and is
       // not asked about again for every change to its file.

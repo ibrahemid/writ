@@ -58,7 +58,7 @@ export default function Sidebar() {
       ref={sidebarRef}
       class="sidebar"
       classList={{ "is-open": win.sidebar.isOpen(), "is-resizing": dragWidth() !== null }}
-      style={{ "--writ-sidebar-live-width": `${width()}px` }}
+      style={{ "--jotra-sidebar-live-width": `${width()}px` }}
       aria-hidden={win.sidebar.isOpen() ? undefined : "true"}
       inert={!win.sidebar.isOpen()}
     >

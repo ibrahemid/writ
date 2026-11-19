@@ -165,8 +165,8 @@ export function createProposals(view: ChatView, hooks: ProposalHooks) {
   }
 
   /** Measures the offers again whenever a file one names changes: a save
-   * Writ made (which the folder watcher drops), another program's write, and
-   * a rename or restore Writ indexed. Subscribed once. */
+   * Jotra made (which the folder watcher drops), another program's write, and
+   * a rename or restore Jotra indexed. Subscribed once. */
   function watchOfferedNotes(): void {
     if (watching) return;
     watching = true;

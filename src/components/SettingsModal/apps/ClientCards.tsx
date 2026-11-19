@@ -12,7 +12,7 @@ import {
 import { mcpClientLabel } from "../../../lib/mcp-clients";
 import "./ClientCards.css";
 
-/** What the program may do in Writ now, in one line. */
+/** What the program may do in Jotra now, in one line. */
 function accessLine(standing: CardStanding): string {
   switch (standing.kind) {
     case "waiting":
@@ -53,9 +53,9 @@ function onDenied(name: string): void {
 function howLine(card: McpClientCard): string | null {
   switch (card.connection) {
     case "link":
-      return `Add opens ${mcpClientLabel(card.client)}, which asks to install Writ.`;
+      return `Add opens ${mcpClientLabel(card.client)}, which asks to install Jotra.`;
     case "bundle":
-      return "Add opens Writ.mcpb in Claude Desktop, which asks to install it.";
+      return "Add opens Jotra.mcpb in Claude Desktop, which asks to install it.";
     case "json":
       return "Paste this into the program's MCP settings.";
     case "command":
@@ -83,7 +83,7 @@ function ClientCard(props: { card: McpClientCard; blocked: boolean }) {
   const testLine = () => {
     const now = test();
     if (now.phase === "passed") {
-      return `Writ answered with ${now.tools} ${now.tools === 1 ? "tool" : "tools"}.`;
+      return `Jotra answered with ${now.tools} ${now.tools === 1 ? "tool" : "tools"}.`;
     }
     return now.phase === "failed" ? now.message : null;
   };
@@ -125,7 +125,7 @@ function ClientCard(props: { card: McpClientCard; blocked: boolean }) {
           <Button
             variant="primary"
             data-action="mcp-card-add"
-            aria-label={`Add Writ to ${label()}`}
+            aria-label={`Add Jotra to ${label()}`}
             aria-busy={action().phase === "working"}
             disabled={props.blocked || action().phase === "working"}
             onClick={() => void mcpConnectStore.add(props.card)}
@@ -179,7 +179,7 @@ function ClientCard(props: { card: McpClientCard; blocked: boolean }) {
 }
 
 /**
- * One card per MCP client: Add puts Writ in that program the way the program
+ * One card per MCP client: Add puts Jotra in that program the way the program
  * documents (its own command, its install link, a bundle it installs), Copy
  * hands over the command or the JSON, and Test starts the command the program
  * is given and counts the tools it lists. Each card then follows the program

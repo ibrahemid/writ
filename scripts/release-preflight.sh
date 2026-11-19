@@ -75,8 +75,8 @@ trusted_updater_config() {
   echo "installed copies trust the updater key of ${latest}"
 }
 
-# tauri-build copies the sidecar in src-tauri/binaries over target/debug/writ
-# every time src-tauri compiles, so a stale sidecar makes writ-cli's version
+# tauri-build copies the sidecar in src-tauri/binaries over target/debug/jotra
+# every time src-tauri compiles, so a stale sidecar makes jotra-cli's version
 # test run last release's binary. Rebuild the sidecars before anything else
 # compiles src-tauri.
 refresh_mac_sidecars() {
@@ -84,17 +84,18 @@ refresh_mac_sidecars() {
   # Resolve the real target dir: a local .cargo/config.toml or CARGO_TARGET_DIR
   # override moves it away from ./target.
   TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
-  cargo build -p writ-cli --release --locked --target aarch64-apple-darwin
-  cargo build -p writ-cli --release --locked --target x86_64-apple-darwin
-  mkdir -p src-tauri/binaries
+  cargo build -p jotra-cli --release --locked --target aarch64-apple-darwin
+  cargo build -p jotra-cli --release --locked --target x86_64-apple-darwin
   # The universal target builds each arch separately; every pass resolves the
-  # sidecar by its own triple, so all three names must exist.
-  cp "${TARGET_DIR}/aarch64-apple-darwin/release/writ" src-tauri/binaries/writ-aarch64-apple-darwin
-  cp "${TARGET_DIR}/x86_64-apple-darwin/release/writ" src-tauri/binaries/writ-x86_64-apple-darwin
+  # sidecar by its own triple, so all three triples must be staged.
+  scripts/stage-cli-sidecar.sh "${TARGET_DIR}/aarch64-apple-darwin/release/jotra" aarch64-apple-darwin
+  scripts/stage-cli-sidecar.sh "${TARGET_DIR}/x86_64-apple-darwin/release/jotra" x86_64-apple-darwin
+  mkdir -p "${TARGET_DIR}/universal-apple-darwin/release"
   lipo -create \
-    "${TARGET_DIR}/aarch64-apple-darwin/release/writ" \
-    "${TARGET_DIR}/x86_64-apple-darwin/release/writ" \
-    -output src-tauri/binaries/writ-universal-apple-darwin
+    "${TARGET_DIR}/aarch64-apple-darwin/release/jotra" \
+    "${TARGET_DIR}/x86_64-apple-darwin/release/jotra" \
+    -output "${TARGET_DIR}/universal-apple-darwin/release/jotra"
+  scripts/stage-cli-sidecar.sh "${TARGET_DIR}/universal-apple-darwin/release/jotra" universal-apple-darwin
 }
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -142,9 +143,9 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   warn "Skipping mac build: this script is running on $(uname -s), not Darwin."
 else
   command -v minisign >/dev/null 2>&1 || fail "minisign not installed; brew install minisign"
-  BUILT_DMG="${TARGET_DIR}/universal-apple-darwin/release/bundle/dmg/Writ_${VERSION}_universal.dmg"
+  BUILT_DMG="${TARGET_DIR}/universal-apple-darwin/release/bundle/dmg/Jotra_${VERSION}_universal.dmg"
   OUT_DIR="${TARGET_DIR}/release-preflight"
-  APP_ARCHIVE="${OUT_DIR}/assets/Writ_${VERSION}_universal.app.tar.gz"
+  APP_ARCHIVE="${OUT_DIR}/assets/Jotra_${VERSION}_universal.app.tar.gz"
   APPLE_SIGNING_IDENTITY="-" \
     npx tauri build \
       --target universal-apple-darwin \
@@ -153,17 +154,17 @@ else
       -- --locked
   rm -rf "${OUT_DIR}"
   mkdir -p "${OUT_DIR}/assets"
-  bash scripts/macos-release.sh extract-app "${BUILT_DMG}" "${OUT_DIR}/Writ.app"
-  bash scripts/macos-release.sh sign-app "${OUT_DIR}/Writ.app" -
-  ENTITLEMENTS="$(codesign -d --entitlements - "${OUT_DIR}/Writ.app" 2>/dev/null)"
+  bash scripts/macos-release.sh extract-app "${BUILT_DMG}" "${OUT_DIR}/Jotra.app"
+  bash scripts/macos-release.sh sign-app "${OUT_DIR}/Jotra.app" -
+  ENTITLEMENTS="$(codesign -d --entitlements - "${OUT_DIR}/Jotra.app" 2>/dev/null)"
   case "${ENTITLEMENTS}" in
     *com.apple.security.device.audio-input*) ;;
     *) fail "the signed app lacks the microphone entitlement" ;;
   esac
-  WRIT_APP_PATH="${OUT_DIR}/Writ.app" WRIT_PKG_OUT_DIR="${OUT_DIR}/assets" bash scripts/build-mac-pkg.sh
-  bash scripts/macos-release.sh repack-dmg "${BUILT_DMG}" "${OUT_DIR}/Writ.app" "${OUT_DIR}/assets/Writ_${VERSION}_universal.dmg"
-  python3 .github/scripts/archive_app.py create "${OUT_DIR}/Writ.app" "${APP_ARCHIVE}"
-  python3 .github/scripts/archive_app.py check "${APP_ARCHIVE}" Writ.app
+  JOTRA_APP_PATH="${OUT_DIR}/Jotra.app" JOTRA_PKG_OUT_DIR="${OUT_DIR}/assets" bash scripts/build-mac-pkg.sh
+  bash scripts/macos-release.sh repack-dmg "${BUILT_DMG}" "${OUT_DIR}/Jotra.app" "${OUT_DIR}/assets/Jotra_${VERSION}_universal.dmg"
+  python3 .github/scripts/archive_app.py create "${OUT_DIR}/Jotra.app" "${APP_ARCHIVE}"
+  python3 .github/scripts/archive_app.py check "${APP_ARCHIVE}" Jotra.app
   TAURI_SIGNING_PRIVATE_KEY="${UPDATER_KEY}" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${UPDATER_KEY_PASSWORD}" \
     python3 .github/scripts/release_signing.py sign-payloads --version "${VERSION}" "${APP_ARCHIVE}"
   trusted_updater_config "${OUT_DIR}/trusted-tauri.conf.json"
@@ -182,7 +183,7 @@ elif ! docker info >/dev/null 2>&1; then
   warn "Docker daemon not running; skipping the dry run."
   warn "Start Docker Desktop, then re-run this script."
 else
-  ACT_EVENT="$(mktemp -t writ-act-event.XXXXXX)"
+  ACT_EVENT="$(mktemp -t jotra-act-event.XXXXXX)"
   trap 'rm -f "${ACT_EVENT}"' EXIT
   printf '{"ref":"refs/tags/v%s","ref_name":"v%s"}\n' "${VERSION}" "${VERSION}" > "${ACT_EVENT}"
   # The macOS and Windows jobs map to a Linux image only because --dryrun runs

@@ -1,0 +1,79 @@
+# Paths where the old product name stays. Format, one rule per line:
+#   <glob> [:path | :from /regex/ | :lines /regex/ | :text /regex/] -- <reason>
+# A rule without a scope keeps the whole file and its name. `:path` keeps the
+# name in the path only. `:from` keeps the first matching line to the end,
+# `:lines` keeps each matching line, `:text` keeps each match. `*` stands in
+# for the product name where a path is renamed.
+
+docs/adr/0[0-5][0-9]-*.md -- history: decision records up to and including the rename
+CHANGELOG.md :from /^## \[[0-9]/ -- history: released changelog sections
+packaging/winget/manifests/i/ibrahemid/Writ/** -- history: published winget manifests
+site/src/data/changelog.ts -- history: site changelog data
+
+crates/*-core/src/legacy_names.rs -- legacy: old identifiers read on upgrade
+src/lib/legacy-names.ts -- legacy: old identifiers read on upgrade
+src-tauri/wix/legacy-*.wxs -- legacy: MSI fragments for the old ProgIDs and paths
+**/Writ.desktop -- legacy: deb desktop entry alias
+src-tauri/tauri.conf.json :text /"(?:conflicts|replaces|provides)": \[\s*"writ"\s*\]/ -- legacy: deb relationship fields that replace the old package
+src-tauri/tauri.conf.json :text /"schemes": \[\s*"jotra",\s*"writ"\s*\]/ -- legacy: old link scheme registered beside the new one
+scripts/deb_legacy_entries.py :lines /(?i)legacy/ -- legacy: deb command, launcher link and desktop entry alias for old installs
+scripts/gen-legacy-progids.py :lines /(?i)legacy/ -- legacy: generator for the old ProgIDs
+packaging/aur/writ-bin/** -- legacy: AUR package keeps its name
+**/cask_renames.json -- legacy: tap rename map from the old cask
+packaging/homebrew/Casks/*.rb :from /^\s*uninstall\b/ -- legacy: cask uninstall and zap paths
+install.sh :lines /(?i)legacy/ -- legacy: installer branch for old installs
+scripts/build-mac-pkg.sh :lines /(?i)legacy/ -- legacy: pkg branch for old installs
+scripts/test_install_sh.py :text /\bWRIT_GUI_BIN\b/ -- legacy: old GUI variable the command wrappers honour
+scripts/test_packaging_bump_aur.py :text /\bWRIT_GUI_BIN\b/ -- legacy: old GUI variable the command wrappers honour
+.github/workflows/packages.yml :text /\/usr\/bin\/writ\b/ -- legacy: old command the AUR package ships
+.github/scripts/test_packages_workflow.py :text /\/usr\/bin\/writ\b/ -- legacy: old command the AUR package ships
+crates/writ-tauri/** -- legacy: launcher crate under the old package name
+Cargo.lock :text /name = "writ-tauri"/ -- legacy: launcher crate under the old package name
+.github/workflows/release.yml :text /writ-tauri/ -- legacy: launcher built, carried and signed under the old program name
+design/tokens/**/*legacy* -- legacy: alias source for the old preview properties
+src-tauri/assets/generated/preview-tokens.css :lines /^\s*--writ-preview-[A-Za-z0-9-]+:\s*var\(--/ -- legacy: generated preview property aliases
+index.html :lines /(?i)legacy/ -- legacy: old theme cache key in the boot script
+src-tauri/tauri.conf.json :text /"binaries\/writ"/ -- legacy: second name the command ships under
+
+**/*legacy*.test.* -- tests: legacy coverage
+**/tests/**/*legacy* -- tests: legacy coverage
+**/test_*legacy*.py -- tests: legacy coverage
+src-tauri/src/linux_rename.rs :from /^#\[cfg\(test\)\]/ -- tests: legacy coverage
+src-tauri/src/windows_rename.rs :from /^#\[cfg\(test\)\]/ -- tests: legacy coverage
+.github/scripts/test_release_workflow.py :text /writ-tauri/ -- tests: legacy launcher wiring
+
+licences/*.txt -- third party: licence texts
+crates/*-lint/dictionaries/** -- third party: spelling dictionaries
+src-tauri/assets/katex/** -- third party: vendored KaTeX
+src-tauri/assets/mermaid/mermaid.min.js -- third party: vendored Mermaid
+
+design/tokens/preset/writ-*.json :path -- kept id: theme presets named by kept theme ids
+design/tokens/accent/writ-blue.json :path -- kept id: accent named by a kept id
+src/styles/themes/writ-*.json :path -- kept id: themes named by kept theme ids
+** :text /\.tauri(?:\/|["'] \/ ["'])writ\.key|writ-tauri-signing/ -- maintainer-local signing key names
+.github/scripts/test_windows_signing.py :lines /writ-public|"(?:account|CodeSigningAccountName)": "writ"/ -- Azure signing account fixtures
+
+README.md :text /Jotra was called Writ through version 1\.0\.1\.|`writ`|`open_in_writ`/ -- former name; kept command, MCP server name and tool
+CHANGELOG.md :text /Writ is now called Jotra\.|started as Writ\b|`(?:writ|~\/\.writ|~\/Writ|writ:\/\/|WRIT_\*|open_in_writ)`/ -- former name and kept values in the unreleased notes
+docs/ARCHITECTURE.md :text /`(?:~\/Writ|~\/\.writ|writ\.db)`/ -- kept: data folder, notes folder and index of earlier installs
+docs/FEATURES.md :text /`(?:~\/Writ|writ|writ mcp|writ:\/\/)`|\bran Writ\b|\bopen_in_writ\b/ -- kept: notes folder, command, MCP server name and tool, link scheme
+docs/RELEASING.md :text /`~\/Writ`|\bran\s+Writ\b/ -- kept: notes folder of earlier installs
+docs/cli-verbs.md :text /`(?:WRIT_NOTES_DIR|WRIT_DATA_DIR|~\/Writ|~\/\.writ|writ\.db|Writ|writ|writ mcp|open_in_writ)`|\bran\s+Writ\b/ -- kept: variables, folders, index, command and MCP names of earlier installs
+docs/importing-from-obsidian.md :text /`~\/\.writ`|\bran Writ\b/ -- kept: data folder of earlier installs
+docs/integrations/claude-code.md :text /`(?:writ|writ\.exe|open_in_writ|mcp__writ__open_in_writ)`/ -- kept: command, MCP server name and tool
+docs/perf/toggle-latency-baseline.md :text /`~\/\.writ\/logs\/`|\bran Writ\b/ -- kept: log folder of earlier installs
+docs/threat-model.md :text /`writ:\/\/`/ -- kept: link scheme
+site/src/pages/press.astro :text /It was called Writ through version 1\.0\.1\./ -- former name
+site/src/pages/privacy.astro :text /<code>(?:~\/Writ|~\/\.writ|writ\.db)<\/code>|\bran Writ\b/ -- kept: folders and index of earlier installs
+site/src/pages/docs/cli.astro :text /<code>writ(?::\/\/)?<\/code>/ -- kept: command and link scheme
+site/src/pages/docs/config.astro :text /<code>~\/\.writ<\/code>|\bran Writ\b/ -- kept: data folder of earlier installs
+site/src/pages/docs/files.astro :text /<code>~\/Writ<\/code>|\bran Writ\b/ -- kept: notes folder of earlier installs
+site/src/pages/download.astro :text /<code>~\/\.writ<\/code>|\bran Writ\b/ -- kept: data folder of earlier installs
+site/src/pages/guides/agent-output.astro :text /<code>(?:writ|open_in_writ)<\/code>/ -- kept: MCP server name, command and tool
+
+scripts/rename_product.py -- rename tooling spells the old name
+scripts/check_old_name.py -- rename tooling spells the old name
+scripts/old-name-allowlist.txt -- rename tooling spells the old name
+scripts/test_rename_product.py -- rename tooling spells the old name
+scripts/test_check_old_name.py -- rename tooling spells the old name
+src/__tests__/editor/fixtures/editor-corpus.ts :lines /(~\/Writ \| head|"name": "writ"|writ\.example)/ -- fixture: benchmark corpus bytes stay fixed so timings compare across versions

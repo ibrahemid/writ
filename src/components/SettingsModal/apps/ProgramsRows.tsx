@@ -212,7 +212,7 @@ export default function ProgramsRows(props: { onOpenActivity: () => void }) {
                         Open file
                         <ToggleSwitch
                           setting={`mcp_context_${client.name}`}
-                          label={`Let ${client.name} see the file open in Writ and the text you selected`}
+                          label={`Let ${client.name} see the file open in Jotra and the text you selected`}
                           checked={client.context}
                           onChange={() => void onSetContext(client.name, !client.context)}
                         />

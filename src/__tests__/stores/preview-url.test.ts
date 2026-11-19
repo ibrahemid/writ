@@ -9,25 +9,25 @@ import {
 
 describe("previewUrl", () => {
   afterEach(() => {
-    setPreviewUrlPrefix("writ-preview://");
+    setPreviewUrlPrefix("jotra-preview://");
   });
 
   it("builds the native scheme on macOS and Linux", () => {
-    setPreviewUrlPrefix("writ-preview://");
+    setPreviewUrlPrefix("jotra-preview://");
     expect(previewUrlPrefixLoaded()).toBe(true);
-    expect(previewUrl("document", "buf-1")).toBe("writ-preview://document/buf-1");
-    expect(previewUrl("chrome", "blank")).toBe("writ-preview://chrome/blank");
+    expect(previewUrl("document", "buf-1")).toBe("jotra-preview://document/buf-1");
+    expect(previewUrl("chrome", "blank")).toBe("jotra-preview://chrome/blank");
   });
 
   it("builds the WebView2 workaround form on Windows", () => {
     // WebView2 serves a custom scheme as http://<scheme>.<host>, so document
     // and chrome become distinct http hosts.
-    setPreviewUrlPrefix("http://writ-preview.");
-    expect(previewUrl("document", "buf-1")).toBe("http://writ-preview.document/buf-1");
-    expect(previewUrl("chrome", "blank")).toBe("http://writ-preview.chrome/blank");
+    setPreviewUrlPrefix("http://jotra-preview.");
+    expect(previewUrl("document", "buf-1")).toBe("http://jotra-preview.document/buf-1");
+    expect(previewUrl("chrome", "blank")).toBe("http://jotra-preview.chrome/blank");
     // A nested in-scope path (the note-asset route) keeps its segments.
     expect(previewUrl("document", "_note-asset/b/t/n/a.png")).toBe(
-      "http://writ-preview.document/_note-asset/b/t/n/a.png",
+      "http://jotra-preview.document/_note-asset/b/t/n/a.png",
     );
   });
 
@@ -49,12 +49,12 @@ describe("loadPreviewUrlPrefix", () => {
 
   afterEach(() => {
     logSpy.mockRestore();
-    setPreviewUrlPrefix("writ-preview://");
+    setPreviewUrlPrefix("jotra-preview://");
   });
 
   it("takes the base the host gives", async () => {
-    await loadPreviewUrlPrefix(() => Promise.resolve("http://writ-preview."));
-    expect(previewUrl("document", "buf-1")).toBe("http://writ-preview.document/buf-1");
+    await loadPreviewUrlPrefix(() => Promise.resolve("http://jotra-preview."));
+    expect(previewUrl("document", "buf-1")).toBe("http://jotra-preview.document/buf-1");
     expect(logSpy).not.toHaveBeenCalled();
   });
 

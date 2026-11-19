@@ -46,6 +46,8 @@ elif name == "gh" and argv[:2] == ["release", "view"]:
     print("v0.5.1")
 elif name == "gh" and argv[:1] == ["api"]:
     print("{}")
+elif name == "lipo" and "-output" in argv:
+    pathlib.Path(argv[argv.index("-output") + 1]).write_text("universal sidecar")
 elif name == "codesign":
     print(os.environ.get("FAKE_ENTITLEMENTS", "[Key] com.apple.security.device.audio-input"))
 """
@@ -53,11 +55,12 @@ elif name == "codesign":
 TOOLS = ("uname", "rustup", "cargo", "lipo", "npx", "node", "pnpm", "minisign", "security", "gh", "docker", "act", "codesign")
 REPO_SCRIPTS = (".github/scripts/archive_app.py", ".github/scripts/release_signing.py", "scripts/gen-third-party-notices.py")
 SHELL_SCRIPTS = ("scripts/macos-release.sh", "scripts/build-mac-pkg.sh")
+COPIED_FILES = ("scripts/stage-cli-sidecar.sh", "src-tauri/tauri.conf.json")
 
 
 class ReleasePreflightTests(unittest.TestCase):
     def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory(prefix="writ-preflight-test-")
+        tmp = tempfile.TemporaryDirectory(prefix="jotra-preflight-test-")
         self.addCleanup(tmp.cleanup)
         self.root = pathlib.Path(tmp.name)
         stubs = self.root / "stubs"
@@ -72,6 +75,9 @@ class ReleasePreflightTests(unittest.TestCase):
         (self.repo / "scripts").mkdir(parents=True)
         (self.repo / ".github" / "scripts").mkdir(parents=True)
         shutil.copy2(SCRIPT, self.repo / "scripts" / SCRIPT.name)
+        for relative in COPIED_FILES:
+            (self.repo / relative).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(REPO_ROOT / relative, self.repo / relative)
         (self.repo / "Cargo.toml").write_text(f'[workspace.package]\nversion = "{VERSION}"\n')
         for relative in REPO_SCRIPTS:
             (self.repo / relative).write_text(RECORDER)
@@ -81,7 +87,7 @@ class ReleasePreflightTests(unittest.TestCase):
         target = self.root / "target"
         for triple in ("aarch64-apple-darwin", "x86_64-apple-darwin"):
             (target / triple / "release").mkdir(parents=True)
-            (target / triple / "release" / "writ").write_text("sidecar")
+            (target / triple / "release" / "jotra").write_text(f"{triple} sidecar")
 
         self.home = self.root / "home"
         self.home.mkdir()
@@ -92,7 +98,7 @@ class ReleasePreflightTests(unittest.TestCase):
             "PATH": f"{stubs}:/usr/bin:/bin",
             "HOME": str(self.home),
             "TMPDIR": str(self.root),
-            "USER": "writ-release",
+            "USER": "jotra-release",
             "CALL_LOG": str(self.log),
             "FAKE_TARGET_DIR": str(target),
             "FAKE_KEYCHAIN": str(self.keychain),
@@ -182,6 +188,25 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("No TAURI_SIGNING_PRIVATE_KEY_PASSWORD env and no Keychain entry", result.stderr)
         self.assertEqual([r["name"] for r in self.records() if r["name"] not in {"uname", "security"}], [])
+
+    def test_each_mac_triple_is_staged_under_every_bundled_name(self) -> None:
+        self.install_key_file()
+        self.keychain.write_text(UNLOCK_PHRASE_PLACEHOLDER)
+        result = self.run_preflight()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        conf = json.loads((REPO_ROOT / "src-tauri" / "tauri.conf.json").read_text())
+        names = conf["bundle"]["externalBin"]
+        self.assertGreaterEqual(len(names), 2)
+        expected = {
+            "aarch64-apple-darwin": "aarch64-apple-darwin sidecar",
+            "x86_64-apple-darwin": "x86_64-apple-darwin sidecar",
+            "universal-apple-darwin": "universal sidecar",
+        }
+        for name in names:
+            for triple, content in expected.items():
+                staged = self.repo / "src-tauri" / f"{name}-{triple}"
+                with self.subTest(staged=str(staged)):
+                    self.assertEqual(staged.read_text(), content)
 
     def test_the_signed_app_is_checked_for_the_microphone_entitlement(self) -> None:
         self.install_key_file()

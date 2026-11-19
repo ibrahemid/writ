@@ -19,9 +19,9 @@ function blockFor(selector: string): string {
 }
 
 function token(block: string, name: string): string {
-  const re = new RegExp(`--writ-preview-${name}\\s*:\\s*([^;]+);`);
+  const re = new RegExp(`--jotra-preview-${name}\\s*:\\s*([^;]+);`);
   const m = block.match(re);
-  if (!m) throw new Error(`token --writ-preview-${name} not found`);
+  if (!m) throw new Error(`token --jotra-preview-${name} not found`);
   return m[1].trim();
 }
 
@@ -51,8 +51,8 @@ function contrast(a: string, b: string): number {
 // switch selects the attribute, so that block is asserted too.
 const PALETTES: { name: string; selector: string }[] = [
   { name: "light", selector: ":root" },
-  { name: "light (attribute)", selector: '[data-writ-theme="light"]' },
-  { name: "dark", selector: '[data-writ-theme="dark"]' },
+  { name: "light (attribute)", selector: '[data-jotra-theme="light"]' },
+  { name: "dark", selector: '[data-jotra-theme="dark"]' },
 ];
 
 describe("preview-tokens.css contrast (WCAG AA)", () => {
@@ -86,7 +86,7 @@ describe("preview-tokens.css contrast (WCAG AA)", () => {
 
   it("defines a light :root default and an attribute block per polarity", () => {
     expect(css).toMatch(/:root\s*\{/);
-    expect(css).toMatch(/\[data-writ-theme="light"\]\s*\{/);
-    expect(css).toMatch(/\[data-writ-theme="dark"\]\s*\{/);
+    expect(css).toMatch(/\[data-jotra-theme="light"\]\s*\{/);
+    expect(css).toMatch(/\[data-jotra-theme="dark"\]\s*\{/);
   });
 });

@@ -15,7 +15,7 @@ export interface ArmedReveal {
 }
 
 /**
- * Arms the reveal of the window Writ starts hidden, before the work that
+ * Arms the reveal of the window Jotra starts hidden, before the work that
  * shapes its first frame runs.
  *
  * The window ships hidden to kill the cold-start flash, so nothing is on

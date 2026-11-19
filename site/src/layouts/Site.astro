@@ -9,7 +9,7 @@ import release from '../data/release.json';
 import { COLORS } from '../../../src/styles/generated/tokens';
 
 interface Props {
-  /** The page's H1. The document title is this plus " | Writ". */
+  /** The page's H1. The document title is this plus " | Jotra". */
   title: string;
   description: string;
   path: string;
@@ -35,7 +35,7 @@ const ogImage = SITE_URL + base + '/brand/og-1-0.png';
 const ld = {
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
-  name: 'Writ',
+  name: 'Jotra',
   applicationCategory: 'UtilitiesApplication',
   operatingSystem: 'macOS 12+, Windows 10+, Linux',
   softwareVersion: release.version,
@@ -63,7 +63,7 @@ const fontFace = fontFaces
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content={COLORS.light.bgCanvas} />
     <slot name="head" />
-    <title>{title} | Writ</title>
+    <title>{title} | Jotra</title>
     <meta name="description" content={description} />
     {unlisted ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={canonical} />}
 
@@ -76,13 +76,13 @@ const fontFace = fontFaces
 
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonical} />
-    <meta property="og:title" content={`${title} | Writ`} />
+    <meta property="og:title" content={`${title} | Jotra`} />
     <meta property="og:description" content={description} />
     <meta property="og:image" content={ogImage} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content={`${title} | Writ`} />
+    <meta name="twitter:title" content={`${title} | Jotra`} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImage} />
     <script is:inline type="application/ld+json" set:html={JSON.stringify(ld)} />

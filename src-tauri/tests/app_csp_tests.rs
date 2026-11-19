@@ -1,11 +1,11 @@
 //! The app webview's Content-Security-Policy, read from the Tauri config files
 //! the build merges for each platform.
 //!
-//! The preview frame is `writ-preview://<scope>/…` on macOS and Linux and
-//! `http://writ-preview.<scope>/…` on Windows, where WebView2 serves a custom
+//! The preview frame is `jotra-preview://<scope>/…` on macOS and Linux and
+//! `http://jotra-preview.<scope>/…` on Windows, where WebView2 serves a custom
 //! scheme only in that form. `frame-src` and `img-src` have to name the form
 //! each platform loads and only that form: on macOS and Linux
-//! `http://writ-preview.document` is an ordinary HTTP host the resolver would
+//! `http://jotra-preview.document` is an ordinary HTTP host the resolver would
 //! look up. The Windows file replaces the whole policy string, so the third
 //! test is what keeps the two copies from drifting apart.
 
@@ -41,9 +41,9 @@ fn frame_src(csp: &str) -> String {
 #[test]
 fn macos_and_linux_frame_only_the_native_preview_scheme() {
     let csp = app_csp_for(false);
-    assert_eq!(frame_src(&csp), "writ-preview:");
+    assert_eq!(frame_src(&csp), "jotra-preview:");
     assert!(
-        !csp.contains("writ-preview."),
+        !csp.contains("jotra-preview."),
         "the WebView2 preview origins are Windows-only: {csp}"
     );
 }
@@ -52,7 +52,7 @@ fn macos_and_linux_frame_only_the_native_preview_scheme() {
 fn windows_frames_the_webview2_preview_origins() {
     assert_eq!(
         frame_src(&app_csp_for(true)),
-        "http://writ-preview.chrome http://writ-preview.document"
+        "http://jotra-preview.chrome http://jotra-preview.document"
     );
 }
 
@@ -110,10 +110,10 @@ fn connections_reach_only_the_ipc_origins() {
 fn images_come_from_the_app_inline_data_or_the_preview_scheme_only() {
     assert_eq!(
         directive(&app_csp_for(false), "img-src"),
-        "'self' data: writ-preview:"
+        "'self' data: jotra-preview:"
     );
     assert_eq!(
         directive(&app_csp_for(true), "img-src"),
-        "'self' data: http://writ-preview.document"
+        "'self' data: http://jotra-preview.document"
     );
 }

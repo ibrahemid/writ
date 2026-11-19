@@ -9,7 +9,7 @@ import "./SpellingPreview.css";
 // per-row selection, check-all, and Apply. Snapshots the live entries on open;
 // applying and ignoring both reconcile against the editor's current ranges.
 
-// Singleton state — Writ is single-window.
+// Singleton state — Jotra is single-window.
 const [isOpen, setIsOpen] = createSignal(false);
 const [rows, setRows] = createSignal<SpellingEntry[]>([]);
 const [selected, setSelected] = createSignal<Set<string>>(new Set());

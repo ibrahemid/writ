@@ -18,17 +18,17 @@ describe("Button", () => {
     const { container } = render(() => <Button>Save</Button>);
     const button = buttonIn(container);
     expect(button.type).toBe("button");
-    expect(button.className.split(" ")).toContain("writ-btn-secondary");
+    expect(button.className.split(" ")).toContain("jotra-btn-secondary");
   });
 
   it("primary carries the accent classes", () => {
     const { container } = render(() => <Button variant="primary">New note</Button>);
-    expect(buttonIn(container).className.split(" ")).toContain("writ-btn-primary");
+    expect(buttonIn(container).className.split(" ")).toContain("jotra-btn-primary");
   });
 
   it("ghost carries the ghost class", () => {
     const { container } = render(() => <Button variant="ghost">Close</Button>);
-    expect(buttonIn(container).className.split(" ")).toContain("writ-btn-ghost");
+    expect(buttonIn(container).className.split(" ")).toContain("jotra-btn-ghost");
   });
 
   it("danger stacks onto the variant", () => {
@@ -38,8 +38,8 @@ describe("Button", () => {
       </Button>
     ));
     const classes = buttonIn(container).className.split(" ");
-    expect(classes).toContain("writ-btn-secondary");
-    expect(classes).toContain("writ-btn-danger");
+    expect(classes).toContain("jotra-btn-secondary");
+    expect(classes).toContain("jotra-btn-danger");
   });
 
   it("forwards onClick", () => {
@@ -95,6 +95,6 @@ describe("Button", () => {
   it("reports an icon-only button that has no name", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     render(() => <Button icon="x" />);
-    expect(error).toHaveBeenCalledWith("[writ] an icon-only button was rendered without a name");
+    expect(error).toHaveBeenCalledWith("[jotra] an icon-only button was rendered without a name");
   });
 });

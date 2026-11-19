@@ -94,7 +94,7 @@ describe("the catalog", LOAD_BUDGET, () => {
 });
 
 describe("languageForFileName", () => {
-  it("answers an extension Writ's own map does not list", () => {
+  it("answers an extension Jotra's own map does not list", () => {
     expect(languageForFileName("main.c")).toBe("c");
     expect(languageForFileName("Build.kt")).toBe("kotlin");
   });
@@ -162,7 +162,7 @@ describe("languageChoices and languageName", () => {
   });
 });
 
-describe("Writ's own grammars", LOAD_BUDGET, () => {
+describe("Jotra's own grammars", LOAD_BUDGET, () => {
   it("parses JSX in a .js file", async () => {
     const names = await nodeNames("javascript", "const a = <div>hi</div>;\n");
     expect(names).toContain("JSXElement");
@@ -178,7 +178,7 @@ describe("Writ's own grammars", LOAD_BUDGET, () => {
     const tasks = await nodeNames("markdown", "- [ ] open\n- [x] done\n");
     expect(tasks).toContain("Task");
     expect(tasks).toContain("TaskMarker");
-    expect(await nodeNames("markdown", "visit https://writ.dev today\n")).toContain("URL");
+    expect(await nodeNames("markdown", "visit https://jotra.dev today\n")).toContain("URL");
   });
 
   it("highlights a fenced block in the language its info string names", async () => {
@@ -212,7 +212,7 @@ describe("warmGrammar", LOAD_BUDGET, () => {
   });
 });
 
-describe("a catalog that lost a language Writ describes itself", () => {
+describe("a catalog that lost a language Jotra describes itself", () => {
   afterEach(() => {
     vi.doUnmock("@codemirror/language-data");
     vi.resetModules();

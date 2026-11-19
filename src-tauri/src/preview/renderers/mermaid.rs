@@ -4,7 +4,7 @@
 //! (`mermaid.min.js`, the v11.15.0 single-file IIFE) served **same-origin**
 //! under the `_assets/` route, as is the first-party init script that
 //! configures and runs it. Both are loaded from the document origin (a
-//! cross-origin `writ-preview://chrome` subresource is refused by that scope's
+//! cross-origin `jotra-preview://chrome` subresource is refused by that scope's
 //! `Cross-Origin-Resource-Policy: same-origin`), with root-relative URLs so
 //! they resolve on Windows too, and both are covered by the document CSP's
 //! `'self'`.
@@ -20,7 +20,7 @@
 //! draws either way. The init being an external same-origin file, not inline,
 //! is what lets it run when author inline scripts are blocked.
 
-use writ_core::preview::{
+use jotra_core::preview::{
     ContentRenderer, ContentTypeId, RenderError, RenderOutput, RenderRequest, RendererCapabilities,
 };
 
@@ -31,7 +31,7 @@ const MAX_SAFE_BYTES: u64 = 50 * 1024 * 1024;
 
 /// Root-relative URL of the bundled Mermaid runtime, served by the `_assets`
 /// document route (see `handler::chrome_asset`). Relative, not absolute
-/// `writ-preview://…`, so it resolves against the document's own origin on
+/// `jotra-preview://…`, so it resolves against the document's own origin on
 /// Windows as well (TS-03/DS-03).
 pub const RUNTIME_URL: &str = "/_assets/mermaid/mermaid.min.js";
 
@@ -55,7 +55,7 @@ pub fn runtime_tags() -> String {
     )
 }
 
-pub use writ_render::{diagram_block, escape_text, is_mermaid_info};
+pub use jotra_render::{diagram_block, escape_text, is_mermaid_info};
 
 /// Standalone renderer for `.mmd` / `.mermaid` buffers: the entire buffer is a
 /// single diagram.
@@ -174,7 +174,7 @@ mod tests {
 
     #[test]
     fn the_init_asset_picks_the_theme_and_runs_strict() {
-        assert!(INIT_JS.contains("data-writ-theme"));
+        assert!(INIT_JS.contains("data-jotra-theme"));
         assert!(INIT_JS.contains("\"dark\""));
         assert!(INIT_JS.contains("securityLevel: \"strict\""));
         assert!(INIT_JS.contains("mermaid.run("));

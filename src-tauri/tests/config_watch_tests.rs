@@ -1,25 +1,25 @@
 //! The config watcher against a real filesystem.
 //!
-//! Writ writes `config.toml` the way it writes a note: into a sibling temp
+//! Jotra writes `config.toml` the way it writes a note: into a sibling temp
 //! file renamed over the original. The rename gives the config a new inode, so
 //! a watch bound to the file stops hearing it on backends that watch inodes.
 //! These run the platform's own watcher over a real folder, because an
 //! injected backend cannot prove that a rename over the config, and an edit
-//! made after it, still reach Writ.
+//! made after it, still reach Jotra.
 
+use jotra_core::activity::ClientId;
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::{EventBus, JotraEvent};
+use jotra_core::watcher::ignore::{config_key, data_key, DEFAULT_IGNORE_TTL};
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::pending_clients;
+use jotra_tauri_lib::security::resolve_for_containment;
+use jotra_tauri_lib::watcher::handler::{create_ignore_set, start_file_watcher, IgnoreSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
-use writ_core::activity::ClientId;
-use writ_core::config::WritConfig;
-use writ_core::events::bus::{EventBus, WritEvent};
-use writ_core::watcher::ignore::{config_key, data_key, DEFAULT_IGNORE_TTL};
-use writ_storage::config_store::ConfigStore;
-use writ_storage::pending_clients;
-use writ_tauri_lib::security::resolve_for_containment;
-use writ_tauri_lib::watcher::handler::{create_ignore_set, start_file_watcher, IgnoreSet};
 
 /// Long enough for the 500 ms debounce plus the platform's own notification
 /// latency, and for the ignore TTL to be nowhere near expiry.
@@ -40,7 +40,7 @@ fn resolved(path: &Path) -> PathBuf {
 /// Writes `bytes` to `path` the way another editor does: into a sibling temp
 /// file, then renamed over the target.
 fn write_by_temp_and_rename(path: &Path, bytes: &[u8]) {
-    let temp = path.with_extension("writ-test-tmp");
+    let temp = path.with_extension("jotra-test-tmp");
     std::fs::write(&temp, bytes).expect("write temp");
     std::fs::rename(&temp, path).expect("rename over target");
 }
@@ -48,7 +48,7 @@ fn write_by_temp_and_rename(path: &Path, bytes: &[u8]) {
 /// Writes `config` the way `commands::config::persist_config` does: the
 /// serialized bytes are stamped under the config's resolved path before the
 /// store writes them.
-fn persist_like_the_app(store: &ConfigStore, ignore: &IgnoreSet, config: &WritConfig) {
+fn persist_like_the_app(store: &ConfigStore, ignore: &IgnoreSet, config: &JotraConfig) {
     let contents = store.serialize(config).expect("serialize");
     ignore.lock().expect("ignore set").record(
         config_key(&resolved(store.path())),
@@ -59,12 +59,12 @@ fn persist_like_the_app(store: &ConfigStore, ignore: &IgnoreSet, config: &WritCo
 }
 
 /// Every `ConfigChanged` the bus carried within `SETTLE`.
-fn collect_config_changes(rx: &mpsc::Receiver<WritEvent>) -> Vec<WritEvent> {
+fn collect_config_changes(rx: &mpsc::Receiver<JotraEvent>) -> Vec<JotraEvent> {
     let deadline = Instant::now() + SETTLE;
     let mut seen = Vec::new();
     while let Some(left) = deadline.checked_duration_since(Instant::now()) {
         match rx.recv_timeout(left) {
-            Ok(event @ WritEvent::ConfigChanged { .. }) => seen.push(event),
+            Ok(event @ JotraEvent::ConfigChanged { .. }) => seen.push(event),
             Ok(_) => {}
             Err(_) => break,
         }
@@ -72,12 +72,12 @@ fn collect_config_changes(rx: &mpsc::Receiver<WritEvent>) -> Vec<WritEvent> {
     seen
 }
 
-fn count_pending_changes(rx: &mpsc::Receiver<WritEvent>) -> usize {
+fn count_pending_changes(rx: &mpsc::Receiver<JotraEvent>) -> usize {
     let deadline = Instant::now() + SETTLE;
     let mut seen = 0;
     while let Some(left) = deadline.checked_duration_since(Instant::now()) {
         match rx.recv_timeout(left) {
-            Ok(WritEvent::McpPendingChanged) => seen += 1,
+            Ok(JotraEvent::McpPendingChanged) => seen += 1,
             Ok(_) => {}
             Err(_) => break,
         }
@@ -89,7 +89,7 @@ fn pending_beside(config_path: &Path) -> PathBuf {
     pending_clients::path(config_path.parent().expect("a data folder"))
 }
 
-fn bus_with_channel() -> (Arc<EventBus>, mpsc::Receiver<WritEvent>) {
+fn bus_with_channel() -> (Arc<EventBus>, mpsc::Receiver<JotraEvent>) {
     let bus = Arc::new(EventBus::new());
     let (tx, rx) = mpsc::channel();
     bus.subscribe(move |event| {
@@ -98,7 +98,7 @@ fn bus_with_channel() -> (Arc<EventBus>, mpsc::Receiver<WritEvent>) {
     (bus, rx)
 }
 
-/// The round trip for a watcher handed `config_path`: a seeded config, Writ's
+/// The round trip for a watcher handed `config_path`: a seeded config, Jotra's
 /// own stamped write absorbed, and another program's edit after it reported
 /// exactly once.
 fn assert_own_write_absorbed_and_later_edit_reported(config_path: &Path) {
@@ -118,13 +118,13 @@ fn assert_own_write_absorbed_and_later_edit_reported(config_path: &Path) {
     collect_config_changes(&rx);
 
     let store = ConfigStore::new(config_path.to_path_buf());
-    let mut config = WritConfig::default();
+    let mut config = JotraConfig::default();
     config.editor.font_size = 20;
     persist_like_the_app(&store, &ignore, &config);
     let echoed = collect_config_changes(&rx);
     assert!(
         echoed.is_empty(),
-        "Writ's own config write must not come back as an external change, saw {echoed:?}"
+        "Jotra's own config write must not come back as an external change, saw {echoed:?}"
     );
 
     write_by_temp_and_rename(config_path, b"[editor]\nfont_size = 22\n");
@@ -132,12 +132,12 @@ fn assert_own_write_absorbed_and_later_edit_reported(config_path: &Path) {
     assert_eq!(
         seen.len(),
         1,
-        "an edit after Writ's own write must reach the app exactly once, saw {seen:?}"
+        "an edit after Jotra's own write must reach the app exactly once, saw {seen:?}"
     );
 }
 
 #[test]
-fn an_edit_after_writ_s_own_config_write_still_reaches_the_app() {
+fn an_edit_after_jotra_s_own_config_write_still_reaches_the_app() {
     let data = TempDir::new().expect("data dir");
     assert_own_write_absorbed_and_later_edit_reported(&data.path().join("config.toml"));
 }
@@ -145,7 +145,7 @@ fn an_edit_after_writ_s_own_config_write_still_reaches_the_app() {
 #[cfg(unix)]
 #[test]
 fn a_config_reached_through_a_symlinked_folder_is_still_followed() {
-    // The data folder Writ is handed can be a link, and the platform reports
+    // The data folder Jotra is handed can be a link, and the platform reports
     // events under the folder's real path.
     let root = TempDir::new().expect("root");
     let real = root.path().join("real");

@@ -16,7 +16,7 @@ import {
 } from "../../stores/global/ai-models";
 import { aiProvidersStore } from "../../stores/global/ai-providers";
 
-// The curated ids are rows of the provider table `writ-core` owns (ADR-040
+// The curated ids are rows of the provider table `jotra-core` owns (ADR-040
 // section 2), so these read the table rather than a second copy. The ids
 // themselves are pinned on the Rust side.
 const TABLE = [

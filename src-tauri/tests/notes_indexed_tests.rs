@@ -1,6 +1,6 @@
-//! Writ's own writes to the notes index are announced (ADR-036 section 4).
+//! Jotra's own writes to the notes index are announced (ADR-036 section 4).
 //!
-//! The notes watcher drops every write Writ makes, so a save, a new file, a
+//! The notes watcher drops every write Jotra makes, so a save, a new file, a
 //! rename, a delete, a restore and a copy reach the index through the command
 //! that made them, and that command is what tells the frontend. Each test runs
 //! the Tauri-free inner function against a real notes folder and a real index,
@@ -12,57 +12,57 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::SystemTime;
 
-use tempfile::TempDir;
-use writ_core::config::WritConfig;
-use writ_core::events::bus::{EventBus, WritEvent};
-use writ_core::notes::line_ending::LineEnding;
-use writ_core::notes::reload::ChangeChoice;
-use writ_core::preview::ContentRendererRegistry;
-use writ_core::text_encoding::TextEncoding;
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::{self, NotesIndexStore, ReconcileOutcome};
-use writ_tauri_lib::commands::buffer::{
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::{EventBus, JotraEvent};
+use jotra_core::notes::line_ending::LineEnding;
+use jotra_core::notes::reload::ChangeChoice;
+use jotra_core::preview::ContentRendererRegistry;
+use jotra_core::text_encoding::TextEncoding;
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::notes_index::{self, NotesIndexStore, ReconcileOutcome};
+use jotra_tauri_lib::commands::buffer::{
     close_debounce_window, reindex_settled_buffer, resolve_external_change_at,
     resolve_external_change_inner, restore_note_file_inner, save_buffer_content_inner,
 };
-use writ_tauri_lib::commands::file::open_file_from_path;
-use writ_tauri_lib::commands::first_run::{auto_retitle_note_inner, RetitleOutcome};
-use writ_tauri_lib::commands::note_history::copy_note_version_and_index;
-use writ_tauri_lib::commands::note_index::{announce_indexed, announce_walk, index_copy};
-use writ_tauri_lib::commands::notes::{
+use jotra_tauri_lib::commands::file::open_file_from_path;
+use jotra_tauri_lib::commands::first_run::{auto_retitle_note_inner, RetitleOutcome};
+use jotra_tauri_lib::commands::note_history::copy_note_version_and_index;
+use jotra_tauri_lib::commands::note_index::{announce_indexed, announce_walk, index_copy};
+use jotra_tauri_lib::commands::notes::{
     delete_note_inner, list_notes_dir_inner, move_notes_folder_to, new_note_inner,
     new_note_named_inner, rename_note_inner, rename_note_with_links_inner, save_note_copy_inner,
 };
-use writ_tauri_lib::events::bus_bridge::attach_bridge_behind_notes_index;
-use writ_tauri_lib::events::WritFrontendEvent;
-use writ_tauri_lib::preview::handler::RenderCache;
-use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
-use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::create_ignore_set;
+use jotra_tauri_lib::events::bus_bridge::attach_bridge_behind_notes_index;
+use jotra_tauri_lib::events::JotraFrontendEvent;
+use jotra_tauri_lib::preview::handler::RenderCache;
+use jotra_tauri_lib::quit::QuitState;
+use jotra_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
+use jotra_tauri_lib::state::AppState;
+use jotra_tauri_lib::watcher::handler::create_ignore_set;
+use tempfile::TempDir;
 
 fn make_state(dir: &TempDir) -> AppState {
-    let writ_dir = dir.path().to_path_buf();
-    let buffers_dir = writ_dir.join("buffers");
+    let jotra_dir = dir.path().to_path_buf();
+    let buffers_dir = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
 
-    let notes_root = writ_dir.join("Writ");
+    let notes_root = jotra_dir.join("Jotra");
     std::fs::create_dir_all(&notes_root).expect("notes folder");
-    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+    let notes_root = jotra_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
 
     let note_history = Arc::new(
-        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+        jotra_storage::note_history::NoteHistoryStore::open(&jotra_dir).expect("version store"),
     );
 
     let mut store = BufferStore::new(conn, buffers_dir.clone());
@@ -70,15 +70,15 @@ fn make_state(dir: &TempDir) -> AppState {
 
     AppState {
         store: Mutex::new(store),
-        config_store: ConfigStore::new(writ_dir.join("config.toml")),
-        config: Mutex::new(WritConfig::default()),
-        writ_dir,
+        config_store: ConfigStore::new(jotra_dir.join("config.toml")),
+        config: Mutex::new(JotraConfig::default()),
+        jotra_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: std::sync::atomic::AtomicBool::new(false),
         menu_apps: std::sync::Mutex::new(None),
-        retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+        retitle_watch: std::sync::Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -104,7 +104,7 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
-        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+        command_usage: jotra_storage::command_usage::CommandUsageStore::new(
             open_database(&db_path).expect("usage db"),
         ),
         config_diagnostics: std::sync::Mutex::new(Vec::new()),
@@ -114,9 +114,9 @@ fn make_state(dir: &TempDir) -> AppState {
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
-        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(
-            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+            jotra_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
@@ -144,7 +144,7 @@ fn listen(state: &AppState) -> Arc<Mutex<Vec<Heard>>> {
     let sink = heard.clone();
     let index = state.notes_index.clone();
     state.event_bus.subscribe(move |event| {
-        let WritEvent::NotesIndexed { paths } = event else {
+        let JotraEvent::NotesIndexed { paths } = event else {
             return;
         };
         let indexed = index.note_paths().unwrap_or_default();
@@ -175,7 +175,7 @@ fn key(path: &str) -> String {
     notes_index::index_key(std::path::Path::new(path))
 }
 
-fn file_of(doc: &writ_core::buffer::document::BufferDocument) -> String {
+fn file_of(doc: &jotra_core::buffer::document::BufferDocument) -> String {
     doc.source_path.clone().expect("the file has a path")
 }
 
@@ -408,7 +408,7 @@ fn a_restored_file_is_announced_once_its_reindex_lands() {
     let file = file_of(&doc);
     save_buffer_content_inner(&state, &doc.id, "# Back\n").expect("save");
     reindex_settled_buffer(&state, &doc.id);
-    std::fs::remove_file(&file).expect("deleted outside Writ");
+    std::fs::remove_file(&file).expect("deleted outside Jotra");
     state
         .notes_index
         .forget_path(std::path::Path::new(&file))
@@ -458,7 +458,7 @@ fn moving_the_folder_is_announced_with_the_folder_it_moved_to() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
     new_note_named_inner(&state, "Kept.md").expect("file");
-    // Outside the data folder: Writ refuses a notes folder inside its own.
+    // Outside the data folder: Jotra refuses a notes folder inside its own.
     let elsewhere = TempDir::new().expect("destination");
     let destination = elsewhere.path().join("Moved");
     let log = listen(&state);
@@ -479,7 +479,7 @@ fn announcements(bus: &EventBus) -> Arc<Mutex<Vec<Vec<String>>>> {
     let heard = Arc::new(Mutex::new(Vec::new()));
     let sink = heard.clone();
     bus.subscribe(move |event| {
-        if let WritEvent::NotesIndexed { paths } = event {
+        if let JotraEvent::NotesIndexed { paths } = event {
             sink.lock().unwrap().push(paths.clone());
         }
     });
@@ -560,7 +560,7 @@ fn the_notes_folder_lists_its_folders_then_its_files() {
     std::fs::create_dir_all(root.join("Projects")).expect("folder");
     std::fs::write(root.join("Plan.md"), "plan").expect("write");
     std::fs::write(root.join("a.txt"), "a").expect("write");
-    std::fs::write(root.join(".writ-tmp-a1b2c3"), "half written").expect("write");
+    std::fs::write(root.join(".jotra-tmp-a1b2c3"), "half written").expect("write");
     std::fs::create_dir_all(root.join(".git")).expect("git");
 
     let entries = list_notes_dir_inner(&state, &root.to_string_lossy())
@@ -746,10 +746,10 @@ fn a_version_copy_is_indexed_and_announced() {
     assert_eq!(heard[0].headings, vec![vec!["Older".to_string()]]);
 }
 
-/// A file in the notes folder holding `mine` as Writ last wrote it, which
+/// A file in the notes folder holding `mine` as Jotra last wrote it, which
 /// another program has since rewritten to `theirs`, with the index patched
 /// the way the watcher patches it.
-fn changed_under_writ(state: &AppState, mine: &str, theirs: &str) -> (String, String) {
+fn changed_under_jotra(state: &AppState, mine: &str, theirs: &str) -> (String, String) {
     let doc = new_note_named_inner(state, "Plan.md").expect("file");
     let file = file_of(&doc);
     save_buffer_content_inner(state, &doc.id, mine).expect("save");
@@ -774,7 +774,7 @@ fn headings_of(state: &AppState, path: &str) -> Vec<String> {
 fn keeping_mine_reindexes_the_file_and_announces_it_with_its_copy() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
-    let (id, file) = changed_under_writ(&state, "# Mine\n", "# Theirs\n");
+    let (id, file) = changed_under_jotra(&state, "# Mine\n", "# Theirs\n");
     let log = listen(&state);
 
     let outcome =
@@ -804,7 +804,7 @@ fn taking_the_file_announces_the_copy_of_what_was_typed() {
     for choice in [ChangeChoice::UseDisk, ChangeChoice::KeepBoth] {
         let dir = TempDir::new().expect("temp dir");
         let state = make_state(&dir);
-        let (id, file) = changed_under_writ(&state, "# Mine\n", "# Theirs\n");
+        let (id, file) = changed_under_jotra(&state, "# Mine\n", "# Theirs\n");
         let log = listen(&state);
 
         let outcome = resolve_external_change_inner(&state, &id, choice, "# Mine\n\n## Kept\n")
@@ -833,7 +833,7 @@ fn taking_the_file_announces_the_copy_of_what_was_typed() {
 fn an_answer_over_the_same_text_announces_nothing() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
-    let (id, _) = changed_under_writ(&state, "# Mine\n", "# Mine\n");
+    let (id, _) = changed_under_jotra(&state, "# Mine\n", "# Mine\n");
     let log = listen(&state);
 
     let outcome = resolve_external_change_inner(&state, &id, ChangeChoice::KeepMine, "# Mine\n")
@@ -888,7 +888,7 @@ fn a_save_the_guard_stopped_announces_the_copy_it_wrote() {
 
     assert!(
         stopped.is_err(),
-        "a save over a change Writ never read is stopped"
+        "a save over a change Jotra never read is stopped"
     );
     let copies: Vec<PathBuf> = std::fs::read_dir(state.notes_root())
         .expect("read the folder")
@@ -916,7 +916,7 @@ fn a_save_the_guard_stopped_announces_the_copy_it_wrote() {
 fn keeping_mine_whose_save_is_stopped_is_still_one_announcement() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
-    let (id, file) = changed_under_writ(&state, "# Mine\n", "# Theirs\n");
+    let (id, file) = changed_under_jotra(&state, "# Mine\n", "# Theirs\n");
     let read_by_the_bar = state.notes_root().join("Seen.md");
     std::fs::write(&read_by_the_bar, "# Seen\n").expect("what the bar read");
     let log = listen(&state);
@@ -979,19 +979,19 @@ fn the_index_holds_another_programs_change_before_the_frontend_hears_of_it() {
     let heard = Arc::new(Mutex::new(Vec::new()));
     let sink = heard.clone();
     attach_bridge_behind_notes_index(&state.event_bus, state.notes_index.clone(), move |event| {
-        if let WritFrontendEvent::NotesChanged { path, removed } = event {
+        if let JotraFrontendEvent::NotesChanged { path, removed } = event {
             let held = index.note_paths().unwrap_or_default().contains(&key(&path));
             sink.lock().unwrap().push((removed, held));
         }
     });
 
     std::fs::write(&file, "# Plan\n").expect("another program's write");
-    state.event_bus.emit(WritEvent::NotesChanged {
+    state.event_bus.emit(JotraEvent::NotesChanged {
         path: path.clone(),
         removed: false,
     });
     std::fs::remove_file(&file).expect("another program's delete");
-    state.event_bus.emit(WritEvent::NotesChanged {
+    state.event_bus.emit(JotraEvent::NotesChanged {
         path,
         removed: true,
     });

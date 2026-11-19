@@ -20,12 +20,12 @@ import type {
   TagCount,
 } from "../../services/tauri";
 
-// Singleton state — Writ is single-window. Every read of the notes index the
+// Singleton state — Jotra is single-window. Every read of the notes index the
 // window keeps lives here, keyed by what it reads: a note's facts, the notes
 // linking to it, the folder's tags, one tag's notes, the folder's graph, and
 // what a link resolves to (ADR-036). One pair of listeners drops all of it:
 // `notes:changed` for a file another program changed, `notes:indexed` for a
-// write Writ made itself, which the watcher never reports.
+// write Jotra made itself, which the watcher never reports.
 
 export type {
   Backlink,

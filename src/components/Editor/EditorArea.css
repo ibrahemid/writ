@@ -17,21 +17,21 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--writ-fg-faint);
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
+  color: var(--jotra-fg-faint);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
 }
 
 /* Word count, top right of the canvas, shown when the status bar is off.
    Pointer-transparent so it never steals a click meant for the note. */
 .editor-wordcount {
   position: absolute;
-  top: var(--writ-space-5);
-  right: var(--writ-space-6);
-  z-index: var(--writ-z-chrome);
+  top: var(--jotra-space-5);
+  right: var(--jotra-space-6);
+  z-index: var(--jotra-z-chrome);
   pointer-events: none;
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-fg-muted);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
+  color: var(--jotra-fg-muted);
   font-variant-numeric: tabular-nums;
 }

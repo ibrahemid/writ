@@ -1,7 +1,7 @@
 //! The OpenRouter connect flow: a loopback receiver and a key exchange
 //! (ADR-040 section 6).
 //!
-//! The pure half lives in [`writ_core::ai::pkce`]. This module is the
+//! The pure half lives in [`jotra_core::ai::pkce`]. This module is the
 //! mechanism: it reads 48 bytes of entropy, binds a listener on `127.0.0.1`
 //! with an ephemeral port, sends the user's browser to the authorization page
 //! through the opener, waits for the request that carries this flow's state,
@@ -9,7 +9,7 @@
 //! and only then answers the browser with how it went.
 //!
 //! Privacy and lifetime invariants enforced here:
-//! - Writ listens on no port at rest. The listener exists for the duration of
+//! - Jotra listens on no port at rest. The listener exists for the duration of
 //!   one flow the user started, answers every request that is not this flow's
 //!   callback with a 404, and is dropped the moment the callback is read, so
 //!   nothing can arrive behind it (ADR-031 rule 2.4 as amended by ADR-040
@@ -32,11 +32,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use jotra_core::ai::pkce;
+use jotra_core::ai::providers;
+use jotra_core::polish;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
-use writ_core::ai::pkce;
-use writ_core::ai::providers;
-use writ_core::polish;
 
 use super::ai::{self, AiKeyState, AiState};
 use crate::poison::recover_poison;
@@ -76,15 +76,15 @@ const MAX_REQUEST: usize = 8 * 1024;
 const EXCHANGE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// What the browser is left showing once the key is stored.
-const DONE_PAGE: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Writ</title></head><body><p>You can close this window and go back to Writ.</p></body></html>";
+const DONE_PAGE: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Jotra</title></head><body><p>You can close this window and go back to Jotra.</p></body></html>";
 
 /// What it is left showing when the flow it came back to ended without a key.
 /// Says nothing about which step failed.
-const FAILED_PAGE: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Writ</title></head><body><p>Connect failed. You can close this window and go back to Writ.</p></body></html>";
+const FAILED_PAGE: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Jotra</title></head><body><p>Connect failed. You can close this window and go back to Jotra.</p></body></html>";
 
 /// What any other request to the port is answered, with a 404. Says nothing
 /// about why.
-const NOT_FOUND_PAGE: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Writ</title></head><body><p>This link is not valid.</p></body></html>";
+const NOT_FOUND_PAGE: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Jotra</title></head><body><p>This link is not valid.</p></body></html>";
 
 // --- Flow registration -----------------------------------------------------
 
@@ -660,7 +660,7 @@ mod tests {
         answer_browser(received.browser, true);
         let answer = read_answer(&mut browser);
         assert!(answer.starts_with("HTTP/1.1 200 OK"), "answer: {answer}");
-        assert!(answer.contains("You can close this window and go back to Writ."));
+        assert!(answer.contains("You can close this window and go back to Jotra."));
         assert!(
             TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_err(),
             "the port was still open after the flow"

@@ -2,7 +2,7 @@ import { createSignal } from "solid-js";
 import { fetchDefaultAppTypes, fetchDefaultAppStatus } from "./default-app";
 import type { ClaimableType } from "./default-app";
 
-// Singleton state — Writ is single-window. Claimable default-app type ids the
+// Singleton state — Jotra is single-window. Claimable default-app type ids the
 // current platform actually supports (status other than "unsupported"). Probed
 // once at startup so the command palette and settings search can offer these
 // rows without the Settings modal having mounted.

@@ -331,8 +331,8 @@ describe("sameSpellingRules", () => {
   it("holds for the same dialect and ignore list, in different arrays", () => {
     expect(
       sameSpellingRules(
-        { dialect: "british", ignored_words: ["teh", "writ"] },
-        { dialect: "british", ignored_words: ["teh", "writ"] },
+        { dialect: "british", ignored_words: ["teh", "jotra"] },
+        { dialect: "british", ignored_words: ["teh", "jotra"] },
       ),
     ).toBe(true);
   });

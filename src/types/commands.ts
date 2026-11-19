@@ -36,7 +36,7 @@ export interface Command {
    * Whether the command can act right now. A command that answers `false` is
    * kept out of the palette, so a surface never offers an action it would
    * only stop: `note.delete` on a file the user opened from somebody else's
-   * folder is not a Delete Writ may perform. Omitted means always available,
+   * folder is not a Delete Jotra may perform. Omitted means always available,
    * which is every command that does not depend on what is open.
    */
   isAvailable?: () => boolean;

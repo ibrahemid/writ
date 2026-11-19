@@ -1,6 +1,6 @@
 # Toggle Latency Baseline
 
-The "always-ready" promise of Writ's global hotkey (Cmd+Shift+Space) is a
+The "always-ready" promise of Jotra's global hotkey (Cmd+Shift+Space) is a
 load-bearing piece of the product story. This document defines what we measure,
 how we measure it, and the targets a baseline run should meet on a
 developer-class macOS machine. Once recorded, use the baseline as the
@@ -12,13 +12,13 @@ and the first painted frame.
 
 Two distinct paths are instrumented:
 
-**Cold toggle.** The webview process is not yet running. The user invokes Writ
+**Cold toggle.** The webview process is not yet running. The user invokes Jotra
 for the first time after launch (or after a full quit). The measurement covers
 the SolidJS root `onMount` callback through the next
 `requestAnimationFrame` paint. The Rust side of cold start is dominated by
 process spawn + WebView2 / WebKitGTK init, which the existing
 `tauri::Builder::default().setup` instrumentation will surface in
-`~/.writ/logs/`.
+`~/.jotra/logs/` (`~/.writ/logs/` on a machine that ran Writ).
 
 **Warm toggle.** The webview is alive but the window is hidden (or
 unfocused/minimized). The user presses Cmd+Shift+Space. The measurement
@@ -27,7 +27,7 @@ covers two pieces:
 - *Rust side* — from the moment the global-shortcut handler captures
   `Instant::now()` through every `window.show()` / `window.set_focus()` /
   `window.unminimize()` call returning. Logged as `rust_elapsed_us`.
-- *Frontend side* — from receipt of the `writ://window-shown` Tauri event
+- *Frontend side* — from receipt of the `jotra://window-shown` Tauri event
   through the next `requestAnimationFrame` paint. Logged as `elapsed_ms`,
   paired with `rust_elapsed_us` in the same record so the two halves can be
   summed.
@@ -43,10 +43,10 @@ IPC, which logs a single structured `info!` line tagged with `mode`.
    cargo tauri dev
    ```
 
-2. Tail the runtime log:
+2. Tail the runtime log, in `~/.writ/logs/` on a machine that ran Writ:
 
    ```bash
-   tail -F ~/.writ/logs/writ.log | grep "toggle-latency"
+   tail -F ~/.jotra/logs/jotra.log | grep "toggle-latency"
    ```
 
 3. *Cold:* observe the line emitted on first launch. One run per process.
@@ -82,7 +82,7 @@ what users feel every day.
 
 `scripts/perf-editor.mjs` measures the frontend half on every run of the editor
 perf gate, in Chromium rather than WKWebView: the cold path once per page load,
-and the warm path from six `writ://window-shown` events with the first dropped.
+and the warm path from six `jotra://window-shown` events with the first dropped.
 The page is never hidden, so the warm number is the event-to-paint path alone.
 The gate fails when either p95 passes the hard-fail column above, which is more
 than three times the worst p95 of these runs.
@@ -125,5 +125,5 @@ body.
 - Time from `app.emit` to the JS `listen` callback firing. Tauri docs claim
   sub-millisecond on macOS; we trust that until evidence says otherwise.
 - macOS Spaces / Mission Control transitions. The hotkey is global, so the
-  cost of crossing Spaces is highly user-dependent and not a Writ regression
+  cost of crossing Spaces is highly user-dependent and not a Jotra regression
   surface.

@@ -470,7 +470,7 @@ describe("the scenes", () => {
 });
 
 describe("the scene channel", () => {
-  const ORIGIN = "https://writ.example";
+  const ORIGIN = "https://jotra.example";
 
   function createChannel() {
     const posted: unknown[] = [];
@@ -497,7 +497,7 @@ describe("the scene channel", () => {
     post({ type: SCENE_MESSAGE, name: "search" }, { origin: "https://elsewhere.example" });
     post({ type: SCENE_MESSAGE, name: "search" }, { source: {} });
     post({ type: SCENE_MESSAGE, name: "search" }, { source: null });
-    post({ type: "writ-demo-other", name: "search" });
+    post({ type: "jotra-demo-other", name: "search" });
     post({ type: SCENE_MESSAGE, name: "credits" });
     post({ type: SCENE_MESSAGE, name: "search", state: "done" });
     post("search");

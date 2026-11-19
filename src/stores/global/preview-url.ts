@@ -2,7 +2,7 @@ import { createSignal } from "solid-js";
 import { logFailure } from "../../lib/log";
 
 // The base a preview URL is built from, provided by the host at startup
-// (writ-preview:// on macOS and Linux, http://writ-preview. on Windows, where
+// (jotra-preview:// on macOS and Linux, http://jotra-preview. on Windows, where
 // WebView2 serves a custom scheme as http://<scheme>.<host>). The host decides
 // it (TS-03/DS-03): the frontend never guesses the scheme from
 // navigator.platform, because a dev build can render the Windows chrome on a
@@ -13,7 +13,7 @@ import { logFailure } from "../../lib/log";
 // treat as an external navigation. The iframe element is never torn down; this
 // is an src change like any other.
 
-// Singleton state — Writ is single-window.
+// Singleton state — Jotra is single-window.
 const [prefix, setPrefix] = createSignal<string | null>(null);
 
 /** The inert document the iframe parks on before the host base is known. */

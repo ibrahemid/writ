@@ -2,13 +2,13 @@
 //!
 //! The *policy* — that a placeholder is downloaded rather than read on the
 //! caller's thread, and how long the wait is — lives in
-//! [`writ_core::notes::materialise`]. This module is the *mechanism*: a worker
+//! [`jotra_core::notes::materialise`]. This module is the *mechanism*: a worker
 //! thread reads the file to the end, which is what asks the provider daemon
 //! for the bytes, and the states that read passes through reach the frontend
-//! as `writ://note-download` events.
+//! as `jotra://note-download` events.
 //!
 //! There is no provider API behind this. Reading the file is the request, so
-//! the download cannot be stopped once it has started; cancelling stops Writ
+//! the download cannot be stopped once it has started; cancelling stops Jotra
 //! waiting for it and drops the result, and nothing is opened.
 
 use std::collections::HashMap;
@@ -18,10 +18,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use jotra_core::notes::materialise::{DownloadOutcome, DOWNLOAD_TIMEOUT};
 use tauri::{AppHandle, Manager, State};
-use writ_core::notes::materialise::{DownloadOutcome, DOWNLOAD_TIMEOUT};
 
-use crate::events::{emit_event, NoteDownloadState, WritFrontendEvent};
+use crate::events::{emit_event, JotraFrontendEvent, NoteDownloadState};
 use crate::poison::recover_poison;
 use crate::security::AuthorizedPaths;
 use crate::state::AppState;
@@ -169,7 +169,7 @@ pub fn materialise_with<R, F>(
 /// The read is the download: a provider materialises a placeholder when
 /// something opens it. `still_dataless` is injected so the second check is
 /// testable without a provider; production passes
-/// [`writ_storage::notes_index::is_dataless`].
+/// [`jotra_storage::notes_index::is_dataless`].
 pub fn read_and_verify_with(path: &Path, still_dataless: impl Fn(&Path) -> bool) -> io::Result<()> {
     let mut file = std::fs::File::open(path)?;
     let mut chunk = vec![0u8; READ_CHUNK_BYTES];
@@ -208,7 +208,7 @@ fn message_of(outcome: &DownloadOutcome) -> Option<String> {
 }
 
 fn emit_download(app: &AppHandle, path: &str, state: NoteDownloadState, message: Option<String>) {
-    let event = WritFrontendEvent::NoteDownload {
+    let event = JotraFrontendEvent::NoteDownload {
         path: path.to_string(),
         state,
         message,
@@ -221,7 +221,7 @@ fn emit_download(app: &AppHandle, path: &str, state: NoteDownloadState, message:
 /// Asks the sync provider for a note's bytes, off the IPC thread.
 ///
 /// Returns as soon as the download has started; the outcome arrives as a
-/// `writ://note-download` event. A second call for a path already downloading
+/// `jotra://note-download` event. A second call for a path already downloading
 /// joins that download rather than starting another.
 #[tauri::command]
 pub fn materialise_note(
@@ -312,7 +312,7 @@ fn spawn_download(app: AppHandle, canonical: String, cancel: Arc<AtomicBool>) {
             path,
             cancel,
             DOWNLOAD_TIMEOUT,
-            |p| read_and_verify_with(p, writ_storage::notes_index::is_dataless),
+            |p| read_and_verify_with(p, jotra_storage::notes_index::is_dataless),
             |outcome| {
                 let downloads = waiter_app.state::<MaterialiseState>();
                 let state = waiter_app.state::<AppState>();
@@ -330,7 +330,7 @@ fn spawn_download(app: AppHandle, canonical: String, cancel: Arc<AtomicBool>) {
 
 /// Stops waiting for a note's bytes.
 ///
-/// The provider keeps fetching — nothing here can call that off — but Writ
+/// The provider keeps fetching — nothing here can call that off — but Jotra
 /// drops the result and opens nothing.
 ///
 /// Hands back the open authorization the not-downloaded answer minted, so this

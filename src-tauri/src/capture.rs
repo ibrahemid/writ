@@ -2,7 +2,7 @@
 //! shows over whatever app is in front, and hides once its entry is written.
 //!
 //! The window is mechanism only. What the entry adds to Today's File is
-//! `writ_core::capture`, and the append is `commands::capture`.
+//! `jotra_core::capture`, and the append is `commands::capture`.
 
 use std::sync::Mutex;
 
@@ -22,8 +22,8 @@ const CAPTURE_HEIGHT: f64 = 176.0;
 /// What had the keyboard before the note took it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Previous {
-    /// Writ's own window.
-    Writ,
+    /// Jotra's own window.
+    Jotra,
     /// Another app: its process on macOS, its window on Windows.
     Other(i64),
 }
@@ -33,7 +33,7 @@ pub enum Previous {
 pub enum ReturnFocus {
     /// Back to the app that was in front.
     Other(i64),
-    /// Writ's main window was in front, and still shows.
+    /// Jotra's main window was in front, and still shows.
     MainWindow,
     /// Wherever the system puts it.
     Nothing,
@@ -44,8 +44,8 @@ pub enum ReturnFocus {
 pub fn decide_return(previous: Option<Previous>, main_visible: bool) -> ReturnFocus {
     match previous {
         Some(Previous::Other(token)) => ReturnFocus::Other(token),
-        Some(Previous::Writ) if main_visible => ReturnFocus::MainWindow,
-        Some(Previous::Writ) | None => ReturnFocus::Nothing,
+        Some(Previous::Jotra) if main_visible => ReturnFocus::MainWindow,
+        Some(Previous::Jotra) | None => ReturnFocus::Nothing,
     }
 }
 
@@ -61,9 +61,9 @@ pub trait CaptureSurface {
     fn show(&self);
     /// Takes the note off screen. What it holds stays for the next press.
     fn hide(&self);
-    /// Writ's main window is on screen.
+    /// Jotra's main window is on screen.
     fn main_visible(&self) -> bool;
-    /// Gives Writ's main window the keyboard.
+    /// Gives Jotra's main window the keyboard.
     fn focus_main(&self);
     /// Brings the app `token` names back to the front.
     fn activate(&self, token: i64);
@@ -86,7 +86,7 @@ pub fn press(surface: &impl CaptureSurface, previous: &Mutex<Option<Previous>>) 
 
 /// Hides the note. With `return_focus`, the keyboard goes back to what had it
 /// before, asked for first so the system never hands it to another window of
-/// Writ's in between. Without it, the person already moved on.
+/// Jotra's in between. Without it, the person already moved on.
 pub fn close(
     surface: &impl CaptureSurface,
     previous: &Mutex<Option<Previous>>,
@@ -297,7 +297,7 @@ mod platform {
             return None;
         }
         if u32::try_from(pid).ok() == Some(std::process::id()) {
-            Some(Previous::Writ)
+            Some(Previous::Jotra)
         } else {
             Some(Previous::Other(i64::from(pid)))
         }
@@ -324,7 +324,7 @@ mod platform {
     };
 
     pub(super) fn frontmost() -> Option<Previous> {
-        // SAFETY: neither call takes a pointer Writ owns; the process id is
+        // SAFETY: neither call takes a pointer Jotra owns; the process id is
         // written into a local.
         let (window, pid) = unsafe {
             let window = GetForegroundWindow();
@@ -336,7 +336,7 @@ mod platform {
             return None;
         }
         if pid == std::process::id() {
-            Some(Previous::Writ)
+            Some(Previous::Jotra)
         } else {
             Some(Previous::Other(window.0 as i64))
         }
@@ -425,9 +425,9 @@ mod tests {
     }
 
     #[test]
-    fn a_note_opened_from_writ_hands_the_keyboard_to_the_main_window() {
+    fn a_note_opened_from_jotra_hands_the_keyboard_to_the_main_window() {
         let slot = Mutex::new(None);
-        let desktop = FakeDesktop::new(Some(Previous::Writ), true);
+        let desktop = FakeDesktop::new(Some(Previous::Jotra), true);
         press(&desktop, &slot);
         close(&desktop, &slot, true);
         assert_eq!(desktop.asks(), ["show", "focus main", "hide"]);
@@ -436,7 +436,7 @@ mod tests {
     #[test]
     fn a_hidden_main_window_is_not_brought_back() {
         let slot = Mutex::new(None);
-        let desktop = FakeDesktop::new(Some(Previous::Writ), false);
+        let desktop = FakeDesktop::new(Some(Previous::Jotra), false);
         press(&desktop, &slot);
         close(&desktop, &slot, true);
         assert_eq!(desktop.asks(), ["show", "hide"]);
@@ -465,7 +465,7 @@ mod tests {
     #[test]
     fn the_chord_hides_a_note_already_in_front() {
         let slot = Mutex::new(Some(Previous::Other(9)));
-        let mut desktop = FakeDesktop::new(Some(Previous::Writ), false);
+        let mut desktop = FakeDesktop::new(Some(Previous::Jotra), false);
         desktop.in_front = true;
         press(&desktop, &slot);
         assert_eq!(desktop.asks(), ["activate 9", "hide"]);

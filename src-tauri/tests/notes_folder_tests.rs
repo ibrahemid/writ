@@ -5,64 +5,64 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
 use chrono::Utc;
-use tempfile::TempDir;
-use writ_core::buffer::document::{BufferDocument, BufferStatus};
-use writ_core::config::WritConfig;
-use writ_core::events::bus::EventBus;
-use writ_core::preview::ContentRendererRegistry;
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::database::queries;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
-use writ_storage::notes_migration::{MigrationReport, RowOutcome};
-use writ_storage::schema_meta::{self, KEY_NOTES_MIGRATION_REPORT};
-use writ_tauri_lib::commands::buffer::save_buffer_content_inner;
-use writ_tauri_lib::commands::notes::{
+use jotra_core::buffer::document::{BufferDocument, BufferStatus};
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::EventBus;
+use jotra_core::preview::ContentRendererRegistry;
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::database::queries;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::notes_index::NotesIndexStore;
+use jotra_storage::notes_migration::{MigrationReport, RowOutcome};
+use jotra_storage::schema_meta::{self, KEY_NOTES_MIGRATION_REPORT};
+use jotra_tauri_lib::commands::buffer::save_buffer_content_inner;
+use jotra_tauri_lib::commands::notes::{
     dismiss_notes_migration_report_inner, move_archived_notes_inner, move_notes_folder_to,
     notes_folder_info, notes_migration_report,
 };
-use writ_tauri_lib::preview::handler::RenderCache;
-use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::AuthorizedPaths;
-use writ_tauri_lib::state::{
+use jotra_tauri_lib::preview::handler::RenderCache;
+use jotra_tauri_lib::quit::QuitState;
+use jotra_tauri_lib::security::AuthorizedPaths;
+use jotra_tauri_lib::state::{
     resolve_and_create_notes_root, AppState, NotesRootFallback, NotesRootFallbackReason,
 };
-use writ_tauri_lib::watcher::handler::create_ignore_set;
+use jotra_tauri_lib::watcher::handler::create_ignore_set;
+use tempfile::TempDir;
 
 fn make_state_at(dir: &TempDir, notes_name: &str, fallback: Option<NotesRootFallback>) -> AppState {
-    let writ_dir = dir.path().join("data");
-    let buffers_dir = writ_dir.join("buffers");
+    let jotra_dir = dir.path().join("data");
+    let buffers_dir = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
 
     let notes_root = dir.path().join(notes_name);
     std::fs::create_dir_all(&notes_root).expect("notes folder");
-    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+    let notes_root = jotra_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
 
     let note_history = Arc::new(
-        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+        jotra_storage::note_history::NoteHistoryStore::open(&jotra_dir).expect("version store"),
     );
 
     AppState {
         store: Mutex::new(BufferStore::new(conn, buffers_dir.clone())),
-        config_store: ConfigStore::new(writ_dir.join("config.toml")),
-        config: Mutex::new(WritConfig::default()),
-        writ_dir,
+        config_store: ConfigStore::new(jotra_dir.join("config.toml")),
+        config: Mutex::new(JotraConfig::default()),
+        jotra_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: std::sync::atomic::AtomicBool::new(false),
         menu_apps: std::sync::Mutex::new(None),
-        retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+        retitle_watch: std::sync::Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(fallback),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -88,7 +88,7 @@ fn make_state_at(dir: &TempDir, notes_name: &str, fallback: Option<NotesRootFall
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
-        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+        command_usage: jotra_storage::command_usage::CommandUsageStore::new(
             open_database(&db_path).expect("usage db"),
         ),
         config_diagnostics: std::sync::Mutex::new(Vec::new()),
@@ -98,9 +98,9 @@ fn make_state_at(dir: &TempDir, notes_name: &str, fallback: Option<NotesRootFall
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
-        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(
-            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+            jotra_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
@@ -110,7 +110,7 @@ fn make_state_at(dir: &TempDir, notes_name: &str, fallback: Option<NotesRootFall
 }
 
 fn make_state(dir: &TempDir) -> AppState {
-    make_state_at(dir, "Writ", None)
+    make_state_at(dir, "Jotra", None)
 }
 
 /// Inserts a row pointing at `source_path`, as an opened file would.
@@ -131,7 +131,7 @@ fn seed_row(state: &AppState, id: &str, source_path: Option<&str>) {
         closed_at: None,
         read_only: false,
         size_bytes: 0,
-        line_ending: writ_core::notes::line_ending::LineEnding::Lf,
+        line_ending: jotra_core::notes::line_ending::LineEnding::Lf,
         encoding: None,
     };
     let store = state.store.lock().expect("lock");
@@ -143,7 +143,7 @@ fn seed_row(state: &AppState, id: &str, source_path: Option<&str>) {
 /// The store keeps its connection and does not lend it out; WAL permits a
 /// second one, which is how the layout store already works.
 fn db_path(state: &AppState) -> std::path::PathBuf {
-    state.writ_dir.join("writ.db")
+    state.jotra_dir.join("jotra.db")
 }
 
 fn source_path_of(state: &AppState, id: &str) -> Option<String> {
@@ -199,7 +199,7 @@ fn move_rewrites_source_paths_for_every_row_under_the_old_root() {
 
     let to = dir.path().join("Elsewhere");
     let outcome = move_notes_folder_to(&state, &to).expect("move");
-    let to = writ_tauri_lib::security::canonicalize_root(&to).expect("canonical");
+    let to = jotra_tauri_lib::security::canonicalize_root(&to).expect("canonical");
 
     assert_eq!(outcome.moved, 2);
     assert!(outcome.collided.is_empty());
@@ -245,7 +245,7 @@ fn notes_folder_path_round_trips_spaces_apostrophe_and_arabic() {
     );
 
     let outcome = move_notes_folder_to(&state, &awkward).expect("move");
-    let awkward = writ_tauri_lib::security::canonicalize_root(&awkward).expect("canonical");
+    let awkward = jotra_tauri_lib::security::canonicalize_root(&awkward).expect("canonical");
 
     assert_eq!(outcome.moved, 1);
     assert_eq!(outcome.new_root, awkward.to_string_lossy());
@@ -298,9 +298,9 @@ fn the_folder_row_names_the_one_that_could_not_be_used() {
     let dir = TempDir::new().expect("temp");
     let state = make_state_at(
         &dir,
-        "Writ",
+        "Jotra",
         Some(NotesRootFallback {
-            from: "/nope/Writ".to_string(),
+            from: "/nope/Jotra".to_string(),
             reason: NotesRootFallbackReason::Unusable,
         }),
     );
@@ -308,7 +308,7 @@ fn the_folder_row_names_the_one_that_could_not_be_used() {
     assert_eq!(
         info.fallback,
         Some(NotesRootFallback {
-            from: "/nope/Writ".to_string(),
+            from: "/nope/Jotra".to_string(),
             reason: NotesRootFallbackReason::Unusable,
         })
     );
@@ -339,7 +339,7 @@ fn move_archived_notes_dedupes_and_updates_rows() {
     let dir = TempDir::new().expect("temp");
     let state = make_state(&dir);
     let notes = state.notes_root();
-    let archive = state.writ_dir.join("archive");
+    let archive = state.jotra_dir.join("archive");
     std::fs::create_dir_all(&archive).expect("archive");
 
     std::fs::write(notes.join("Meeting.md"), "the note already there").expect("seed");
@@ -404,17 +404,17 @@ fn move_archived_notes_dedupes_and_updates_rows() {
     );
 }
 
-// A destination is compared against paths Writ has resolved, and on macOS a
+// A destination is compared against paths Jotra has resolved, and on macOS a
 // temporary folder is handed out as `/var/...` while its resolved form is
 // `/private/var/...`. Both refusals have to answer on the resolved pair or
-// they never fire on the platform Writ ships on first.
+// they never fire on the platform Jotra ships on first.
 #[test]
 fn a_folder_inside_the_notes_folder_is_refused_whichever_way_it_is_spelled() {
     let dir = TempDir::new().expect("temp");
     let state = make_state(&dir);
     std::fs::write(state.notes_root().join("One.md"), "one").expect("seed");
 
-    let inside = dir.path().join("Writ").join("deeper");
+    let inside = dir.path().join("Jotra").join("deeper");
     let error = move_notes_folder_to(&state, &inside).expect_err("refused");
 
     assert_eq!(error, "Pick a folder outside your current one.");
@@ -432,7 +432,7 @@ fn a_folder_holding_writs_own_data_is_refused_whichever_way_it_is_spelled() {
 
     assert_eq!(
         error,
-        "Writ keeps its own data in that folder, so it cannot also hold your files."
+        "Jotra keeps its own data in that folder, so it cannot also hold your files."
     );
     assert_eq!(state.notes_root(), before);
     assert!(before.join("One.md").exists(), "nothing moved");
@@ -445,12 +445,12 @@ fn a_folder_inside_writs_own_data_folder_is_refused_and_nothing_is_created() {
     std::fs::write(state.notes_root().join("One.md"), "one").expect("seed");
     let before = state.notes_root();
 
-    let inside = state.writ_dir.join("archive");
+    let inside = state.jotra_dir.join("archive");
     let error = move_notes_folder_to(&state, &inside).expect_err("refused");
 
     assert_eq!(
         error,
-        "Writ keeps its own data in that folder, so it cannot also hold your files."
+        "Jotra keeps its own data in that folder, so it cannot also hold your files."
     );
     assert_eq!(state.notes_root(), before);
     assert!(before.join("One.md").exists(), "nothing moved");
@@ -467,13 +467,13 @@ fn a_folder_that_does_not_exist_yet_under_the_data_folder_is_refused_before_it_i
     std::fs::write(state.notes_root().join("One.md"), "one").expect("seed");
     let before = state.notes_root();
 
-    let archive = state.writ_dir.join("archive");
+    let archive = state.jotra_dir.join("archive");
     let two_levels_down = archive.join("new-notes");
     let error = move_notes_folder_to(&state, &two_levels_down).expect_err("refused");
 
     assert_eq!(
         error,
-        "Writ keeps its own data in that folder, so it cannot also hold your files."
+        "Jotra keeps its own data in that folder, so it cannot also hold your files."
     );
     assert_eq!(state.notes_root(), before);
     assert!(before.join("One.md").exists(), "nothing moved");
@@ -488,7 +488,7 @@ fn a_folder_that_does_not_exist_yet_under_the_data_folder_is_refused_before_it_i
 fn the_archive_can_never_become_its_own_destination() {
     let dir = TempDir::new().expect("temp");
     let state = make_state(&dir);
-    let archive = state.writ_dir.join("archive");
+    let archive = state.jotra_dir.join("archive");
     std::fs::create_dir_all(&archive).expect("archive");
     std::fs::write(archive.join("Ideas.md"), "archived").expect("seed");
 
@@ -512,7 +512,7 @@ fn the_archive_can_never_become_its_own_destination() {
 fn the_archive_offer_does_not_come_back_after_the_notes_have_been_moved() {
     let dir = TempDir::new().expect("temp");
     let state = make_state(&dir);
-    let archive = state.writ_dir.join("archive");
+    let archive = state.jotra_dir.join("archive");
     std::fs::create_dir_all(&archive).expect("archive");
     std::fs::write(archive.join("Ideas.md"), "archived").expect("seed");
 
@@ -608,7 +608,7 @@ fn pick_notes_folder_move_updates_disk_state_map() {
 
     let to = dir.path().join("Elsewhere");
     move_notes_folder_to(&state, &to).expect("move");
-    let to = writ_tauri_lib::security::canonicalize_root(&to).expect("canonical");
+    let to = jotra_tauri_lib::security::canonicalize_root(&to).expect("canonical");
 
     let after = state.disk_state("open").expect("still recorded");
     assert_eq!(after.hash, before.hash, "the bytes did not change");
@@ -618,7 +618,7 @@ fn pick_notes_folder_move_updates_disk_state_map() {
     );
     assert!(
         state.disk_state("closed").is_none(),
-        "a note Writ never read is not read now"
+        "a note Jotra never read is not read now"
     );
     assert!(to.join("Open.md").exists());
 }
@@ -630,7 +630,7 @@ fn store_report(state: &AppState) {
         first_ran_at: Utc::now().to_rfc3339(),
         notes_folder: state.notes_root().to_string_lossy().into_owned(),
         archive_folder: state
-            .writ_dir
+            .jotra_dir
             .join("archive")
             .to_string_lossy()
             .into_owned(),
@@ -659,32 +659,32 @@ fn put_report(state: &AppState, report: &MigrationReport) {
 #[test]
 fn a_notes_folder_set_to_the_archive_boots_with_the_default_one() {
     let dir = TempDir::new().expect("temp");
-    let writ_dir = dir.path().join("data");
-    let archive = writ_dir.join("archive");
+    let jotra_dir = dir.path().join("data");
+    let archive = jotra_dir.join("archive");
     std::fs::create_dir_all(&archive).expect("archive");
     std::fs::write(archive.join("Ideas.md"), "archived").expect("seed");
 
     let (root, fallback) = resolve_and_create_notes_root(
-        writ_core::notes::NotesRootSources {
+        jotra_core::notes::NotesRootSources {
             env_override: Some(&archive.to_string_lossy()),
             configured: None,
-            data_dir: Some(&writ_dir),
+            default_root: Some(&jotra_dir.join("Jotra")),
             home: Some(dir.path()),
         },
-        &writ_dir,
+        &jotra_dir,
     )
     .expect("startup resolves a notes folder");
 
     assert_eq!(
         root,
-        writ_tauri_lib::security::canonicalize_root(&writ_dir.join("Writ"))
+        jotra_tauri_lib::security::canonicalize_root(&jotra_dir.join("Jotra"))
             .expect("the default under the data folder")
     );
     assert_eq!(
         fallback,
         Some(NotesRootFallback {
             from: archive.to_string_lossy().into_owned(),
-            reason: NotesRootFallbackReason::HoldsWritData,
+            reason: NotesRootFallbackReason::HoldsJotraData,
         }),
         "the Settings row can say which folder was turned down and why"
     );
@@ -707,7 +707,7 @@ fn a_destination_that_climbs_back_into_the_data_folder_creates_nothing() {
     let state = make_state(&dir);
     let before = state.notes_root();
 
-    let archive = state.writ_dir.join("archive");
+    let archive = state.jotra_dir.join("archive");
     let climbing = archive.join("..");
     let error = move_notes_folder_to(&state, &climbing).expect_err("turned down");
 
@@ -717,7 +717,7 @@ fn a_destination_that_climbs_back_into_the_data_folder_creates_nothing() {
     assert!(
         error == "That folder cannot hold your files."
             || error
-                == "Writ keeps its own data in that folder, so it cannot also hold your files.",
+                == "Jotra keeps its own data in that folder, so it cannot also hold your files.",
         "unexpected refusal: {error}"
     );
     assert_eq!(state.notes_root(), before);
@@ -728,26 +728,26 @@ fn a_destination_that_climbs_back_into_the_data_folder_creates_nothing() {
 }
 
 #[test]
-fn moving_the_notes_folder_clears_the_row_naming_the_one_writ_could_not_use() {
+fn moving_the_notes_folder_clears_the_row_naming_the_one_jotra_could_not_use() {
     let dir = TempDir::new().expect("temp");
-    let writ_dir = dir.path().join("data");
-    let archive = writ_dir.join("archive");
+    let jotra_dir = dir.path().join("data");
+    let archive = jotra_dir.join("archive");
     std::fs::create_dir_all(&archive).expect("archive");
 
     // The fallback startup itself would leave behind, not a hand-written one.
     let (_, fallback) = resolve_and_create_notes_root(
-        writ_core::notes::NotesRootSources {
+        jotra_core::notes::NotesRootSources {
             env_override: Some(&archive.to_string_lossy()),
             configured: None,
-            data_dir: Some(&writ_dir),
+            default_root: Some(&jotra_dir.join("Jotra")),
             home: Some(dir.path()),
         },
-        &writ_dir,
+        &jotra_dir,
     )
     .expect("startup resolves a notes folder");
     assert!(fallback.is_some(), "the launch this test starts from");
 
-    let state = make_state_at(&dir, "Writ", fallback);
+    let state = make_state_at(&dir, "Jotra", fallback);
     std::fs::write(state.notes_root().join("One.md"), "one").expect("seed");
     assert!(
         notes_folder_info(&state).fallback.is_some(),
@@ -768,8 +768,8 @@ fn moving_the_notes_folder_clears_the_row_naming_the_one_writ_could_not_use() {
 
 /// The index's paths for `text`, in rank order.
 fn index_paths(state: &AppState, text: &str) -> Vec<String> {
-    let query = writ_core::search::to_prefix_match(text).expect("query");
-    let terms = writ_core::search::search_terms(text);
+    let query = jotra_core::search::to_prefix_match(text).expect("query");
+    let terms = jotra_core::search::search_terms(text);
     state
         .notes_index
         .search_hits(&query, &terms, 50)
@@ -794,17 +794,17 @@ fn moving_the_notes_folder_reindexes_under_the_new_root_and_forgets_the_old_path
         .expect("index the note where it started");
     assert_eq!(
         index_paths(&state, "portable"),
-        vec![writ_storage::notes_index::index_key(&before)]
+        vec![jotra_storage::notes_index::index_key(&before)]
     );
 
     let to = dir.path().join("Elsewhere");
     move_notes_folder_to(&state, &to).expect("move");
-    let to = writ_tauri_lib::security::canonicalize_root(&to).expect("canonical");
+    let to = jotra_tauri_lib::security::canonicalize_root(&to).expect("canonical");
 
     let after = to.join("projects").join("Kept.md");
     assert_eq!(
         index_paths(&state, "portable"),
-        vec![writ_storage::notes_index::index_key(&after)],
+        vec![jotra_storage::notes_index::index_key(&after)],
         "the hit opens the file where it now is"
     );
     let old_prefix = from.to_string_lossy().into_owned();
@@ -830,7 +830,7 @@ fn a_save_after_a_move_is_indexed_under_the_new_root() {
 
     let to = dir.path().join("Elsewhere");
     move_notes_folder_to(&state, &to).expect("move");
-    let to = writ_tauri_lib::security::canonicalize_root(&to).expect("canonical");
+    let to = jotra_tauri_lib::security::canonicalize_root(&to).expect("canonical");
 
     save_buffer_content_inner(&state, "later", "afterwards").expect("save");
     // A save writes the file and defers the index write (ADR-020); the
@@ -844,15 +844,15 @@ fn a_save_after_a_move_is_indexed_under_the_new_root() {
 
     assert_eq!(
         index_paths(&state, "afterwards"),
-        vec![writ_storage::notes_index::index_key(&to.join("Later.md"))],
+        vec![jotra_storage::notes_index::index_key(&to.join("Later.md"))],
         "the save path indexes under the folder the state names now"
     );
 }
 
 #[test]
 fn the_notes_watcher_follows_the_folder_to_its_new_root() {
+    use jotra_tauri_lib::watcher::handler::classify_notes_event;
     use std::time::{Duration, Instant};
-    use writ_tauri_lib::watcher::handler::classify_notes_event;
 
     let dir = TempDir::new().expect("temp");
     let state = make_state(&dir);
@@ -860,7 +860,7 @@ fn the_notes_watcher_follows_the_folder_to_its_new_root() {
 
     let to = dir.path().join("Elsewhere");
     move_notes_folder_to(&state, &to).expect("move");
-    let to = writ_tauri_lib::security::canonicalize_root(&to).expect("canonical");
+    let to = jotra_tauri_lib::security::canonicalize_root(&to).expect("canonical");
 
     assert!(
         state.notes_watcher.lock().expect("lock").is_some(),
@@ -892,7 +892,7 @@ fn the_notes_watcher_follows_the_folder_to_its_new_root() {
             Instant::now(),
         )
         .is_none(),
-        "a file in the folder Writ left is not"
+        "a file in the folder Jotra left is not"
     );
 }
 
@@ -917,15 +917,15 @@ fn a_move_that_does_not_happen_leaves_the_old_folder_watched() {
 
 #[test]
 fn a_move_asks_for_its_walk_the_way_every_other_walk_is_asked_for() {
+    use jotra_core::events::bus::JotraEvent;
     use std::sync::{Arc, Mutex};
-    use writ_core::events::bus::WritEvent;
 
     let dir = TempDir::new().expect("temp");
     let state = make_state(&dir);
     let swept: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let heard = Arc::clone(&swept);
     state.event_bus.subscribe(move |event| {
-        if let WritEvent::NotesSwept { root } = event {
+        if let JotraEvent::NotesSwept { root } = event {
             heard.lock().expect("lock").push(root.clone());
         }
     });

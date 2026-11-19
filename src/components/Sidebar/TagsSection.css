@@ -1,27 +1,27 @@
 .tags-tree {
-  padding: var(--writ-space-1) 0 var(--writ-space-3);
+  padding: var(--jotra-space-1) 0 var(--jotra-space-3);
 }
 
 .tags-row {
   display: flex;
   align-items: center;
-  padding-right: var(--writ-space-3-5);
+  padding-right: var(--jotra-space-3-5);
   cursor: pointer;
-  color: var(--writ-fg);
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
+  color: var(--jotra-fg);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
   white-space: nowrap;
   overflow: hidden;
   user-select: none;
-  transition: background var(--writ-motion);
+  transition: background var(--jotra-motion);
 }
 
 .tags-row:hover {
-  background: var(--writ-bg-hover);
+  background: var(--jotra-bg-hover);
 }
 
 .tags-row.is-selected {
-  background: var(--writ-bg-selected);
+  background: var(--jotra-bg-selected);
   font-weight: 500;
 }
 
@@ -29,21 +29,21 @@
   display: inline-flex;
   flex: none;
   width: 12px;
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
 }
 
-.tags-row-caret .writ-icon {
+.tags-row-caret .jotra-icon {
   color: currentColor;
   opacity: 1;
 }
 
 .tags-row-hash {
   flex-shrink: 0;
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
 }
 
 .tags-row.is-selected .tags-row-hash {
-  color: var(--writ-accent);
+  color: var(--jotra-accent);
 }
 
 .tags-row-name {
@@ -55,9 +55,9 @@
 
 .tags-row-count {
   flex-shrink: 0;
-  color: var(--writ-fg-muted);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
+  color: var(--jotra-fg-muted);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
   font-variant-numeric: tabular-nums;
   font-weight: 400;
 }
@@ -69,11 +69,11 @@
 .tags-children::before {
   content: "";
   position: absolute;
-  left: var(--tree-connector-left, var(--writ-space-4-5));
+  left: var(--tree-connector-left, var(--jotra-space-4-5));
   top: 0;
-  bottom: var(--writ-space-2);
+  bottom: var(--jotra-space-2);
   width: 1px;
-  background: var(--writ-border-soft);
+  background: var(--jotra-border-soft);
   pointer-events: none;
 }
 
@@ -81,37 +81,37 @@
    could not be read. The folder tree's own empty line, in the same ink. */
 .tags-note {
   margin: 0;
-  padding: var(--writ-space-2) var(--writ-space-4);
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  color: var(--writ-fg-faint);
+  padding: var(--jotra-space-2) var(--jotra-space-4);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  color: var(--jotra-fg-faint);
 }
 
 .tags-section-note {
-  padding-left: var(--writ-space-5);
+  padding-left: var(--jotra-space-5);
 }
 
 /* A tag's files listed under its row: the folder tree's file row, one step in. */
 .tags-file {
   display: flex;
   align-items: center;
-  padding-right: var(--writ-space-3-5);
+  padding-right: var(--jotra-space-3-5);
   cursor: pointer;
-  color: var(--writ-fg);
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
+  color: var(--jotra-fg);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
   white-space: nowrap;
   overflow: hidden;
   user-select: none;
-  transition: background var(--writ-motion);
+  transition: background var(--jotra-motion);
 }
 
 .tags-file:hover,
 .tags-file:focus-visible {
-  background: var(--writ-bg-hover);
+  background: var(--jotra-bg-hover);
 }
 
-.tags-file > .writ-tooltip-anchor {
+.tags-file > .jotra-tooltip-anchor {
   flex: 1;
   min-width: 0;
   display: block;
@@ -129,10 +129,10 @@
   flex: 0 1 auto;
   min-width: 0;
   max-width: 50%;
-  margin-left: var(--writ-space-2);
+  margin-left: var(--jotra-space-2);
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--writ-fg-muted);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
+  color: var(--jotra-fg-muted);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
 }

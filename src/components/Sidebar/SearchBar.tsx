@@ -86,7 +86,7 @@ export default function SearchBar() {
               ? searchOptionId(win.sidebar.activeResult())
               : undefined
           }
-          data-writ-focus-silent
+          data-jotra-focus-silent
           placeholder="Search your files"
           value={win.sidebar.searchQuery()}
           onInput={(e) => win.sidebar.setSearchQuery(e.currentTarget.value)}

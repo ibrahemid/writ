@@ -4,7 +4,7 @@ import { createSignal } from "solid-js";
 import { EditorView } from "@codemirror/view";
 import { indentUnit } from "@codemirror/language";
 import type { BufferDocument } from "../../../types/buffer";
-import type { WritConfig } from "../../../types/config";
+import type { JotraConfig } from "../../../types/config";
 import WindowProvider from "../../WindowProvider/WindowProvider";
 
 // Settings, Editor: Word wrap and Tab size reach the open editor, at mount and
@@ -58,7 +58,7 @@ async function flushMicrotasks(n = 10) {
   for (let i = 0; i < n; i++) await Promise.resolve();
 }
 
-async function setEditor(change: Partial<WritConfig["editor"]>): Promise<void> {
+async function setEditor(change: Partial<JotraConfig["editor"]>): Promise<void> {
   const current = configStore.config();
   await configStore.save({ ...current, editor: { ...current.editor, ...change } });
 }
@@ -172,7 +172,7 @@ describe("EditorInstance: Reading width", () => {
   const measureOf = (view: EditorView) => getComputedStyle(view.contentDOM).maxWidth;
 
   beforeEach(async () => {
-    document.documentElement.style.setProperty("--writ-prose-measure", MEASURE);
+    document.documentElement.style.setProperty("--jotra-prose-measure", MEASURE);
     bufferContent.clear();
     await setEditor({ word_wrap: true, tab_size: 2, reading_width: false });
   });
@@ -180,7 +180,7 @@ describe("EditorInstance: Reading width", () => {
   afterEach(async () => {
     cleanup();
     await setEditor({ reading_width: false });
-    document.documentElement.style.removeProperty("--writ-prose-measure");
+    document.documentElement.style.removeProperty("--jotra-prose-measure");
   });
 
   it("holds prose to the reading measure while the setting is on, both ways", async () => {

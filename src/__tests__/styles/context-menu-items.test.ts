@@ -16,10 +16,10 @@ const block = (selector: string): string => {
 
 describe("context menu item tones", () => {
   it("sets live items in the default ink", () => {
-    expect(block(".context-menu-item")).toMatch(/color:\s*var\(--writ-fg\)/);
+    expect(block(".context-menu-item")).toMatch(/color:\s*var\(--jotra-fg\)/);
   });
 
   it("keeps disabled items in the faint tier so they differ from live ones", () => {
-    expect(block(".context-menu-item:disabled")).toMatch(/color:\s*var\(--writ-fg-faint\)/);
+    expect(block(".context-menu-item:disabled")).toMatch(/color:\s*var\(--jotra-fg-faint\)/);
   });
 });

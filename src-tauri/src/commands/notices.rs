@@ -1,6 +1,6 @@
+use jotra_storage::paths::file_name_only;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
-use writ_storage::paths::file_name_only;
 
 use crate::commands::buffer::ERR_READ_FAILED;
 use crate::commands::file::{open_generated_document, FileOpenResult};
@@ -124,8 +124,8 @@ mod tests {
     #[test]
     fn the_repo_root_fallback_is_the_manifest_parent() {
         assert_eq!(
-            repo_root_notices(Path::new("/build/writ/src-tauri")),
-            Some(PathBuf::from("/build/writ").join(NOTICES_FILE))
+            repo_root_notices(Path::new("/build/jotra/src-tauri")),
+            Some(PathBuf::from("/build/jotra").join(NOTICES_FILE))
         );
     }
 

@@ -34,7 +34,7 @@ interface ButtonProps {
 export default function Button(props: ButtonProps) {
   const variant = () => props.variant ?? "secondary";
   const classes = () =>
-    ["writ-btn", `writ-btn-${variant()}`, props.danger ? "writ-btn-danger" : "", props.class ?? ""]
+    ["jotra-btn", `jotra-btn-${variant()}`, props.danger ? "jotra-btn-danger" : "", props.class ?? ""]
       .filter(Boolean)
       .join(" ");
 

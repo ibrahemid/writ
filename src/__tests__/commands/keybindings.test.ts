@@ -197,7 +197,7 @@ describe("editor.replace vs tab.rename chord", () => {
     expect(handleKeyDown(createKeyEvent({ key: "f", metaKey: true, altKey: true }))).toBe(true);
     expect(replaced).toBe(1);
 
-    // Cmd+R is Reload on this platform and reaches no command of Writ's.
+    // Cmd+R is Reload on this platform and reaches no command of Jotra's.
     expect(handleKeyDown(createKeyEvent({ key: "r", metaKey: true }))).toBe(false);
     expect(replaced).toBe(1);
     expect(renamed).toBe(0);

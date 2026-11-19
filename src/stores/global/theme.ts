@@ -33,10 +33,10 @@ const DEFAULT_APPEARANCE: AppearanceConfig = {
   interface_text_size: null,
 };
 
-// The one root the generated sheet scales every --writ-ui-* step from. The
-// editor keeps its own --writ-editor-font-size, so interface size and editor
+// The one root the generated sheet scales every --jotra-ui-* step from. The
+// editor keeps its own --jotra-editor-font-size, so interface size and editor
 // zoom move independently.
-const UI_SIZE_VAR = "--writ-ui-size";
+const UI_SIZE_VAR = "--jotra-ui-size";
 
 const [presetId, setPresetId] = createSignal<string>(DEFAULT_PRESET_ID);
 const [overrides, setOverridesSignal] = createSignal<ThemeOverrides>({});
@@ -70,7 +70,7 @@ const accentApplies = createMemo<boolean>(() => takesAccentSetting(activePresetI
  * A preset's token groups as flat token keys (`tokenKey`, so a `default` leaf
  * is the bare group name). Only string leaves make
  * it through: a nested object has no CSS declaration to become, and writing one
- * anyway is how `--writ-site-traffic: [object Object]` used to reach `:root`.
+ * anyway is how `--jotra-site-traffic: [object Object]` used to reach `:root`.
  * Exported for the contract test that holds that line.
  */
 export function flattenTheme(theme: Theme): Record<string, string> {
@@ -91,7 +91,7 @@ export function flattenTheme(theme: Theme): Record<string, string> {
 }
 
 function tokenKeyToCssVar(key: string): string {
-  return `--writ-${key.replaceAll(".", "-")}`;
+  return `--jotra-${key.replaceAll(".", "-")}`;
 }
 
 function isValidColor(value: string): boolean {
@@ -159,10 +159,10 @@ export const themeStore = {
       vars[UI_SIZE_VAR] = size;
     }
     // The alternate prose face is a swap of one token, so every surface that
-    // reads --writ-font-prose follows it and nothing else moves.
-    const proseVar = "--writ-font-prose";
+    // reads --jotra-font-prose follows it and nothing else moves.
+    const proseVar = "--jotra-font-prose";
     if (appearance().prose_face === "quattro") {
-      const alt = "var(--writ-font-prose-alt)";
+      const alt = "var(--jotra-font-prose-alt)";
       root.style.setProperty(proseVar, alt);
       vars[proseVar] = alt;
     } else {

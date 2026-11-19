@@ -81,7 +81,7 @@ describe("the chat list", () => {
   it("names every icon in a row under the pointer", () => {
     const { container } = render(() => <ConversationList onPick={() => undefined} />);
     const live = container.querySelector(".chat-chats-row") as HTMLElement;
-    const tipped = [...live.querySelectorAll(".writ-tooltip-anchor button")].map((button) =>
+    const tipped = [...live.querySelectorAll(".jotra-tooltip-anchor button")].map((button) =>
       button.getAttribute("aria-label"),
     );
     expect(tipped).toEqual(["Stop Launch", "Rename Launch", "Delete Launch"]);

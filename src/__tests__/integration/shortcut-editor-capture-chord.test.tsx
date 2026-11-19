@@ -103,7 +103,7 @@ describe("the capture chord's row", () => {
     const { container } = render(() => <ShortcutEditor />);
     fireEvent.click(captureRow(container).querySelector('[data-action="record-capture-shortcut"]')!);
     fireEvent.keyDown(document, { key: " ", metaKey: true, shiftKey: true });
-    expect(captureRow(container).textContent).toContain("Show and hide Writ uses this shortcut.");
+    expect(captureRow(container).textContent).toContain("Show and hide Jotra uses this shortcut.");
   });
 
   it("asks for a new capture chord on its own and records it", async () => {

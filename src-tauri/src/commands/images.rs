@@ -10,19 +10,19 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use chrono::NaiveDateTime;
-use serde::Serialize;
-use tauri::{AppHandle, Runtime};
-use tracing::{info, warn};
-use writ_core::buffer::BufferStatus;
-use writ_core::config::ImageFolder;
-use writ_core::notes::image_import::{
+use jotra_core::buffer::BufferStatus;
+use jotra_core::config::ImageFolder;
+use jotra_core::notes::image_import::{
     check_image_head, check_image_size, clipboard_image_name, image_destination,
     image_folder_label, image_markdown, is_lone_web_address, not_images_notice, place_image_file,
     saved_image_reference, ImageImportError, ImagePlacement, IMAGE_MAX_BYTES, IMAGE_MAX_MB,
 };
-use writ_core::preview::protocol::SNIFF_BYTES;
-use writ_storage::image_store::{make_folder_within, save_image, ImageSaveError};
-use writ_storage::paths::strip_verbatim_prefix;
+use jotra_core::preview::protocol::SNIFF_BYTES;
+use jotra_storage::image_store::{make_folder_within, save_image, ImageSaveError};
+use jotra_storage::paths::strip_verbatim_prefix;
+use serde::Serialize;
+use tauri::{AppHandle, Runtime};
+use tracing::{info, warn};
 
 use crate::commands::buffer::{ignore_stamper, ignore_unstamper};
 use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};

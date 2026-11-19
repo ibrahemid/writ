@@ -21,7 +21,7 @@ import { userErrorText } from "../../lib/error-text";
 import { writerName } from "../../lib/writer";
 import "./NoteHistoryPanel.css";
 
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 
 const [isOpen, setIsOpen] = createSignal(false);
 
@@ -100,7 +100,7 @@ function NoList() {
       fallback={
         <div class="note-versions-empty">
           <p class="note-versions-empty-line">No versions of this file yet.</p>
-          <p class="note-versions-empty-hint">Writ keeps one each time the file is saved.</p>
+          <p class="note-versions-empty-hint">Jotra keeps one each time the file is saved.</p>
         </div>
       }
     >

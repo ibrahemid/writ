@@ -145,7 +145,7 @@ export function createBootStore() {
       }
     }
     if (unheard > 0) {
-      showToast("Some file and menu events aren't reaching Writ. Restart Writ to reconnect them.", "error");
+      showToast("Some file and menu events aren't reaching Jotra. Restart Jotra to reconnect them.", "error");
     }
 
     await attempt("ready", plan.announceReady);
@@ -198,7 +198,7 @@ async function readFirstRunWithin(deadlineMs: number): Promise<void> {
 }
 
 /**
- * Opens the new tab a `writ://new` link asked for, called `name` when the link
+ * Opens the new tab a `jotra://new` link asked for, called `name` when the link
  * gave one (ADR-052). The tab reaches a file on its first keystroke, as any new
  * tab does, so the link itself writes nothing.
  */
@@ -227,7 +227,7 @@ export async function receiveDroppedFiles(paths: string[], position?: DropPoint)
 }
 
 /**
- * Opens files the OS, a drop or the `writ` command handed to the window, one
+ * Opens files the OS, a drop or the `jotra` command handed to the window, one
  * line for every refusal, each at the line `lines` names for it.
  */
 export async function openPendingPaths(
@@ -455,7 +455,7 @@ export function createBootPlan(win: WindowState, shell: BootShell): BootPlan {
             rendererRegistry.setFromIpc(await api.previewListRenderers());
           } catch {
             logFailure("preview renderers could not be listed");
-            showToast("Preview is unavailable. Restart Writ to try again.", "error");
+            showToast("Preview is unavailable. Restart Jotra to try again.", "error");
           }
         },
       ],

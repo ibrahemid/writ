@@ -5,8 +5,9 @@ Environment:
   VERSION       release version without the leading v
   SHA_MSI       SHA256 of the released x64 MSI
   RELEASE_DATE  YYYY-MM-DD
-  MSI_PATH      the released x64 MSI; its ProductCode goes into the installer
-                manifest, read with `msiinfo export <msi> Property` (msitools)
+  MSI_PATH      the released x64 MSI; its ProductCode and UpgradeCode go into
+                the installer manifest, read with `msiinfo export <msi> Property`
+                (msitools)
 """
 
 from __future__ import annotations
@@ -19,19 +20,27 @@ import subprocess
 import sys
 
 MANIFEST_ROOT = pathlib.Path("packaging/winget/manifests/i/ibrahemid/Writ")
+PACKAGE_IDENTIFIER = "ibrahemid.Writ"
+PACKAGE_NAME = "Jotra"
+MONIKER = "jotra"
+LEGACY_TAG = PACKAGE_IDENTIFIER.rpartition(".")[2].lower()
 SHORT_DESCRIPTION = "Light text editor for any text file, with full-text search and inline Markdown"
 DESCRIPTION = (
-    "Writ opens any text file and searches every file in its folder. A Markdown file renders "
+    "Jotra opens any text file and searches every file in its folder. A Markdown file renders "
     "inline as you type, with the markup shown on the line you are editing. Chat, rewriting, "
     "dictation, connected programs, connections, the graph and tags are apps, each switched on in "
     "Settings. "
-    "Writ needs no account and sends no telemetry."
+    "Jotra needs no account and sends no telemetry."
 )
 TAGS = ("text-editor", "editor", "markdown", "plain-text", "search", "tauri")
 
 
 PRODUCT_CODE_PATTERN = re.compile(
     r"\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}"
+)
+APPS_AND_FEATURES_ENTRIES = re.compile(
+    r"^(?P<indent>[ ]*)AppsAndFeaturesEntries:\n(?:(?P=indent)[ ]+\S.*\n)*",
+    re.MULTILINE,
 )
 
 
@@ -57,6 +66,20 @@ def version_key(name: str) -> tuple[int, ...]:
 
 
 def rewrite_locale(text: str, release_notes_url: str) -> str:
+    text, name_count = re.subn(
+        r"^PackageName: .*$",
+        f"PackageName: {PACKAGE_NAME}",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    text, moniker_count = re.subn(
+        r"^Moniker: .*$",
+        f"Moniker: {MONIKER}",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
     text, short_count = re.subn(
         r"^ShortDescription: .*$",
         f"ShortDescription: {SHORT_DESCRIPTION}",
@@ -71,7 +94,7 @@ def rewrite_locale(text: str, release_notes_url: str) -> str:
         count=1,
         flags=re.MULTILINE,
     )
-    tags = "Tags:\n" + "".join(f"  - {tag}\n" for tag in TAGS)
+    tags = "Tags:\n" + "".join(f"  - {tag}\n" for tag in (*TAGS, LEGACY_TAG))
     text, tags_count = re.subn(
         r"^Tags:\n(?:  - .*\n)+(?=ReleaseNotesUrl:)",
         tags,
@@ -86,26 +109,43 @@ def rewrite_locale(text: str, release_notes_url: str) -> str:
         count=1,
         flags=re.MULTILINE,
     )
-    if (short_count, description_count, tags_count, notes_count) != (1, 1, 1, 1):
-        raise ManifestFormatError("winget locale is missing a required description field")
+    counts = {
+        "PackageName": name_count,
+        "Moniker": moniker_count,
+        "ShortDescription": short_count,
+        "Description": description_count,
+        "Tags": tags_count,
+        "ReleaseNotesUrl": notes_count,
+    }
+    missing = [field for field, count in counts.items() if count != 1]
+    if missing:
+        raise ManifestFormatError(f"winget locale is missing {', '.join(missing)}")
     return text
 
 
-def parse_product_code(property_table: str) -> str:
+def parse_guid_property(property_table: str, property_name: str) -> str:
     codes = [
         value
         for name, _, value in (line.partition("\t") for line in property_table.splitlines())
-        if name == "ProductCode"
+        if name == property_name
     ]
     if len(codes) != 1:
-        raise MsiReadError(f"expected one ProductCode row in the MSI Property table, found {len(codes)}")
+        raise MsiReadError(f"expected one {property_name} row in the MSI Property table, found {len(codes)}")
     code = codes[0].strip()
     if not PRODUCT_CODE_PATTERN.fullmatch(code):
-        raise MsiReadError(f"MSI ProductCode is not a braced GUID: {code!r}")
+        raise MsiReadError(f"MSI {property_name} is not a braced GUID: {code!r}")
     return code
 
 
-def read_product_code(msi_path: pathlib.Path) -> str:
+def parse_product_code(property_table: str) -> str:
+    return parse_guid_property(property_table, "ProductCode")
+
+
+def parse_upgrade_code(property_table: str) -> str:
+    return parse_guid_property(property_table, "UpgradeCode")
+
+
+def read_property_table(msi_path: pathlib.Path) -> str:
     if not msi_path.is_file():
         raise MsiReadError(f"released MSI not found: {msi_path}")
     try:
@@ -120,7 +160,7 @@ def read_product_code(msi_path: pathlib.Path) -> str:
         raise MsiReadError(
             f"msiinfo export {msi_path} Property exited {result.returncode}: {result.stderr.strip()}"
         )
-    return parse_product_code(result.stdout)
+    return result.stdout
 
 
 def rewrite_installer(
@@ -130,6 +170,7 @@ def rewrite_installer(
     sha_msi: str,
     release_date: str,
     product_code: str,
+    upgrade_code: str,
 ) -> str:
     text = re.sub(
         r"InstallerUrl: https://github\.com/ibrahemid/writ/releases/download/v[^\s]+",
@@ -147,9 +188,15 @@ def rewrite_installer(
         text,
         flags=re.MULTILINE,
     )
+    text = APPS_AND_FEATURES_ENTRIES.sub("", text)
     text, product_code_count = re.subn(
         r"^(?P<indent>[ ]*)ProductCode: .*$",
-        lambda match: f'{match.group("indent")}ProductCode: "{product_code}"',
+        lambda match: (
+            f'{match.group("indent")}ProductCode: "{product_code}"\n'
+            f'{match.group("indent")}AppsAndFeaturesEntries:\n'
+            f'{match.group("indent")}  - DisplayName: {PACKAGE_NAME}\n'
+            f'{match.group("indent")}    UpgradeCode: "{upgrade_code}"'
+        ),
         text,
         flags=re.MULTILINE,
     )
@@ -164,7 +211,9 @@ def main() -> None:
     version = get_env("VERSION")
     sha_msi = get_env("SHA_MSI")
     release_date = get_env("RELEASE_DATE")
-    product_code = read_product_code(pathlib.Path(get_env("MSI_PATH")))
+    property_table = read_property_table(pathlib.Path(get_env("MSI_PATH")))
+    product_code = parse_product_code(property_table)
+    upgrade_code = parse_upgrade_code(property_table)
 
     if not MANIFEST_ROOT.is_dir():
         print(f"winget manifest root missing: {MANIFEST_ROOT}", file=sys.stderr)
@@ -189,7 +238,7 @@ def main() -> None:
 
     installer_url = (
         f"https://github.com/ibrahemid/writ/releases/download/v{version}/"
-        f"Writ_{version}_x64_en-US.msi"
+        f"Jotra_{version}_x64_en-US.msi"
     )
     release_notes_url = f"https://github.com/ibrahemid/writ/releases/tag/v{version}"
 
@@ -208,6 +257,7 @@ def main() -> None:
                 sha_msi=sha_msi,
                 release_date=release_date,
                 product_code=product_code,
+                upgrade_code=upgrade_code,
             )
         if path.name.endswith("locale.en-US.yaml"):
             text = rewrite_locale(text, release_notes_url)

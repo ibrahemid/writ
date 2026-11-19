@@ -7,8 +7,8 @@
 //! The `_inner` functions they wrap stay synchronous, which is what the tests
 //! and the other callers in this crate call.
 
+use jotra_core::serial::{Ticket, Turn};
 use tauri::{AppHandle, Manager, Runtime};
-use writ_core::serial::{Ticket, Turn};
 
 use crate::state::AppState;
 

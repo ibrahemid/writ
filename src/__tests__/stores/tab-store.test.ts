@@ -473,7 +473,7 @@ describe("tabStore (per-window factory)", () => {
     it("sends a note whose bytes are not here to the downloads, opening nothing", async () => {
       const downloads = createDownloadStore();
       const tabs = createTabStore({ downloads, registry: bufferRegistry });
-      const path = "/home/user/Writ/away.md";
+      const path = "/home/user/Jotra/away.md";
       mockedApi.openFile.mockResolvedValueOnce({
         doc: null,
         mode: { kind: "NotDownloaded", path, provider: "iCloud Drive" },
@@ -509,7 +509,7 @@ describe("tabStore (per-window factory)", () => {
         return null;
       });
       debouncedSave(shown.id, "typed just before the click", 50_000);
-      const path = "/home/user/Writ/away.md";
+      const path = "/home/user/Jotra/away.md";
       mockedApi.openFile.mockResolvedValueOnce({
         doc: null,
         mode: { kind: "NotDownloaded", path, provider: "iCloud Drive" },
@@ -526,7 +526,7 @@ describe("tabStore (per-window factory)", () => {
     it("selecting a note's tab takes the pane back from a pending download", async () => {
       const downloads = createDownloadStore();
       const tabs = createTabStore({ downloads, registry: bufferRegistry });
-      const path = "/home/user/Writ/away.md";
+      const path = "/home/user/Jotra/away.md";
       mockedApi.openFile.mockResolvedValueOnce({
         doc: null,
         mode: { kind: "NotDownloaded", path, provider: null },

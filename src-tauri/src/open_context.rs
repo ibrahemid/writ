@@ -1,6 +1,6 @@
 //! What the app does with a `get_context` ask (ADR-053).
 //!
-//! `writ mcp` leaves the ask in `open-requests/`, where the requests watcher
+//! `jotra mcp` leaves the ask in `open-requests/`, where the requests watcher
 //! finds it ([`crate::instance`]). The app checks that the settings let the
 //! program see the open file, asks the main window which tab is in front and
 //! what is selected in it, resolves that tab's file itself, and leaves the
@@ -12,19 +12,19 @@ use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use jotra_core::buffer::BufferStatus;
+use jotra_core::config::mcp::McpConfig;
+use jotra_core::instance::{is_wait_token, ContextAsk};
+use jotra_core::open_context::{OpenContext, Selected, TextPoint};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use tracing::warn;
-use writ_core::buffer::BufferStatus;
-use writ_core::config::mcp::McpConfig;
-use writ_core::instance::{is_wait_token, ContextAsk};
-use writ_core::open_context::{OpenContext, Selected, TextPoint};
 
-use crate::events::{emit_event_to_main, WritFrontendEvent};
+use crate::events::{emit_event_to_main, JotraFrontendEvent};
 use crate::poison::recover_poison;
 use crate::state::AppState;
 
-/// How long the window has to answer an ask: as long as `writ mcp` waits.
+/// How long the window has to answer an ask: as long as `jotra mcp` waits.
 pub const WINDOW_ANSWER_WAIT: Duration = Duration::from_secs(5);
 
 /// The only window that answers.
@@ -112,7 +112,7 @@ pub fn is_allowed(config: &McpConfig, program: &str) -> bool {
 /// What the app does with `ask`, decided from the settings it holds and
 /// whether the window is ready.
 ///
-/// `writ mcp` checked the grant before it asked; the app checks it again, so
+/// `jotra mcp` checked the grant before it asked; the app checks it again, so
 /// an ask written into the data folder by anything else is answered only for
 /// a program the person let see the open file.
 pub fn route_ask(state: &AppState, ask: &ContextAsk) -> AskRoute {
@@ -140,8 +140,8 @@ pub fn answer_ask(app: &AppHandle, ask: &ContextAsk) {
     match route_ask(&state, ask) {
         AskRoute::Refused => warn!("a context ask for a program not allowed was dropped"),
         AskRoute::NothingOpen => {
-            if let Err(error) = writ_storage::open_context::write_answer(
-                &state.writ_dir,
+            if let Err(error) = jotra_storage::open_context::write_answer(
+                &state.jotra_dir,
                 &ask.token,
                 &OpenContext::nothing_open(),
             ) {
@@ -152,7 +152,7 @@ pub fn answer_ask(app: &AppHandle, ask: &ContextAsk) {
             app.state::<ContextAsks>().hold(&ask.token, Instant::now());
             if let Err(error) = emit_event_to_main(
                 app,
-                WritFrontendEvent::ContextAsked {
+                JotraFrontendEvent::ContextAsked {
                     token: ask.token.clone(),
                 },
             ) {
@@ -210,7 +210,7 @@ pub fn answer_inner(
         return Err(ContextAnswerError::NotAsked);
     }
     let context = resolve_answer(state, reply);
-    writ_storage::open_context::write_answer(&state.writ_dir, token, &context)
+    jotra_storage::open_context::write_answer(&state.jotra_dir, token, &context)
         .map_err(|error| ContextAnswerError::NotWritten(error.to_string()))
 }
 

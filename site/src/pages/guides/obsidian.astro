@@ -3,13 +3,13 @@ import Prose from '../../layouts/Prose.astro';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
-<Prose title="Writ and Obsidian on one folder" description="Open the folder Obsidian uses in Writ. Both apps read the same Markdown files, and Writ skips .obsidian/ and writes nothing there on its own. What each app does with the folder." path="/guides/obsidian/" lead="Both apps read Markdown files from a folder, so both can open the same one.">
+<Prose title="Jotra and Obsidian on one folder" description="Open the folder Obsidian uses in Jotra. Both apps read the same Markdown files, and Jotra skips .obsidian/ and writes nothing there on its own. What each app does with the folder." path="/guides/obsidian/" lead="Both apps read Markdown files from a folder, so both can open the same one.">
   <h2>One folder</h2>
-  <p>Use Move… in Settings, General, Folder to point Writ at the folder Obsidian uses: the files already in Writ's folder move into it, and its own files open where they are. A name both folders hold stops the move. Writ skips <code>.obsidian/</code> and writes nothing there on its own, so Obsidian keeps working from the same folder. The <a href={`${base}/guides/obsidian-vault-files/`}>setup guide</a> lists what carries over and what stays as written.</p>
+  <p>Use Move… in Settings, General, Folder to point Jotra at the folder Obsidian uses: the files already in Jotra's folder move into it, and its own files open where they are. A name both folders hold stops the move. Jotra skips <code>.obsidian/</code> and writes nothing there on its own, so Obsidian keeps working from the same folder. The <a href={`${base}/guides/obsidian-vault-files/`}>setup guide</a> lists what carries over and what stays as written.</p>
   <h2>The same folder in each app</h2>
   <table>
     <tbody>
-    <tr><th></th><th>Obsidian</th><th>Writ</th></tr>
+    <tr><th></th><th>Obsidian</th><th>Jotra</th></tr>
     <tr><td>Files</td><td>Markdown in the folder.</td><td>The same Markdown, plus any other text file you open from anywhere on disk.</td></tr>
     <tr><td>Links</td><td><code>[[Wikilinks]]</code>, backlinks, graph.</td><td>The same <code>[[links]]</code> in Markdown files. Backlinks and the graph are the Connections and Graph apps, switched on in Settings, Apps.</td></tr>
     <tr><td>Properties and tags</td><td>Frontmatter and <code>#tags</code>.</td><td>Read from the same frontmatter and the same <code>#tags</code>.</td></tr>
@@ -20,9 +20,9 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   </tbody>
   </table>
   <h2>What stays in Obsidian</h2>
-  <p>Canvas, block references, templates, community plugins, Sync and Publish. A file a plugin wrote shows the text it holds in Writ.</p>
+  <p>Canvas, block references, templates, community plugins, Sync and Publish. A file a plugin wrote shows the text it holds in Jotra.</p>
   <div class="ctas">
-    <a href={`${base}/download/`} class="btn btn-primary">Download Writ</a>
-    <a href={`${base}/docs/`} class="btn btn-text">How Writ works</a>
+    <a href={`${base}/download/`} class="btn btn-primary">Download Jotra</a>
+    <a href={`${base}/docs/`} class="btn btn-text">How Jotra works</a>
   </div>
 </Prose>

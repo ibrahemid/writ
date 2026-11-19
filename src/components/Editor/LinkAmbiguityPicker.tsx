@@ -17,7 +17,7 @@ interface PickerState {
   onCreate?: () => void;
 }
 
-// Singleton state — Writ is single-window, and one link is being followed at a
+// Singleton state — Jotra is single-window, and one link is being followed at a
 // time.
 const [picker, setPicker] = createSignal<PickerState | null>(null);
 

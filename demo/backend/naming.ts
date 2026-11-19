@@ -1,5 +1,5 @@
-// The host's naming rules for files Writ mints, in writ_core::notes and
-// writ_core::startup, for the page's in-memory folder.
+// The host's naming rules for files Jotra mints, in jotra_core::notes and
+// jotra_core::startup, for the page's in-memory folder.
 
 const ILLEGAL_CHARS = new Set(["/", "\\", ":", "*", "?", '"', "<", ">", "|"]);
 const MAX_STEM_CHARS = 200;
@@ -22,13 +22,13 @@ export function formatDateStem(now: Date): string {
 /** notes::note_file_stem: the title made a file stem, dated when it names nothing. */
 export function deriveNoteFileStem(title: string, now: Date): string {
   const fallback = formatDateStem(now);
-  if (!title.trim() || /^writ-[0-9]/.test(title.trim())) return fallback;
+  if (!title.trim() || /^jotra-[0-9]/.test(title.trim())) return fallback;
   return sanitizeTitle(title) ?? fallback;
 }
 
-/** writ_core::notes::minted_stem: `writ-<yymmdd>-<hhmm>` on the local clock. */
+/** jotra_core::notes::minted_stem: `jotra-<yymmdd>-<hhmm>` on the local clock. */
 export function formatMintedStem(now: Date): string {
-  return `writ-${padTwo(now.getFullYear() % 100)}${padTwo(now.getMonth() + 1)}${padTwo(now.getDate())}-${padTwo(now.getHours())}${padTwo(now.getMinutes())}`;
+  return `jotra-${padTwo(now.getFullYear() % 100)}${padTwo(now.getMonth() + 1)}${padTwo(now.getDate())}-${padTwo(now.getHours())}${padTwo(now.getMinutes())}`;
 }
 
 function stripLineMarker(line: string): string {
@@ -40,7 +40,7 @@ function stripLineMarker(line: string): string {
   return line;
 }
 
-/** writ_core::startup::first_line_title: the name a first line gives a file, or null. */
+/** jotra_core::startup::first_line_title: the name a first line gives a file, or null. */
 export function deriveFirstLineTitle(content: string): string | null {
   const first = (content.split("\n")[0] ?? "").trim();
   if (first === "---") return null;
@@ -50,7 +50,7 @@ export function deriveFirstLineTitle(content: string): string | null {
   return title;
 }
 
-/** writ_core::notes::sanitize_title: a title made safe as a file stem, or null. */
+/** jotra_core::notes::sanitize_title: a title made safe as a file stem, or null. */
 export function sanitizeTitle(raw: string): string | null {
   const replaced = [...raw]
     .map((c) => (ILLEGAL_CHARS.has(c) || /\p{Cc}/u.test(c) ? " " : c))

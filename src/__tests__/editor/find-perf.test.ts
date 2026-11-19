@@ -26,7 +26,7 @@ const SETTLE_TIMEOUT_MS = 30_000;
 // on the machine can slow a run down, never speed one up.
 const RUNS = 3;
 
-const gated = !process.env.WRIT_PERF_GATE;
+const gated = !process.env.JOTRA_PERF_GATE;
 
 // A word, and patterns that cross lines (`\s`, `[^`), which the
 // library's cursor reads in one pass over the whole document; V8 reads 5 MiB

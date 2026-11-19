@@ -1,6 +1,6 @@
-//! `writ-preview://` protocol handler — response resolution + render cache.
+//! `jotra-preview://` protocol handler — response resolution + render cache.
 //!
-//! The substrate (ADR-009 A1) makes Writ the network boundary: every
+//! The substrate (ADR-009 A1) makes Jotra the network boundary: every
 //! request is parsed by [`super::protocol::parse`], then resolved here.
 //! The resolution core ([`resolve`]) is pure — it takes the parsed request
 //! plus lookup closures and returns the bytes, MIME, and headers to send —
@@ -25,20 +25,20 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use jotra_core::preview::frames::disarm_frame_navigations;
+use jotra_core::preview::hints::neutralize_resource_hints;
+use jotra_core::preview::protocol::{
+    resolve_asset, sniff_image_mime, split_asset_request, AssetRequest, ASSET_MAX_BYTES,
+};
+use jotra_core::preview::remote_image::{
+    split_remote_image_request, HeldImage, RemoteImageRequest, RemoteImageStore,
+};
+use jotra_core::preview::AssetScope;
+use jotra_core::serial::{KeyedQueue, Ticket};
 use tauri::http::header::{CONTENT_SECURITY_POLICY, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
 use tauri::http::{HeaderValue, StatusCode};
 use tauri::{Manager, Runtime, UriSchemeContext, UriSchemeResponder};
 use tracing::{error, warn};
-use writ_core::preview::frames::disarm_frame_navigations;
-use writ_core::preview::hints::neutralize_resource_hints;
-use writ_core::preview::protocol::{
-    resolve_asset, sniff_image_mime, split_asset_request, AssetRequest, ASSET_MAX_BYTES,
-};
-use writ_core::preview::remote_image::{
-    split_remote_image_request, HeldImage, RemoteImageRequest, RemoteImageStore,
-};
-use writ_core::preview::AssetScope;
-use writ_core::serial::{KeyedQueue, Ticket};
 
 use super::csp::{build_chrome_csp, build_document_csp};
 use super::protocol::{parse, record, Disposition, PreviewScope, RefusalReason, RequestRecord};
@@ -332,7 +332,7 @@ fn resolve_with_scopes(
 
 /// Serve one file embedded in a note.
 ///
-/// Containment is decided by `writ_core`, over the roots the render recorded,
+/// Containment is decided by `jotra_core`, over the roots the render recorded,
 /// on the canonical path. What is left here is the refusal to read: a file
 /// the provider has not downloaded, one past the size cap, and anything whose
 /// leading bytes are not an image all come back as a placeholder naming the
@@ -546,7 +546,7 @@ pub fn resolve(
             // Reserved same-origin asset route. The bundled host runtimes
             // (Mermaid, KaTeX) are served under the document origin so the
             // preview iframe loads them same-origin — a cross-origin
-            // `writ-preview://chrome` subresource is refused by that scope's
+            // `jotra-preview://chrome` subresource is refused by that scope's
             // `Cross-Origin-Resource-Policy: same-origin`. The path after
             // `_assets/` keys the same host-owned chrome-asset table; the URL
             // parser has already rejected any traversal. Buffer ids are
@@ -637,7 +637,7 @@ pub fn chrome_asset(path: &str) -> Option<(&'static [u8], &'static str)> {
             chrome_mime("preview-tokens.css"),
         )),
         "blank" | "blank.html" => Some((
-            b"<!doctype html><title>writ</title>",
+            b"<!doctype html><title>jotra</title>",
             chrome_mime("blank.html"),
         )),
         // First-party scroll-sync / in-preview find bridge, served same-origin
@@ -674,7 +674,7 @@ pub fn record_for(url: &str, response: &ResolvedResponse) -> RequestRecord {
 }
 
 /// Tauri `register_asynchronous_uri_scheme_protocol` glue for
-/// `writ-preview://`.
+/// `jotra-preview://`.
 ///
 /// Resolves the request through the pure [`resolve`] core wired to the
 /// `AppState` render cache and the bundled chrome assets, records the
@@ -699,7 +699,7 @@ pub fn serve<R: Runtime>(
             let resolved = resolve_cached(
                 &url,
                 &state.preview_render_cache,
-                &writ_storage::notes_index::is_dataless,
+                &jotra_storage::notes_index::is_dataless,
             );
             record(record_for(&url, &resolved));
             resolved
@@ -897,7 +897,7 @@ mod tests {
     #[test]
     fn chrome_stylesheet_is_served_with_css_mime_and_chrome_csp() {
         let r = resolve(
-            "writ-preview://chrome/preview-base.css",
+            "jotra-preview://chrome/preview-base.css",
             SCRIPTS_ON,
             no_doc,
             chrome_asset,
@@ -924,17 +924,17 @@ mod tests {
 
     #[test]
     fn chrome_scope_serves_the_generated_token_layer_beside_the_rules() {
-        // The rules read --writ-preview-* but no longer declare them, so the
+        // The rules read --jotra-preview-* but no longer declare them, so the
         // chrome scope has to hand out both halves to hand out a whole sheet.
         let r = resolve(
-            "writ-preview://chrome/generated/preview-tokens.css",
+            "jotra-preview://chrome/generated/preview-tokens.css",
             SCRIPTS_ON,
             no_doc,
             chrome_asset,
         );
         assert_eq!(r.status, 200);
         let body = String::from_utf8_lossy(&r.body);
-        assert!(body.contains("--writ-preview-bg:"));
+        assert!(body.contains("--jotra-preview-bg:"));
         assert!(r
             .headers
             .iter()
@@ -944,7 +944,7 @@ mod tests {
     #[test]
     fn unknown_chrome_asset_is_404() {
         let r = resolve(
-            "writ-preview://chrome/nope.css",
+            "jotra-preview://chrome/nope.css",
             SCRIPTS_ON,
             no_doc,
             chrome_asset,
@@ -958,7 +958,7 @@ mod tests {
         // preview iframe loads it same-origin (no cross-scope CORP refusal),
         // exactly like the Mermaid/KaTeX runtimes.
         let r = resolve(
-            "writ-preview://document/_assets/preview/bridge.js",
+            "jotra-preview://document/_assets/preview/bridge.js",
             SCRIPTS_ON,
             no_doc,
             chrome_asset,
@@ -997,7 +997,7 @@ mod tests {
         // The bundled runtimes are reachable under the document origin so the
         // preview iframe loads them same-origin (no cross-scope CORP refusal).
         let r = resolve(
-            "writ-preview://document/_assets/mermaid/mermaid.min.js",
+            "jotra-preview://document/_assets/mermaid/mermaid.min.js",
             SCRIPTS_ON,
             no_doc,
             chrome_asset,
@@ -1022,8 +1022,8 @@ mod tests {
         // The externalised Mermaid / KaTeX init scripts are served same-origin
         // under _assets so they run under script-src 'self' when scripts are off.
         for path in [
-            "writ-preview://document/_assets/mermaid/init.js",
-            "writ-preview://document/_assets/katex/init.js",
+            "jotra-preview://document/_assets/mermaid/init.js",
+            "jotra-preview://document/_assets/katex/init.js",
         ] {
             let r = resolve(path, SCRIPTS_ON, no_doc, chrome_asset);
             assert_eq!(r.status, 200, "{path}");
@@ -1042,7 +1042,7 @@ mod tests {
         // The KaTeX stylesheet and its woff2 fonts are reachable same-origin so
         // the relative `url(fonts/…)` in the CSS resolves under `_assets/katex/`.
         let css = resolve(
-            "writ-preview://document/_assets/katex/katex.min.css",
+            "jotra-preview://document/_assets/katex/katex.min.css",
             SCRIPTS_ON,
             no_doc,
             chrome_asset,
@@ -1056,7 +1056,7 @@ mod tests {
         assert!(ct.1.starts_with("text/css"));
 
         let font = resolve(
-            "writ-preview://document/_assets/katex/fonts/KaTeX_Main-Regular.woff2",
+            "jotra-preview://document/_assets/katex/fonts/KaTeX_Main-Regular.woff2",
             SCRIPTS_ON,
             no_doc,
             chrome_asset,
@@ -1074,7 +1074,7 @@ mod tests {
     #[test]
     fn assets_route_unknown_is_404() {
         let r = resolve(
-            "writ-preview://document/_assets/nope.js",
+            "jotra-preview://document/_assets/nope.js",
             SCRIPTS_ON,
             no_doc,
             chrome_asset,
@@ -1090,7 +1090,7 @@ mod tests {
         let cache = RenderCache::new();
         cache.put("_assets", doc("<h1>should never serve</h1>"));
         let r = resolve(
-            "writ-preview://document/_assets/ghost.js",
+            "jotra-preview://document/_assets/ghost.js",
             SCRIPTS_ON,
             |id| cache.get(id),
             chrome_asset,
@@ -1137,7 +1137,7 @@ mod tests {
         let cache = RenderCache::new();
         cache.put("buf-1", doc("<h1>rendered</h1>"));
         let r = resolve(
-            "writ-preview://document/buf-1",
+            "jotra-preview://document/buf-1",
             SCRIPTS_ON,
             |id| cache.get(id),
             chrome_asset,
@@ -1161,10 +1161,10 @@ mod tests {
             .iter()
             .find(|(k, _)| *k == "Content-Security-Policy")
             .unwrap();
-        // Scripts on → the document CSP permits inline + self + writ-preview:.
+        // Scripts on → the document CSP permits inline + self + jotra-preview:.
         assert!(csp
             .1
-            .contains("script-src 'unsafe-inline' 'self' writ-preview:"));
+            .contains("script-src 'unsafe-inline' 'self' jotra-preview:"));
     }
 
     #[test]
@@ -1172,7 +1172,7 @@ mod tests {
         let cache = RenderCache::new();
         cache.put("buf-1", doc("<h1>x</h1>"));
         let r = resolve(
-            "writ-preview://document/buf-1",
+            "jotra-preview://document/buf-1",
             false,
             |id| cache.get(id),
             chrome_asset,
@@ -1210,30 +1210,30 @@ mod tests {
         cache.put("off", doc("<p>off</p>"));
 
         assert!(document_scripts_enabled(
-            "writ-preview://document/on",
+            "jotra-preview://document/on",
             &cache
         ));
         assert!(!document_scripts_enabled(
-            "writ-preview://document/off",
+            "jotra-preview://document/off",
             &cache
         ));
         // The runtime and image routes are not the document, so they never
         // carry the document CSP and report off.
         assert!(!document_scripts_enabled(
-            "writ-preview://document/_assets/preview/bridge.js",
+            "jotra-preview://document/_assets/preview/bridge.js",
             &cache
         ));
         assert!(!document_scripts_enabled(
-            "writ-preview://document/_note-asset/on/tok-1/n/a.png",
+            "jotra-preview://document/_note-asset/on/tok-1/n/a.png",
             &cache
         ));
         assert!(!document_scripts_enabled(
-            "writ-preview://chrome/preview-base.css",
+            "jotra-preview://chrome/preview-base.css",
             &cache
         ));
         // An uncached document is off until it renders.
         assert!(!document_scripts_enabled(
-            "writ-preview://document/missing",
+            "jotra-preview://document/missing",
             &cache
         ));
     }
@@ -1261,8 +1261,8 @@ mod tests {
         cache.put("off", doc("<p>off</p>"));
         let never_dataless = |_: &Path| false;
 
-        let on = resolve_cached("writ-preview://document/on?v=1", &cache, &never_dataless);
-        let off = resolve_cached("writ-preview://document/off?v=1", &cache, &never_dataless);
+        let on = resolve_cached("jotra-preview://document/on?v=1", &cache, &never_dataless);
+        let off = resolve_cached("jotra-preview://document/off?v=1", &cache, &never_dataless);
         assert_eq!(csp_of(&on), build_document_csp(true));
         assert_eq!(csp_of(&off), build_document_csp(false));
     }
@@ -1286,7 +1286,7 @@ mod tests {
         .join();
         assert!(poisoned.is_err() && cache.docs.is_poisoned());
 
-        let served = resolve_cached("writ-preview://document/on?v=1", &cache, &|_: &Path| false);
+        let served = resolve_cached("jotra-preview://document/on?v=1", &cache, &|_: &Path| false);
 
         assert!(!cache.scripts_enabled("on"));
         assert_eq!(csp_of(&served), build_document_csp(false));
@@ -1331,7 +1331,7 @@ mod tests {
             "buf-1",
             doc("<head><link rel=preconnect href=https://leak.example></head><p>x</p>"),
         );
-        let resolved = resolve_cached("writ-preview://document/buf-1", &cache, &|_: &Path| false);
+        let resolved = resolve_cached("jotra-preview://document/buf-1", &cache, &|_: &Path| false);
         let body = String::from_utf8(resolved.body.into_owned()).expect("utf-8");
         assert_eq!(
             body,
@@ -1350,13 +1350,13 @@ mod tests {
                  </iframe><iframe src=https://leak.example></iframe>",
             ),
         );
-        let resolved = resolve_cached("writ-preview://document/buf-1", &cache, &|_: &Path| false);
+        let resolved = resolve_cached("jotra-preview://document/buf-1", &cache, &|_: &Path| false);
         let body = String::from_utf8(resolved.body.into_owned()).expect("utf-8");
         assert_eq!(
             body,
-            "<head><meta data-writ-blocked-http-equiv=refresh content=\"0;url=https://leak.example\">\
-             </head><iframe data-writ-blocked-srcdoc=\"&lt;link rel=preconnect href=https://leak.example&gt;\">\
-             </iframe><iframe data-writ-blocked-src=https://leak.example></iframe>"
+            "<head><meta data-jotra-blocked-http-equiv=refresh content=\"0;url=https://leak.example\">\
+             </head><iframe data-jotra-blocked-srcdoc=\"&lt;link rel=preconnect href=https://leak.example&gt;\">\
+             </iframe><iframe data-jotra-blocked-src=https://leak.example></iframe>"
         );
     }
 
@@ -1367,12 +1367,12 @@ mod tests {
             "buf-1",
             doc("<link rel=preconnect href=https://leak.example><iframe src=https://leak.example></iframe>"),
         );
-        let resolved = resolve_cached("writ-preview://document/buf-1", &cache, &|_: &Path| false);
+        let resolved = resolve_cached("jotra-preview://document/buf-1", &cache, &|_: &Path| false);
         let body = String::from_utf8(resolved.body.into_owned()).expect("utf-8");
         assert_eq!(
             body,
             "<basefont rel=preconnect href=https://leak.example>\
-             <iframe data-writ-blocked-src=https://leak.example></iframe>"
+             <iframe data-jotra-blocked-src=https://leak.example></iframe>"
         );
     }
 
@@ -1381,7 +1381,7 @@ mod tests {
         let html =
             "<head><link rel=\"stylesheet\" href=\"/_assets/katex/katex.min.css\"></head><p>x</p>";
         let r = resolve(
-            "writ-preview://document/buf-1",
+            "jotra-preview://document/buf-1",
             false,
             |_| Some(Arc::new(doc(html))),
             chrome_asset,
@@ -1402,7 +1402,7 @@ mod tests {
 
         for scripts_enabled in [true, false] {
             let resolved = resolve(
-                "writ-preview://document/buf-1",
+                "jotra-preview://document/buf-1",
                 scripts_enabled,
                 |id| cache.get(id),
                 chrome_asset,
@@ -1427,7 +1427,7 @@ mod tests {
         let cache = RenderCache::new();
         cache.put("buf-1", doc("<p>x</p>"));
         let r = resolve(
-            "writ-preview://document/buf-1/index.html",
+            "jotra-preview://document/buf-1/index.html",
             SCRIPTS_ON,
             |id| cache.get(id),
             chrome_asset,
@@ -1438,7 +1438,7 @@ mod tests {
     #[test]
     fn uncached_document_is_404() {
         let r = resolve(
-            "writ-preview://document/ghost",
+            "jotra-preview://document/ghost",
             SCRIPTS_ON,
             no_doc,
             chrome_asset,
@@ -1449,7 +1449,7 @@ mod tests {
     #[test]
     fn traversal_is_refused_403() {
         let r = resolve(
-            "writ-preview://document/../chrome/preview-base.css",
+            "jotra-preview://document/../chrome/preview-base.css",
             SCRIPTS_ON,
             no_doc,
             chrome_asset,
@@ -1502,7 +1502,7 @@ mod asset_tests {
     impl Fixture {
         fn new() -> Self {
             let guard = tempfile::tempdir().unwrap();
-            let notes = guard.path().join("Writ");
+            let notes = guard.path().join("Jotra");
             let note_dir = notes.join("daily");
             std::fs::create_dir_all(&note_dir).unwrap();
             let attachments = notes.join("attachments");
@@ -1554,7 +1554,7 @@ mod asset_tests {
             is_dataless: &dyn Fn(&Path) -> bool,
         ) -> ResolvedResponse {
             resolve_with_assets(
-                &format!("writ-preview://document/_note-asset/buf-1/{TOKEN}/n/{relative}"),
+                &format!("jotra-preview://document/_note-asset/buf-1/{TOKEN}/n/{relative}"),
                 SCRIPTS_ON,
                 |id| self.cache.get(id),
                 chrome_asset,
@@ -1681,7 +1681,7 @@ mod asset_tests {
         let f = Fixture::new();
         // The parser refuses the traversal spelling outright.
         let traversal = resolve_with_assets(
-            "writ-preview://document/_note-asset/buf-1/tok-1/n/../../../etc/hosts",
+            "jotra-preview://document/_note-asset/buf-1/tok-1/n/../../../etc/hosts",
             SCRIPTS_ON,
             |id| f.cache.get(id),
             chrome_asset,
@@ -1715,7 +1715,7 @@ mod asset_tests {
         // No root discriminator: the path is not an asset request at all, so
         // it falls through to the document lookup and 404s on the buffer id.
         let r = resolve_with_assets(
-            "writ-preview://document/_note-asset/buf-1/tok-1/x/attachments/a.png",
+            "jotra-preview://document/_note-asset/buf-1/tok-1/x/attachments/a.png",
             SCRIPTS_ON,
             |id| f.cache.get(id),
             chrome_asset,
@@ -1754,7 +1754,7 @@ mod asset_tests {
         let (_other_guard, other_token) = add_other_buffer(&f);
         let serve = |token: &str| {
             resolve_with_assets(
-                &format!("writ-preview://document/_note-asset/other/{token}/d/private.png"),
+                &format!("jotra-preview://document/_note-asset/other/{token}/d/private.png"),
                 SCRIPTS_ON,
                 |id| f.cache.get(id),
                 chrome_asset,
@@ -1785,7 +1785,7 @@ mod asset_tests {
         let (_other_guard, _) = add_other_buffer(&f);
         let (response, logs) = crate::preview::log_capture::capture(|| {
             resolve_with_assets(
-                &format!("writ-preview://document/_note-asset/other/{TOKEN}/d/private.png"),
+                &format!("jotra-preview://document/_note-asset/other/{TOKEN}/d/private.png"),
                 SCRIPTS_ON,
                 |id| f.cache.get(id),
                 chrome_asset,
@@ -1867,8 +1867,8 @@ mod asset_tests {
             },
         );
         moved_note_serves(
-            format!("writ-preview://document/_note-asset/buf-1/{TOKEN}/n/attachments/a.png"),
-            "writ-preview://document/_note-asset/buf-1/tok-stale/n/attachments/stale.png"
+            format!("jotra-preview://document/_note-asset/buf-1/{TOKEN}/n/attachments/a.png"),
+            "jotra-preview://document/_note-asset/buf-1/tok-stale/n/attachments/stale.png"
                 .to_string(),
             "notes root",
         );
@@ -1897,10 +1897,10 @@ mod asset_tests {
         );
         moved_note_serves(
             format!(
-                "writ-preview://document/_note-asset/buf-out/{}/d/p.png",
+                "jotra-preview://document/_note-asset/buf-out/{}/d/p.png",
                 first.token
             ),
-            "writ-preview://document/_note-asset/buf-out/tok-stale/d/stale.png".to_string(),
+            "jotra-preview://document/_note-asset/buf-out/tok-stale/d/stale.png".to_string(),
             "note folder root",
         );
     }
@@ -1917,7 +1917,7 @@ mod asset_tests {
             },
         );
         let r = resolve_with_assets(
-            "writ-preview://document/_note-asset/scratch/tok-1/n/a.png",
+            "jotra-preview://document/_note-asset/scratch/tok-1/n/a.png",
             SCRIPTS_ON,
             |id| cache.get(id),
             chrome_asset,
@@ -1930,7 +1930,7 @@ mod asset_tests {
     fn the_bundled_runtime_route_is_untouched_by_the_asset_route() {
         let f = Fixture::new();
         let r = resolve_with_assets(
-            "writ-preview://document/_assets/preview/bridge.js",
+            "jotra-preview://document/_assets/preview/bridge.js",
             SCRIPTS_ON,
             |id| f.cache.get(id),
             chrome_asset,
@@ -1942,7 +1942,7 @@ mod asset_tests {
             .starts_with("application/javascript"));
         // And the document itself still serves from the same cache entry.
         let document = resolve_with_assets(
-            "writ-preview://document/buf-1",
+            "jotra-preview://document/buf-1",
             SCRIPTS_ON,
             |id| f.cache.get(id),
             chrome_asset,
@@ -1975,7 +1975,7 @@ mod asset_tests {
         assert!(f.cache.get("buf-9").is_none());
 
         let r = resolve_cached(
-            &format!("writ-preview://document/_note-asset/buf-9/{token}/d/shot.png"),
+            &format!("jotra-preview://document/_note-asset/buf-9/{token}/d/shot.png"),
             &f.cache,
             &never_dataless,
         );
@@ -1989,7 +1989,7 @@ mod asset_tests {
         let f = Fixture::new();
         f.cache.evict("buf-1");
         let r = resolve_cached(
-            &format!("writ-preview://document/_note-asset/buf-1/{TOKEN}/n/attachments/a.png"),
+            &format!("jotra-preview://document/_note-asset/buf-1/{TOKEN}/n/attachments/a.png"),
             &f.cache,
             &never_dataless,
         );
@@ -2007,7 +2007,7 @@ mod asset_tests {
         let token = editor_scope(&f, "buf-9").token;
 
         let traversal = resolve_cached(
-            &format!("writ-preview://document/_note-asset/buf-9/{token}/d/../outside.png"),
+            &format!("jotra-preview://document/_note-asset/buf-9/{token}/d/../outside.png"),
             &f.cache,
             &never_dataless,
         );
@@ -2016,7 +2016,7 @@ mod asset_tests {
         #[cfg(unix)]
         {
             let linked = resolve_cached(
-                &format!("writ-preview://document/_note-asset/buf-9/{token}/d/link.png"),
+                &format!("jotra-preview://document/_note-asset/buf-9/{token}/d/link.png"),
                 &f.cache,
                 &never_dataless,
             );
@@ -2025,7 +2025,7 @@ mod asset_tests {
         }
 
         let foreign = resolve_cached(
-            &format!("writ-preview://document/_note-asset/buf-9/{TOKEN}/n/attachments/a.png"),
+            &format!("jotra-preview://document/_note-asset/buf-9/{TOKEN}/n/attachments/a.png"),
             &f.cache,
             &never_dataless,
         );
@@ -2066,7 +2066,7 @@ mod asset_tests {
     }
 
     fn remote_url(buffer_id: &str, token: &str, key: &str) -> String {
-        format!("writ-preview://document/_remote-image/{buffer_id}/{token}/{key}")
+        format!("jotra-preview://document/_remote-image/{buffer_id}/{token}/{key}")
     }
 
     fn held_png() -> HeldImage {

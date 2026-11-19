@@ -9,7 +9,7 @@
 
 /* A link is undecorated until the modifier that would open it is held, so the
    editor's syntax colors stay authoritative and nothing shifts on hover. */
-.cm-editor.writ-link-active .writ-link {
+.cm-editor.jotra-link-active .jotra-link {
   cursor: pointer;
   text-decoration: underline;
   text-decoration-thickness: from-font;
@@ -17,13 +17,13 @@
 }
 
 .editor-instance .cm-placeholder {
-  color: var(--writ-fg-faint);
+  color: var(--jotra-fg-faint);
 }
 
-.writ-link-hint {
+.jotra-link-hint {
   padding: 5px 9px;
-  font-family: var(--writ-font-ui);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
+  font-family: var(--jotra-font-ui);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
   white-space: nowrap;
 }

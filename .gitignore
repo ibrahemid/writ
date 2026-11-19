@@ -45,7 +45,8 @@ drafts/
 .git.backup-*
 
 # Sidecar binaries (built by CI before cargo tauri build; not committed)
-src-tauri/binaries/writ-*
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
 
 # Local working dirs (status boards, design sync)
 .design-sync/

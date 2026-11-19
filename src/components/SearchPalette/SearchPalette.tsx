@@ -8,10 +8,10 @@ import { createGotoLineProvider } from "../../commands/providers/goto-line-provi
 import { workspaceSearchStore } from "../../stores/global/workspace-search";
 import type { ResultProvider } from "../Palette/types";
 
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 const [isOpen, setIsOpen] = createSignal(false);
 
-// Singleton state — Writ is single-window. Cleared on every close and on the
+// Singleton state — Jotra is single-window. Cleared on every close and on the
 // keyboard path, so a query seeded from the editor's "Search the folder for …"
 // row can never reappear the next time the palette is opened by shortcut.
 const [seedQuery, setSeedQuery] = createSignal("");

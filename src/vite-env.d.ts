@@ -2,7 +2,7 @@
 
 interface ImportMetaEnv {
   /** Dev-only shell override for the three-platform screenshots: mac | win | linux. */
-  readonly VITE_WRIT_PLATFORM?: string;
+  readonly VITE_JOTRA_PLATFORM?: string;
 }
 
 interface ImportMeta {

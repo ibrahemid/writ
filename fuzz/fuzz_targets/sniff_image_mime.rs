@@ -15,7 +15,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use writ_core::preview::protocol::sniff_image_mime;
+use jotra_core::preview::protocol::sniff_image_mime;
 
 const SERVED: [&str; 7] = [
     "image/png",

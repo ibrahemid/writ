@@ -1,8 +1,8 @@
 /*
  * Preview chrome — the split container, divider handle, and status chip.
- * Lives in the main app webview and inherits Writ's theme tokens. The
+ * Lives in the main app webview and inherits Jotra's theme tokens. The
  * rendered document itself lives in the iframe under the fixed-CSP
- * writ-preview:// origin (styled by preview-base.css or its own CSS).
+ * jotra-preview:// origin (styled by preview-base.css or its own CSS).
  */
 
 .preview-layout {
@@ -46,7 +46,7 @@
   flex: 1 1 0;
   min-width: 0;
   min-height: 0;
-  background: var(--writ-bg-canvas);
+  background: var(--jotra-bg-canvas);
 }
 
 .preview-frame {
@@ -54,7 +54,7 @@
   width: 100%;
   height: 100%;
   border: none;
-  background: var(--writ-bg-canvas);
+  background: var(--jotra-bg-canvas);
 }
 
 .preview-pane-empty {
@@ -64,9 +64,9 @@
   height: 100%;
   padding: 2rem;
   text-align: center;
-  color: var(--writ-fg-muted);
-  font-family: var(--writ-font-ui);
-  font-size: var(--writ-ui-sm);
+  color: var(--jotra-fg-muted);
+  font-family: var(--jotra-font-ui);
+  font-size: var(--jotra-ui-sm);
 }
 
 /* Overlaid on the (persistent) iframe for the too-large refusal, so the frame
@@ -79,10 +79,10 @@
   justify-content: center;
   padding: 2rem;
   text-align: center;
-  color: var(--writ-fg-muted);
-  font-family: var(--writ-font-ui);
-  font-size: var(--writ-ui-sm);
-  background: var(--writ-bg-canvas);
+  color: var(--jotra-fg-muted);
+  font-family: var(--jotra-font-ui);
+  font-size: var(--jotra-ui-sm);
+  background: var(--jotra-bg-canvas);
 }
 
 /* Recognized content type with no registered renderer — shown instead of a
@@ -93,24 +93,24 @@
   justify-content: center;
   padding: 2rem;
   text-align: center;
-  color: var(--writ-fg-muted);
-  font-family: var(--writ-font-ui);
-  font-size: var(--writ-ui-sm);
-  background: var(--writ-bg-canvas);
+  color: var(--jotra-fg-muted);
+  font-family: var(--jotra-font-ui);
+  font-size: var(--jotra-ui-sm);
+  background: var(--jotra-bg-canvas);
 }
 
 /* Divider handle — a hairline that widens its hit target invisibly. */
 .preview-split-handle {
   position: relative;
   flex: 0 0 auto;
-  background: var(--writ-border);
-  transition: background var(--writ-motion);
+  background: var(--jotra-border);
+  transition: background var(--jotra-motion);
   touch-action: none;
 }
 
 .preview-split-handle:hover,
 .preview-split-handle:focus-visible {
-  background: var(--writ-accent);
+  background: var(--jotra-accent);
 }
 
 .preview-split-vertical {
@@ -136,37 +136,37 @@
 /* Status chip — bottom-right, discreet, theme-aware. */
 .preview-chip {
   position: absolute;
-  right: var(--writ-space-3-5);
-  bottom: var(--writ-space-3-5);
+  right: var(--jotra-space-3-5);
+  bottom: var(--jotra-space-3-5);
   display: inline-flex;
   align-items: center;
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
   padding: 3px 9px;
-  border-radius: var(--writ-r-popover);
-  background: var(--writ-bg-selected);
-  border: 1px solid var(--writ-border);
-  color: var(--writ-fg-muted);
-  font-family: var(--writ-font-ui);
-  font-size: var(--writ-ui-xs);
+  border-radius: var(--jotra-r-popover);
+  background: var(--jotra-bg-selected);
+  border: 1px solid var(--jotra-border);
+  color: var(--jotra-fg-muted);
+  font-family: var(--jotra-font-ui);
+  font-size: var(--jotra-ui-xs);
   line-height: 1.4;
   pointer-events: auto;
   user-select: none;
-  box-shadow: var(--writ-shadow-chip);
+  box-shadow: var(--jotra-shadow-chip);
 }
 
 .preview-chip-button {
-  font-family: var(--writ-font-ui);
+  font-family: var(--jotra-font-ui);
   cursor: pointer;
 }
 
 .preview-chip-button:hover,
 .preview-chip-button[aria-expanded="true"] {
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
 }
 
 .preview-chip-button:focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
-  outline-offset: var(--writ-focus-offset, 2px);
+  outline: var(--jotra-focus-outline, 2px solid var(--jotra-accent));
+  outline-offset: var(--jotra-focus-offset, 2px);
 }
 
 .preview-chip-live {
@@ -180,7 +180,7 @@
 
 .preview-pane-overlay {
   flex-direction: column;
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
 }
 
 .preview-pane-overlay-line {
@@ -189,12 +189,12 @@
 }
 
 .preview-chip.is-error {
-  color: var(--writ-status-error);
-  border-color: var(--writ-status-error);
+  color: var(--jotra-status-error);
+  border-color: var(--jotra-status-error);
 }
 
 .preview-chip.is-manual {
-  color: var(--writ-status-warning);
+  color: var(--jotra-status-warning);
 }
 
 .preview-chip-mode {
@@ -202,5 +202,5 @@
 }
 
 .preview-chip-warn {
-  color: var(--writ-status-warning);
+  color: var(--jotra-status-warning);
 }

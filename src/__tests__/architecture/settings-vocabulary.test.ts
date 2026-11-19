@@ -17,7 +17,7 @@ const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["notes.folder", "general", "Folder", ["files", "folder", "where are my files", "location", "path", "finder", "backup", "sync", "icloud", "dropbox"]],
   ["files.default_extension", "general", "Default format", ["format", "default", "extension", "txt", "text", "plain text", "md", "markdown", "new file"]],
   ["files.image_folder", "general", "Image folder", ["image", "images", "picture", "paste", "drop", "screenshot", "assets", "attachments", "markdown"]],
-  ["hotkey.toggle", "general", "Show and hide Writ", ["shortcut", "global", "hotkey", "summon", "show", "hide", "window", "chord", "keyboard", "toggle", "from any app", "taken"]],
+  ["hotkey.toggle", "general", "Show and hide Jotra", ["shortcut", "global", "hotkey", "summon", "show", "hide", "window", "chord", "keyboard", "toggle", "from any app", "taken"]],
   ["general.launch_at_login", "general", "Open at login", ["login", "startup", "start", "boot", "autostart", "launch", "restart", "hidden"]],
   ["editor.font_size", "editor", "Font size", ["font", "size", "text", "zoom"]],
   ["editor.tab_size", "editor", "Tab size", ["tab", "indent", "spaces", "width"]],
@@ -65,21 +65,21 @@ const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["dictation.model", "apps", "Model", ["dictation", "model", "id", "whisper", "transcribe"]],
   ["dictation.language", "apps", "Language", ["dictation", "language", "automatic", "speech", "voice", "locale"]],
   ["dictation.clean_up", "apps", "Clean up with the AI connection", ["dictation", "clean up", "punctuation", "ai", "fix", "transcribe"]],
-  ["files.cli", "integrations", "Terminal command", ["cli", "writ command", "terminal", "command line", "install"]],
-  ["files.default_app", "integrations", "Open these file types with Writ", ["default", "default app", "open with", "file association", "txt", "text", "log", "markdown", "md", "json", "yaml", "toml", "config", "data", "csv", "code", "rust", "typescript", "python"]],
+  ["files.cli", "integrations", "Terminal command", ["cli", "jotra command", "terminal", "command line", "install"]],
+  ["files.default_app", "integrations", "Open these file types with Jotra", ["default", "default app", "open with", "file association", "txt", "text", "log", "markdown", "md", "json", "yaml", "toml", "config", "data", "csv", "code", "rust", "typescript", "python"]],
   ["files.inbox_folder", "integrations", "Folder to watch for new files", ["watch", "watched folder", "new files", "auto-open", "drop"]],
-  ["files.inbox_focus", "integrations", "Bring Writ to the front when a new file arrives", ["watch", "focus", "window", "front", "new file"]],
+  ["files.inbox_focus", "integrations", "Bring Jotra to the front when a new file arrives", ["watch", "focus", "window", "front", "new file"]],
   ["sidebar.inbox", "integrations", "Show watched folder", ["sidebar", "watch", "watched folder", "new files", "show", "hide"]],
   ["shortcuts.edit", "shortcuts", "Keyboard shortcuts", ["shortcut", "keyboard", "keybinding", "hotkey", "rebind"]],
   ["preview.layout_html", "advanced", "HTML opens in", ["layout", "html", "text", "preview", "split"]],
   ["preview.live_threshold", "advanced", "Stop live preview above", ["preview", "live", "size", "mb", "large files"]],
   ["preview.refuse_threshold", "advanced", "Do not preview files above", ["preview", "limit", "size", "mb", "large files"]],
-  ["storage.location", "advanced", "Writ's data folder", ["database", "sqlite", "db", "writ.db", "index", "logs", "settings file", "app data"]],
+  ["storage.location", "advanced", "Jotra's data folder", ["database", "sqlite", "db", "jotra.db", "index", "logs", "settings file", "app data"]],
   ["notes.versions", "advanced", "Versions", ["versions", "version", "restore", "revert", "older", "previous", "keep", "retention", "days"]],
   ["about.version", "about", "Version", ["version", "release", "what's new", "changelog"]],
   ["updates.check_now", "about", "Updates", ["update", "check", "now", "version", "up to date"]],
   ["updates.auto_check", "about", "Check for updates automatically", ["update", "auto", "check", "version"]],
-  ["about.docs", "about", "Writ help", ["help", "docs", "documentation", "manual", "guide"]],
+  ["about.docs", "about", "Jotra help", ["help", "docs", "documentation", "manual", "guide"]],
   ["about.licences", "about", "Third-party licenses", ["licences", "licenses", "notices", "open source", "copyright", "credits"]],
 ];
 
@@ -185,7 +185,7 @@ describe("settings vocabulary", () => {
     }
     const dataFolder = SETTINGS_INDEX.find((e) => e.id === "storage.location")!;
     expect(dataFolder.section).toBe("advanced");
-    expect(dataFolder.title).toBe("Writ's data folder");
+    expect(dataFolder.title).toBe("Jotra's data folder");
     expect(dataFolder.title).not.toMatch(/\.db/);
     for (const term of ["files", "folder", "backup", "sync"]) {
       expect(dataFolder.keywords, term).not.toContain(term);

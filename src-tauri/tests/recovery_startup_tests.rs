@@ -2,7 +2,7 @@
 //!
 //! The storage tests drive `restore_recovered_content` directly; this one
 //! drives the launch, because what the launch does with the outcome is its own
-//! behaviour: a note whose file moved on while Writ was down must come back
+//! behaviour: a note whose file moved on while Jotra was down must come back
 //! with its file intact and the journaled text beside it, and every recovered note
 //! must leave the launch with the write guard seeded, or the first save after
 //! a crash is the unguarded one. A note whose file was deleted must come back
@@ -11,21 +11,21 @@
 //! one minted and written, which is the other half of the same call and the
 //! half that recreates a deletion if it is decided wrongly.
 //!
-//! One test in its own binary, because `initialize` reads `WRIT_DATA_DIR` and
-//! `WRIT_NOTES_DIR` from the process environment and a second test in the same
+//! One test in its own binary, because `initialize` reads `JOTRA_DATA_DIR` and
+//! `JOTRA_NOTES_DIR` from the process environment and a second test in the same
 //! binary would race it. Both cases therefore ride one launch, which is also
 //! how they arrive in life.
 
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
+use jotra_core::buffer::document::{BufferDocument, BufferStatus};
+use jotra_core::hash::sha256_bytes;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_tauri_lib::state::AppState;
 use tempfile::TempDir;
-use writ_core::buffer::document::{BufferDocument, BufferStatus};
-use writ_core::hash::sha256_bytes;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_tauri_lib::state::AppState;
 
 fn row(id: &str, title: &str, source_path: &Path) -> BufferDocument {
     BufferDocument {
@@ -53,7 +53,7 @@ fn fileless_row(id: &str, title: &str) -> BufferDocument {
         closed_at: None,
         read_only: false,
         size_bytes: 0,
-        line_ending: writ_core::notes::line_ending::LineEnding::Lf,
+        line_ending: jotra_core::notes::line_ending::LineEnding::Lf,
         encoding: None,
     }
 }
@@ -76,8 +76,8 @@ fn dated_copies(dir: &Path, label: &str) -> Vec<PathBuf> {
 /// Leaves the data folder as a crash would: notes whose saves did not land,
 /// with what the editor had at the time in the unsaved-text journal, and a
 /// session marker that never got its clean successor.
-fn seed_a_crashed_session(writ_dir: &Path, notes_dir: &Path) {
-    std::fs::create_dir_all(writ_dir.join("buffers")).expect("mirror folder");
+fn seed_a_crashed_session(jotra_dir: &Path, notes_dir: &Path) {
+    std::fs::create_dir_all(jotra_dir.join("buffers")).expect("mirror folder");
 
     let moved_on = notes_dir.join("Shared.md");
     let steady = notes_dir.join("Steady.md");
@@ -87,10 +87,10 @@ fn seed_a_crashed_session(writ_dir: &Path, notes_dir: &Path) {
     std::fs::write(&moved_on, "what a sync client delivered").unwrap();
     std::fs::write(&steady, "steady text").unwrap();
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
-    let mut store = BufferStore::new(conn, writ_dir.join("buffers"));
+    let mut store = BufferStore::new(conn, jotra_dir.join("buffers"));
     store.insert(&row("moved-on", "Shared", &moved_on)).unwrap();
     store.insert(&row("steady", "Steady", &steady)).unwrap();
     store.insert(&row("deleted", "Deleted", &deleted)).unwrap();
@@ -115,16 +115,16 @@ fn seed_a_crashed_session(writ_dir: &Path, notes_dir: &Path) {
 }
 
 #[test]
-fn an_unclean_relaunch_keeps_what_arrived_while_writ_was_down_and_seeds_the_guard() {
+fn an_unclean_relaunch_keeps_what_arrived_while_jotra_was_down_and_seeds_the_guard() {
     let data = TempDir::new().expect("data folder");
     let notes = TempDir::new().expect("notes folder");
     seed_a_crashed_session(data.path(), notes.path());
 
-    std::env::set_var("WRIT_DATA_DIR", data.path());
-    std::env::set_var("WRIT_NOTES_DIR", notes.path());
+    std::env::set_var("JOTRA_DATA_DIR", data.path());
+    std::env::set_var("JOTRA_NOTES_DIR", notes.path());
     let state = AppState::initialize().expect("the launch must not fail");
-    std::env::remove_var("WRIT_DATA_DIR");
-    std::env::remove_var("WRIT_NOTES_DIR");
+    std::env::remove_var("JOTRA_DATA_DIR");
+    std::env::remove_var("JOTRA_NOTES_DIR");
 
     assert!(
         state.was_dirty_shutdown,

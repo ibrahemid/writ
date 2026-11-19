@@ -33,7 +33,7 @@ describe("displayFileName", () => {
 
   it("leaves a name with no extension alone", () => {
     expect(displayFileName("Makefile")).toBe("Makefile");
-    expect(displayFileName("writ-260921-0748")).toBe("writ-260921-0748");
+    expect(displayFileName("jotra-260921-0748")).toBe("jotra-260921-0748");
   });
 });
 

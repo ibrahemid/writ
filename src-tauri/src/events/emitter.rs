@@ -1,6 +1,6 @@
+use jotra_core::update::UpdatePhase;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, EventTarget};
-use writ_core::update::UpdatePhase;
 
 /// Pointer phases the snap-layout overlay reports for the maximize button. The
 /// overlay sits above the webview, so the button never sees the real mouse
@@ -41,7 +41,7 @@ pub enum NoteDownloadState {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "payload")]
-pub enum WritFrontendEvent {
+pub enum JotraFrontendEvent {
     #[serde(rename = "pending:opens")]
     PendingOpens {
         paths: Vec<String>,
@@ -59,7 +59,7 @@ pub enum WritFrontendEvent {
         position: Option<DropPoint>,
     },
 
-    /// A `writ://new` link asked for a new tab, called `name` when it gave one
+    /// A `jotra://new` link asked for a new tab, called `name` when it gave one
     /// (ADR-052). The tab reaches a file on its first keystroke.
     #[serde(rename = "link:new")]
     LinkNew { name: Option<String> },
@@ -80,7 +80,7 @@ pub enum WritFrontendEvent {
     #[serde(rename = "config:changed")]
     ConfigChanged { keys: Vec<String> },
 
-    /// An open note's file changed outside Writ. `bufferId` names the tab,
+    /// An open note's file changed outside Jotra. `bufferId` names the tab,
     /// `diskHash` is what the file holds now, and `newPath` is where it went
     /// for a change that is a move.
     #[serde(rename = "buffer:external")]
@@ -91,7 +91,7 @@ pub enum WritFrontendEvent {
         change: String,
         new_path: Option<String>,
         disk_hash: Option<String>,
-        writer: Option<writ_core::notes::Writer>,
+        writer: Option<jotra_core::notes::Writer>,
     },
 
     #[serde(rename = "menu:action")]
@@ -109,7 +109,7 @@ pub enum WritFrontendEvent {
     #[serde(rename = "notes:swept")]
     NotesSwept { root: String },
 
-    /// Writ wrote rows of the notes index itself; `paths` names the files
+    /// Jotra wrote rows of the notes index itself; `paths` names the files
     /// whose rows changed, or the notes folder for a walk or a move.
     #[serde(rename = "notes:indexed")]
     NotesIndexed { paths: Vec<String> },
@@ -146,16 +146,16 @@ pub enum WritFrontendEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         text: Option<String>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
-        proposals: Vec<writ_core::chat::Proposal>,
+        proposals: Vec<jotra_core::chat::Proposal>,
         /// The connection the reply came from, carried by `done`.
         #[serde(skip_serializing_if = "Option::is_none")]
-        identity: Option<writ_core::chat::RequestIdentity>,
+        identity: Option<jotra_core::chat::RequestIdentity>,
         /// The typed failure, carried by `error`. Its `message` is the same
         /// sentence `text` holds.
         #[serde(skip_serializing_if = "Option::is_none")]
-        error: Option<Box<writ_core::chat::ChatErrorFrame>>,
+        error: Option<Box<jotra_core::chat::ChatErrorFrame>>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
-        dropped: Vec<writ_core::chat::DroppedProposal>,
+        dropped: Vec<jotra_core::chat::DroppedProposal>,
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         truncated: bool,
     },
@@ -176,26 +176,26 @@ pub enum WritFrontendEvent {
     #[serde(rename = "titlebar:maximize-hit")]
     CaptionMaximizeHit { phase: CaptionHitPhase },
 
-    /// The activity log changed by the app's own hand. The `writ mcp` process
+    /// The activity log changed by the app's own hand. The `jotra mcp` process
     /// cannot emit, so this is not every change: the panel also re-reads on
     /// open and while it is on screen.
     ///
     /// Empty struct rather than a unit variant, for the reason
-    /// [`WritFrontendEvent::FlushBeforeQuit`] gives.
+    /// [`JotraFrontendEvent::FlushBeforeQuit`] gives.
     #[serde(rename = "activity:changed")]
     ActivityChanged {},
 
     #[serde(rename = "mcp:pending")]
     McpPending {
-        waiting: Vec<writ_core::activity::PendingClient>,
+        waiting: Vec<jotra_core::activity::PendingClient>,
     },
 
     /// A program called while Connected programs was off: the record the
     /// server wrote, so the app can offer to turn it on.
     #[serde(rename = "mcp:off-call")]
-    McpOffCall { call: writ_core::activity::OffCall },
+    McpOffCall { call: jotra_core::activity::OffCall },
 
-    /// Whether the OS gave Writ the chord that shows and hides the window.
+    /// Whether the OS gave Jotra the chord that shows and hides the window.
     /// Raised at startup and again on every rebind, so the shortcut editor can
     /// say a chord is taken rather than leaving a dead key.
     #[serde(rename = "hotkey:status")]
@@ -207,45 +207,45 @@ pub enum WritFrontendEvent {
     CaptureHotkeyStatus(crate::hotkey::GlobalHotkeyStatus),
 }
 
-fn event_name(event: &WritFrontendEvent) -> &'static str {
+fn event_name(event: &JotraFrontendEvent) -> &'static str {
     match event {
-        WritFrontendEvent::PendingOpens { .. } => "writ://pending-opens",
-        WritFrontendEvent::FilesDropped { .. } => "writ://files-dropped",
-        WritFrontendEvent::LinkNew { .. } => "writ://link-new",
-        WritFrontendEvent::ContextAsked { .. } => "writ://context-asked",
-        WritFrontendEvent::ReviewAsked(..) => "writ://review-asked",
-        WritFrontendEvent::WindowShown { .. } => "writ://window-shown",
-        WritFrontendEvent::ConfigChanged { .. } => "writ://config-changed",
-        WritFrontendEvent::BufferExternal { .. } => "writ://buffer-external",
-        WritFrontendEvent::MenuAction { .. } => "writ://menu-action",
-        WritFrontendEvent::InboxFileArrived { .. } => "writ://inbox-file-arrived",
-        WritFrontendEvent::WorkspaceChanged { .. } => "writ://workspace-changed",
-        WritFrontendEvent::WorkspaceSwept { .. } => "writ://workspace-swept",
-        WritFrontendEvent::NotesChanged { .. } => "writ://notes-changed",
-        WritFrontendEvent::NotesSwept { .. } => "writ://notes-swept",
-        WritFrontendEvent::NotesIndexed { .. } => "writ://notes-indexed",
-        WritFrontendEvent::UpdateStatus(..) => "writ://update-status",
-        WritFrontendEvent::AiRewrite { .. } => "writ://ai-rewrite",
-        WritFrontendEvent::AiChat { .. } => "writ://ai-chat",
-        WritFrontendEvent::NoteDownload { .. } => "writ://note-download",
-        WritFrontendEvent::FlushBeforeQuit { .. } => "writ://flush-before-quit",
-        WritFrontendEvent::CaptionMaximizeHit { .. } => "writ://titlebar-maximize-hit",
-        WritFrontendEvent::ActivityChanged { .. } => "writ://activity",
-        WritFrontendEvent::McpPending { .. } => "writ://mcp-pending",
-        WritFrontendEvent::McpOffCall { .. } => "writ://mcp-off-call",
-        WritFrontendEvent::HotkeyStatus(..) => "writ://hotkey-status",
-        WritFrontendEvent::CaptureHotkeyStatus(..) => "writ://hotkey-capture-status",
+        JotraFrontendEvent::PendingOpens { .. } => "jotra://pending-opens",
+        JotraFrontendEvent::FilesDropped { .. } => "jotra://files-dropped",
+        JotraFrontendEvent::LinkNew { .. } => "jotra://link-new",
+        JotraFrontendEvent::ContextAsked { .. } => "jotra://context-asked",
+        JotraFrontendEvent::ReviewAsked(..) => "jotra://review-asked",
+        JotraFrontendEvent::WindowShown { .. } => "jotra://window-shown",
+        JotraFrontendEvent::ConfigChanged { .. } => "jotra://config-changed",
+        JotraFrontendEvent::BufferExternal { .. } => "jotra://buffer-external",
+        JotraFrontendEvent::MenuAction { .. } => "jotra://menu-action",
+        JotraFrontendEvent::InboxFileArrived { .. } => "jotra://inbox-file-arrived",
+        JotraFrontendEvent::WorkspaceChanged { .. } => "jotra://workspace-changed",
+        JotraFrontendEvent::WorkspaceSwept { .. } => "jotra://workspace-swept",
+        JotraFrontendEvent::NotesChanged { .. } => "jotra://notes-changed",
+        JotraFrontendEvent::NotesSwept { .. } => "jotra://notes-swept",
+        JotraFrontendEvent::NotesIndexed { .. } => "jotra://notes-indexed",
+        JotraFrontendEvent::UpdateStatus(..) => "jotra://update-status",
+        JotraFrontendEvent::AiRewrite { .. } => "jotra://ai-rewrite",
+        JotraFrontendEvent::AiChat { .. } => "jotra://ai-chat",
+        JotraFrontendEvent::NoteDownload { .. } => "jotra://note-download",
+        JotraFrontendEvent::FlushBeforeQuit { .. } => "jotra://flush-before-quit",
+        JotraFrontendEvent::CaptionMaximizeHit { .. } => "jotra://titlebar-maximize-hit",
+        JotraFrontendEvent::ActivityChanged { .. } => "jotra://activity",
+        JotraFrontendEvent::McpPending { .. } => "jotra://mcp-pending",
+        JotraFrontendEvent::McpOffCall { .. } => "jotra://mcp-off-call",
+        JotraFrontendEvent::HotkeyStatus(..) => "jotra://hotkey-status",
+        JotraFrontendEvent::CaptureHotkeyStatus(..) => "jotra://hotkey-capture-status",
     }
 }
 
-pub fn emit_event(app: &AppHandle, event: WritFrontendEvent) -> Result<(), String> {
+pub fn emit_event(app: &AppHandle, event: JotraFrontendEvent) -> Result<(), String> {
     app.emit(event_name(&event), &event)
         .map_err(|e| e.to_string())
 }
 
 /// Emits to the main webview only, for events that describe that window's own
 /// chrome and would be meaningless anywhere else.
-pub fn emit_event_to_main(app: &AppHandle, event: WritFrontendEvent) -> Result<(), String> {
+pub fn emit_event_to_main(app: &AppHandle, event: JotraFrontendEvent) -> Result<(), String> {
     app.emit_to(
         EventTarget::webview_window("main"),
         event_name(&event),

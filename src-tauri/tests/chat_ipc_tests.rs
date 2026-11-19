@@ -9,16 +9,16 @@
 
 use std::path::Path;
 
-use writ_core::activity::{Actor, Decision};
-use writ_core::ai::models::{ModelCatalog, ModelListError};
-use writ_core::chat::{ChatError, ChatTurn, Role};
-use writ_core::config::{AiChatConfig, AiConfig};
-use writ_tauri_lib::commands::ai::AiKeyState;
-use writ_tauri_lib::commands::chat::{
+use jotra_core::activity::{Actor, Decision};
+use jotra_core::ai::models::{ModelCatalog, ModelListError};
+use jotra_core::chat::{ChatError, ChatTurn, Role};
+use jotra_core::config::{AiChatConfig, AiConfig};
+use jotra_tauri_lib::commands::ai::AiKeyState;
+use jotra_tauri_lib::commands::chat::{
     apply_proposal_inner, attached_sizes_in, begin_request, discard_proposal_inner,
     endpoint_state_from, note_file_in, prepare_chat, read_attached_in, ChatState,
 };
-use writ_tauri_lib::watcher::open_files::NoOpenNotes;
+use jotra_tauri_lib::watcher::open_files::NoOpenNotes;
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
 
@@ -65,17 +65,17 @@ fn turn(content: &str) -> Vec<ChatTurn> {
 /// A notes folder holding `Launch.md`, and a data folder for the log.
 fn folders() -> (tempfile::TempDir, tempfile::TempDir) {
     let notes = tempfile::TempDir::new().expect("notes folder");
-    let writ = tempfile::TempDir::new().expect("data folder");
+    let jotra = tempfile::TempDir::new().expect("data folder");
     std::fs::write(notes.path().join("Launch.md"), "the first text\n").expect("write");
-    (notes, writ)
+    (notes, jotra)
 }
 
 fn root(dir: &tempfile::TempDir) -> std::path::PathBuf {
     std::fs::canonicalize(dir.path()).expect("canonical")
 }
 
-fn log_of(writ: &Path) -> Vec<writ_core::activity::ActivityRecord> {
-    writ_storage::activity_log::read_recent(writ, 100)
+fn log_of(jotra: &Path) -> Vec<jotra_core::activity::ActivityRecord> {
+    jotra_storage::activity_log::read_recent(jotra, 100)
 }
 
 // --- chat_state -------------------------------------------------------------
@@ -233,7 +233,7 @@ fn chat_attached_sizes_answers_under_the_path_it_was_given() {
     // What the pane holds is the absolute source path, and it joins its own
     // list to this answer. An answer keyed only by the folder-relative name
     // would miss every row and leave the stale tab size in the dialog.
-    let (notes, _writ) = folders();
+    let (notes, _jotra) = folders();
     let root = root(&notes);
     std::fs::create_dir_all(root.join("Ideas")).expect("folder");
     std::fs::write(root.join("Ideas/Later.md"), "a longer second text\n").expect("write");
@@ -249,7 +249,7 @@ fn chat_attached_sizes_answers_under_the_path_it_was_given() {
 
 #[test]
 fn chat_attached_sizes_reads_the_bytes_the_file_holds_now() {
-    let (notes, _writ) = folders();
+    let (notes, _jotra) = folders();
     let root = root(&notes);
     std::fs::create_dir_all(root.join("Ideas")).expect("folder");
     std::fs::write(root.join("Ideas/Later.md"), "a longer second text\n").expect("write");
@@ -275,7 +275,7 @@ fn chat_attached_sizes_reads_the_bytes_the_file_holds_now() {
 
 #[test]
 fn chat_attached_sizes_refuses_a_path_outside_the_notes_folder() {
-    let (notes, _writ) = folders();
+    let (notes, _jotra) = folders();
     let root = root(&notes);
     let outside = tempfile::TempDir::new().expect("elsewhere");
     std::fs::write(outside.path().join("Secret.md"), "not yours\n").expect("write");
@@ -300,7 +300,7 @@ fn chat_attached_sizes_reads_a_notes_folder_spelled_as_the_app_carries_it() {
     // and a resolved file has: on macOS /var is a link to /private/var, on
     // Windows the resolved form drops the `\\?\` prefix the root keeps.
     // Comparing the two as they come refuses a note plainly in the folder.
-    let (notes, _writ) = folders();
+    let (notes, _jotra) = folders();
     let sizes =
         attached_sizes_in(notes.path(), &NoOpenNotes, &["Launch.md".to_string()]).expect("sizes");
     assert_eq!(sizes.len(), 1);
@@ -310,9 +310,9 @@ fn chat_attached_sizes_reads_a_notes_folder_spelled_as_the_app_carries_it() {
 
 #[test]
 fn chat_attached_sizes_refuses_a_note_over_the_ceiling_before_the_send() {
-    let (notes, _writ) = folders();
+    let (notes, _jotra) = folders();
     let root = root(&notes);
-    let big = vec![b'a'; (writ_core::notes::host::MAX_NOTE_BYTES + 1) as usize];
+    let big = vec![b'a'; (jotra_core::notes::host::MAX_NOTE_BYTES + 1) as usize];
     std::fs::write(root.join("Big.md"), big).expect("write");
 
     let error = attached_sizes_in(&root, &NoOpenNotes, &["Big.md".to_string()])
@@ -322,9 +322,9 @@ fn chat_attached_sizes_refuses_a_note_over_the_ceiling_before_the_send() {
 
 #[test]
 fn notes_over_the_total_are_refused_by_the_sizes_call_and_by_the_read() {
-    let (notes, _writ) = folders();
+    let (notes, _jotra) = folders();
     let root = root(&notes);
-    let near = vec![b'a'; writ_core::notes::host::MAX_NOTE_BYTES as usize];
+    let near = vec![b'a'; jotra_core::notes::host::MAX_NOTE_BYTES as usize];
     let names: Vec<String> = (0..3).map(|index| format!("Near{index}.md")).collect();
     for name in &names {
         std::fs::write(root.join(name), &near).expect("write");
@@ -348,7 +348,7 @@ fn notes_over_the_total_are_refused_by_the_sizes_call_and_by_the_read() {
 
 #[test]
 fn chat_send_carries_the_attached_notes_and_nothing_else() {
-    let (notes, _writ) = folders();
+    let (notes, _jotra) = folders();
     let root = root(&notes);
     std::fs::write(root.join("Other.md"), "the neighbouring text\n").expect("write");
 
@@ -428,7 +428,7 @@ fn a_long_conversation_is_fitted_to_a_local_runtime_oldest_turns_first() {
 
 #[test]
 fn chat_send_refuses_a_path_outside_the_notes_folder() {
-    let (notes, _writ) = folders();
+    let (notes, _jotra) = folders();
     let outside = tempfile::TempDir::new().expect("other folder");
     let stranger = outside.path().join("Secrets.md");
     std::fs::write(&stranger, "not yours\n").expect("write");
@@ -474,7 +474,7 @@ fn chat_send_refuses_when_the_switch_is_off() {
 
 #[test]
 fn chat_send_reads_one_note_once_however_often_it_was_named() {
-    let (notes, _writ) = folders();
+    let (notes, _jotra) = folders();
     let root = root(&notes);
     let attached = read_attached_in(
         &root,
@@ -511,14 +511,14 @@ fn chat_stop_raises_the_flag_of_a_live_conversation_and_no_other() {
 
 #[test]
 fn chat_apply_proposal_writes_the_note_and_records_it() {
-    let (notes, writ) = folders();
+    let (notes, jotra) = folders();
     let root = root(&notes);
-    let before = writ_core::hash::sha256_hex(b"the first text\n");
+    let before = jotra_core::hash::sha256_hex(b"the first text\n");
 
     let outcome = apply_proposal_inner(
         &root,
         &NoOpenNotes,
-        writ.path(),
+        jotra.path(),
         "api.example.com",
         "Launch.md",
         "the second text\n",
@@ -534,7 +534,7 @@ fn chat_apply_proposal_writes_the_note_and_records_it() {
         "the second text\n"
     );
 
-    let log = log_of(writ.path());
+    let log = log_of(jotra.path());
     assert_eq!(log.len(), 1);
     assert_eq!(log[0].action, "apply_proposal");
     assert_eq!(log[0].decision, Decision::Allow);
@@ -549,16 +549,16 @@ fn chat_apply_proposal_writes_the_note_and_records_it() {
 
 #[test]
 fn a_refused_note_in_a_subfolder_keeps_its_folder_relative_key() {
-    let (notes, writ) = folders();
+    let (notes, jotra) = folders();
     let root = root(&notes);
     std::fs::create_dir_all(root.join("Ideas")).expect("folder");
-    let before = writ_core::hash::sha256_hex(b"the first text\n");
+    let before = jotra_core::hash::sha256_hex(b"the first text\n");
     std::fs::write(root.join("Ideas/Launch.md"), "somebody else wrote this\n").expect("write");
 
     let error = apply_proposal_inner(
         &root,
         &NoOpenNotes,
-        writ.path(),
+        jotra.path(),
         "api.example.com",
         "Ideas/Launch.md",
         "the model's text\n",
@@ -572,15 +572,15 @@ fn a_refused_note_in_a_subfolder_keeps_its_folder_relative_key() {
 
 #[test]
 fn chat_apply_proposal_refuses_a_note_that_changed_and_leaves_a_copy() {
-    let (notes, writ) = folders();
+    let (notes, jotra) = folders();
     let root = root(&notes);
-    let before = writ_core::hash::sha256_hex(b"the first text\n");
+    let before = jotra_core::hash::sha256_hex(b"the first text\n");
     std::fs::write(root.join("Launch.md"), "somebody else wrote this\n").expect("write");
 
     let error = apply_proposal_inner(
         &root,
         &NoOpenNotes,
-        writ.path(),
+        jotra.path(),
         "api.example.com",
         "Launch.md",
         "the model's text\n",
@@ -617,7 +617,7 @@ fn chat_apply_proposal_refuses_a_note_that_changed_and_leaves_a_copy() {
         "the model's text\n"
     );
 
-    let log = log_of(writ.path());
+    let log = log_of(jotra.path());
     assert_eq!(log.len(), 1);
     assert_eq!(log[0].decision, Decision::Refuse);
     assert_eq!(log[0].bytes, None);
@@ -625,16 +625,16 @@ fn chat_apply_proposal_refuses_a_note_that_changed_and_leaves_a_copy() {
 
 #[test]
 fn chat_apply_proposal_refuses_a_path_outside_the_notes_folder() {
-    let (notes, writ) = folders();
+    let (notes, jotra) = folders();
     let outside = tempfile::TempDir::new().expect("other folder");
     let stranger = outside.path().join("Secrets.md");
     std::fs::write(&stranger, "not yours\n").expect("write");
-    let before = writ_core::hash::sha256_hex(b"not yours\n");
+    let before = jotra_core::hash::sha256_hex(b"not yours\n");
 
     let error = apply_proposal_inner(
         &root(&notes),
         &NoOpenNotes,
-        writ.path(),
+        jotra.path(),
         "api.example.com",
         &stranger.to_string_lossy(),
         "owned\n",
@@ -648,17 +648,17 @@ fn chat_apply_proposal_refuses_a_path_outside_the_notes_folder() {
         std::fs::read_to_string(&stranger).expect("read"),
         "not yours\n"
     );
-    assert!(log_of(writ.path()).is_empty());
+    assert!(log_of(jotra.path()).is_empty());
 }
 
 #[test]
 fn chat_apply_proposal_refuses_a_hash_it_cannot_read() {
-    let (notes, writ) = folders();
+    let (notes, jotra) = folders();
     let root = root(&notes);
     let error = apply_proposal_inner(
         &root,
         &NoOpenNotes,
-        writ.path(),
+        jotra.path(),
         "api.example.com",
         "Launch.md",
         "the model's text\n",
@@ -678,12 +678,12 @@ fn chat_apply_proposal_refuses_a_hash_it_cannot_read() {
 
 #[test]
 fn chat_discard_proposal_records_the_offer_and_touches_no_file() {
-    let (notes, writ) = folders();
+    let (notes, jotra) = folders();
     let root = root(&notes);
     discard_proposal_inner(
         &root,
         &NoOpenNotes,
-        writ.path(),
+        jotra.path(),
         "api.example.com",
         "Launch.md",
     );
@@ -692,7 +692,7 @@ fn chat_discard_proposal_records_the_offer_and_touches_no_file() {
         std::fs::read_to_string(root.join("Launch.md")).expect("read"),
         "the first text\n"
     );
-    let log = log_of(writ.path());
+    let log = log_of(jotra.path());
     assert_eq!(log.len(), 1);
     assert_eq!(log[0].action, "discard_proposal");
     assert_eq!(log[0].decision, Decision::Refuse);
@@ -702,7 +702,7 @@ fn chat_discard_proposal_records_the_offer_and_touches_no_file() {
 
 #[test]
 fn chat_discard_proposal_records_a_stranger_by_its_name_alone() {
-    let (notes, writ) = folders();
+    let (notes, jotra) = folders();
     let outside = tempfile::TempDir::new().expect("other folder");
     let stranger = outside.path().join("Secrets.md");
     std::fs::write(&stranger, "not yours\n").expect("write");
@@ -710,12 +710,12 @@ fn chat_discard_proposal_records_a_stranger_by_its_name_alone() {
     discard_proposal_inner(
         &root(&notes),
         &NoOpenNotes,
-        writ.path(),
+        jotra.path(),
         "api.example.com",
         &stranger.to_string_lossy(),
     );
 
-    let log = log_of(writ.path());
+    let log = log_of(jotra.path());
     assert_eq!(log.len(), 1);
     assert_eq!(
         log[0].path.as_deref(),
@@ -739,7 +739,7 @@ fn every_chat_command_is_in_the_invoke_handler() {
 #[test]
 fn a_note_the_folder_does_not_hold_is_refused_without_naming_it_again() {
     // The sentence lands under a chip or a card that already names the note.
-    let (notes, _writ) = folders();
+    let (notes, _jotra) = folders();
     let root = root(&notes);
     let error = note_file_in(&root, "Nowhere.md").expect_err("refused");
     assert_eq!(error, "This file is no longer there.");

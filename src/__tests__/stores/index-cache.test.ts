@@ -66,7 +66,7 @@ function changed(path = NOTE): void {
   handlerFor("notes:changed")({ path, removed: false });
 }
 
-/** A write Writ made itself, once the index holds it. */
+/** A write Jotra made itself, once the index holds it. */
 function indexed(paths: string[] = [NOTE]): void {
   handlerFor("notes:indexed")({ paths });
 }
@@ -753,7 +753,7 @@ describe("what keeps the reads current", () => {
     expect(kinds).toHaveLength(2);
   });
 
-  // The watcher drops Writ's own writes, so a save reaches the store only as
+  // The watcher drops Jotra's own writes, so a save reaches the store only as
   // the event Rust sends once the index holds the new rows.
   it("a save's index event re-reads the facts held for the note it wrote", async () => {
     indexCacheStore.holdNote(NOTE);

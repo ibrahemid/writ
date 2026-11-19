@@ -12,26 +12,28 @@
 //!
 //! 2. **The document rewrite.** Resource hints are disabled and frame
 //!    navigations disarmed before a document is served
-//!    (`writ_core::preview::hints` and `writ_core::preview::frames`, tested
+//!    (`jotra_core::preview::hints` and `jotra_core::preview::frames`, tested
 //!    against a spec tokenizer in that crate). Here, the documents the
 //!    renderers write themselves are shown to pass through both unchanged.
 //!
 //! 3. **The scope/traversal boundary is what the recorder observes.** The
-//!    handler genuinely receives `writ-preview://` URLs and decides
+//!    handler genuinely receives `jotra-preview://` URLs and decides
 //!    chrome-vs-document routing and traversal refusal. Those dispositions
 //!    are asserted via the debug-only request recorder against the real
 //!    `resolve()` pipeline.
 
 use std::borrow::Cow;
 
-use writ_core::preview::frames::disarm_frame_navigations;
-use writ_core::preview::hints::neutralize_resource_hints;
-use writ_core::preview::{AssetScope, ContentRenderer, RenderRequest};
-use writ_tauri_lib::preview::csp::build_document_csp;
-use writ_tauri_lib::preview::embeds::IndexEmbeds;
-use writ_tauri_lib::preview::handler::{chrome_asset, resolve, RenderedDoc};
-use writ_tauri_lib::preview::protocol::{clear_records, drain_records, Disposition, RefusalReason};
-use writ_tauri_lib::preview::renderers::{HtmlRenderer, MarkdownRenderer};
+use jotra_core::preview::frames::disarm_frame_navigations;
+use jotra_core::preview::hints::neutralize_resource_hints;
+use jotra_core::preview::{AssetScope, ContentRenderer, RenderRequest};
+use jotra_tauri_lib::preview::csp::build_document_csp;
+use jotra_tauri_lib::preview::embeds::IndexEmbeds;
+use jotra_tauri_lib::preview::handler::{chrome_asset, resolve, RenderedDoc};
+use jotra_tauri_lib::preview::protocol::{
+    clear_records, drain_records, Disposition, RefusalReason,
+};
+use jotra_tauri_lib::preview::renderers::{HtmlRenderer, MarkdownRenderer};
 
 // --- 1. What the document policy must always say --------------------------
 
@@ -70,7 +72,7 @@ fn only_an_opted_in_document_may_run_inline_script() {
 
 // --- 2. The documents the renderers write survive the rewrite ------------
 
-fn request(content_type: writ_core::preview::ContentTypeId, text: &str) -> RenderRequest {
+fn request(content_type: jotra_core::preview::ContentTypeId, text: &str) -> RenderRequest {
     RenderRequest {
         content_type,
         buffer_text: text.to_string(),
@@ -145,7 +147,7 @@ fn disposition_of(url: &str) -> Disposition {
     // resolve() itself doesn't record (serve() does); mirror serve()'s
     // record call so the suite exercises the same disposition the handler
     // would log.
-    use writ_tauri_lib::preview::protocol::{record, RequestRecord};
+    use jotra_tauri_lib::preview::protocol::{record, RequestRecord};
     record(RequestRecord {
         url: url.to_string(),
         disposition: resolved.disposition.clone(),
@@ -162,10 +164,10 @@ fn disposition_of(url: &str) -> Disposition {
 #[test]
 fn document_cannot_traverse_into_chrome_scope() {
     for url in [
-        "writ-preview://document/../chrome/preview-base.css",
-        "writ-preview://document/buf-1/../../chrome/preview-base.css",
-        "writ-preview://document/%2e%2e/chrome/preview-base.css",
-        "writ-preview://document/..\\chrome\\preview-base.css",
+        "jotra-preview://document/../chrome/preview-base.css",
+        "jotra-preview://document/buf-1/../../chrome/preview-base.css",
+        "jotra-preview://document/%2e%2e/chrome/preview-base.css",
+        "jotra-preview://document/..\\chrome\\preview-base.css",
     ] {
         assert_eq!(
             disposition_of(url),
@@ -178,11 +180,11 @@ fn document_cannot_traverse_into_chrome_scope() {
 #[test]
 fn null_bytes_and_bad_encoding_are_refused() {
     assert_eq!(
-        disposition_of("writ-preview://document/foo%00bar"),
+        disposition_of("jotra-preview://document/foo%00bar"),
         Disposition::Refused(RefusalReason::ProhibitedCharacter),
     );
     assert_eq!(
-        disposition_of("writ-preview://document/foo%2"),
+        disposition_of("jotra-preview://document/foo%2"),
         Disposition::Refused(RefusalReason::InvalidEncoding),
     );
 }
@@ -194,7 +196,7 @@ fn foreign_schemes_and_unknown_scopes_are_refused() {
         Disposition::Refused(RefusalReason::WrongScheme),
     );
     assert_eq!(
-        disposition_of("writ-preview://attacker/x"),
+        disposition_of("jotra-preview://attacker/x"),
         Disposition::Refused(RefusalReason::UnknownScope),
     );
 }
@@ -203,11 +205,11 @@ fn foreign_schemes_and_unknown_scopes_are_refused() {
 fn legitimate_chrome_and_document_requests_are_allowed() {
     // The boundary refuses crossings, not ordinary same-scope requests.
     assert_eq!(
-        disposition_of("writ-preview://chrome/preview-base.css"),
+        disposition_of("jotra-preview://chrome/preview-base.css"),
         Disposition::Allowed,
     );
     assert_eq!(
-        disposition_of("writ-preview://document/buf-1"),
+        disposition_of("jotra-preview://document/buf-1"),
         Disposition::Allowed,
     );
 }
@@ -216,8 +218,8 @@ fn legitimate_chrome_and_document_requests_are_allowed() {
 
 #[test]
 fn frontmatter_is_not_rendered_as_html() {
-    use writ_core::preview::{ContentRenderer, RenderRequest};
-    use writ_tauri_lib::preview::renderers::MarkdownRenderer;
+    use jotra_core::preview::{ContentRenderer, RenderRequest};
+    use jotra_tauri_lib::preview::renderers::MarkdownRenderer;
 
     let out = MarkdownRenderer::without_index()
         .render(RenderRequest {
@@ -243,12 +245,12 @@ fn frontmatter_is_not_rendered_as_html() {
 /// HTML into the preview document, so this drives it with what a hostile name
 /// would carry.
 struct FixedWikilinks {
-    render: writ_render::WikilinkRender,
+    render: jotra_render::WikilinkRender,
 }
 
-impl writ_render::WikilinkResolver for FixedWikilinks {
-    fn resolve(&self, _inner: &str) -> writ_render::WikilinkRender {
-        writ_render::WikilinkRender {
+impl jotra_render::WikilinkResolver for FixedWikilinks {
+    fn resolve(&self, _inner: &str) -> jotra_render::WikilinkRender {
+        jotra_render::WikilinkRender {
             href: self.render.href.clone(),
             label: self.render.label.clone(),
             resolved: self.render.resolved,
@@ -258,13 +260,13 @@ impl writ_render::WikilinkResolver for FixedWikilinks {
 
 fn wikilink_html(label: &str, href: Option<&str>, resolved: bool) -> String {
     let resolver = FixedWikilinks {
-        render: writ_render::WikilinkRender {
+        render: jotra_render::WikilinkRender {
             href: href.map(str::to_string),
             label: label.to_string(),
             resolved,
         },
     };
-    writ_render::render_markdown_fragment_with("[[Target]]\n", None, Some(&resolver), None).html
+    jotra_render::render_markdown_fragment_with("[[Target]]\n", None, Some(&resolver), None).html
 }
 
 #[test]
@@ -294,14 +296,14 @@ fn a_wikilink_href_cannot_break_out_of_its_attribute() {
 fn only_a_resolved_wikilink_becomes_an_anchor() {
     let resolved = wikilink_html("label", Some("Note.md"), true);
     assert!(
-        resolved.contains("<a class=\"writ-wikilink\""),
+        resolved.contains("<a class=\"jotra-wikilink\""),
         "{resolved}"
     );
 
     for (href, is_resolved) in [(Some("javascript:alert(1)"), false), (None, true)] {
         let out = wikilink_html("label", href, is_resolved);
         assert!(!out.contains("<a "), "{out}");
-        assert!(out.contains("writ-wikilink-missing"), "{out}");
+        assert!(out.contains("jotra-wikilink-missing"), "{out}");
     }
 }
 
@@ -319,13 +321,13 @@ fn embed_resolver() -> (tempfile::TempDir, IndexEmbeds) {
     std::os::unix::fs::symlink(dir.path().join("outside.md"), root.join("Linked.md"))
         .expect("symlink");
 
-    let db_path = dir.path().join("writ.db");
-    let conn = writ_storage::database::connection::open_database(&db_path).expect("open");
-    writ_storage::database::migrations::run_migrations(&conn).expect("migrations");
+    let db_path = dir.path().join("jotra.db");
+    let conn = jotra_storage::database::connection::open_database(&db_path).expect("open");
+    jotra_storage::database::migrations::run_migrations(&conn).expect("migrations");
     drop(conn);
 
     let index = std::sync::Arc::new(
-        writ_storage::notes_index::NotesIndexStore::open(&db_path).expect("index"),
+        jotra_storage::notes_index::NotesIndexStore::open(&db_path).expect("index"),
     );
     index
         .reconcile(&root, &|| false, &|_| false)
@@ -368,25 +370,25 @@ fn a_note_embed_cannot_name_a_file_outside_the_notes_folder() {
         "..\\..\\outside",
         "Linked",
     ] {
-        let html = writ_render::render_markdown_fragment_with(
+        let html = jotra_render::render_markdown_fragment_with(
             &format!("![[{target}]]\n"),
             None,
             None,
-            Some(&resolver as &dyn writ_render::NoteEmbedResolver),
+            Some(&resolver as &dyn jotra_render::NoteEmbedResolver),
         )
         .html;
-        assert!(html.contains("writ-embed-missing"), "{target}: {html}");
+        assert!(html.contains("jotra-embed-missing"), "{target}: {html}");
         assert!(!html.contains("<section"), "{target}: {html}");
         assert!(!html.contains(OUTSIDE), "{target}: {html}");
     }
 
     // The note that is genuinely in the folder still renders, so the loop
     // above is refusing the target rather than the resolver being inert.
-    let ok = writ_render::render_markdown_fragment_with(
+    let ok = jotra_render::render_markdown_fragment_with(
         "![[Note]]\n",
         None,
         None,
-        Some(&resolver as &dyn writ_render::NoteEmbedResolver),
+        Some(&resolver as &dyn jotra_render::NoteEmbedResolver),
     )
     .html;
     assert!(ok.contains("Note body."), "{ok}");

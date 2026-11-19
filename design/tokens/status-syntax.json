@@ -9,7 +9,7 @@
       "$value": "#9a6b00"
     },
     "error": {
-      "$value": "var(--writ-danger)"
+      "$value": "var(--jotra-danger)"
     },
     "foreground": {
       "$value": "#ffffff"
@@ -18,25 +18,25 @@
   "syntax": {
     "$type": "color",
     "keyword": {
-      "$value": "var(--writ-fg)"
+      "$value": "var(--jotra-fg)"
     },
     "string": {
-      "$value": "var(--writ-syn-string)"
+      "$value": "var(--jotra-syn-string)"
     },
     "comment": {
-      "$value": "var(--writ-fg-faint)"
+      "$value": "var(--jotra-fg-faint)"
     },
     "function": {
-      "$value": "var(--writ-fg-muted)"
+      "$value": "var(--jotra-fg-muted)"
     },
     "number": {
-      "$value": "var(--writ-fg)"
+      "$value": "var(--jotra-fg)"
     },
     "type": {
-      "$value": "var(--writ-fg-muted)"
+      "$value": "var(--jotra-fg-muted)"
     },
     "variable": {
-      "$value": "var(--writ-fg-muted)"
+      "$value": "var(--jotra-fg-muted)"
     },
     "$description": "ADR-030 decision 3: the syntax set is the neutrals at low saturation, so it follows the polarity without a second palette. Only strings carry a hue."
   },

@@ -15,13 +15,13 @@ function isRestorable(el: Element | null): el is HTMLElement {
   return true;
 }
 
-const SILENT_ATTR = "data-writ-focus-silent";
+const SILENT_ATTR = "data-jotra-focus-silent";
 
 /**
  * Marks a surface a modal leaves live: the toast column and the update banner
  * report what happened inside the modal, so they stay clickable and announced.
  */
-export const FOCUS_TRAP_EXEMPT = "data-writ-focus-trap-exempt";
+export const FOCUS_TRAP_EXEMPT = "data-jotra-focus-trap-exempt";
 
 function matchesFocusVisible(el: Element | null): boolean {
   if (!el) return false;

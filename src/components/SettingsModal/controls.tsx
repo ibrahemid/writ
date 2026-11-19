@@ -19,9 +19,9 @@ export function parseFloatSafe(raw: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-type WritConfigValue = ReturnType<typeof configStore.config>;
+type JotraConfigValue = ReturnType<typeof configStore.config>;
 
-export async function patchConfig(patch: (prev: WritConfigValue) => WritConfigValue) {
+export async function patchConfig(patch: (prev: JotraConfigValue) => JotraConfigValue) {
   try {
     await configStore.save(patch(configStore.config()));
   } catch {
@@ -118,7 +118,7 @@ interface PathTextProps {
 /**
  * A path or command cut from its start when it does not fit. The box runs
  * right to left so the ellipsis lands at the start, and the text inside is
- * isolated left to right, so `~/Writ` and a leading slash keep their place and
+ * isolated left to right, so `~/Jotra` and a leading slash keep their place and
  * an Arabic folder name reads in its own order within the path.
  */
 export function PathText(props: PathTextProps) {

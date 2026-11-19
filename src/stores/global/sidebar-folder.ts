@@ -4,7 +4,7 @@ import { notesTreeStore } from "./notes-tree";
 import { workspaceStore } from "./workspace";
 import type { WorkspaceEntry } from "../../types/workspace";
 
-// Singleton state — Writ is single-window. Which folder the sidebar's Files
+// Singleton state — Jotra is single-window. Which folder the sidebar's Files
 // section draws, and whether that tree can show what a tag names (NV-01,
 // NV-02). Derived from the folder opened by hand and the notes folder; it
 // holds nothing of its own.

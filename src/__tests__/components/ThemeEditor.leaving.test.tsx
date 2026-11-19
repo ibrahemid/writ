@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 import { themeStore } from "../../stores/global/theme";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 
 // The colour edits apply live, so the two ways out of this editor throw away
 // work the user is watching.
@@ -32,7 +32,7 @@ import ThemeEditor, {
 } from "../../components/ThemeEditor/ThemeEditor";
 import ConfirmDialog from "../../components/ConfirmDialog/ConfirmDialog";
 
-function baseConfig(): Partial<WritConfig> {
+function baseConfig(): Partial<JotraConfig> {
   return { theme: { preset: "writ-light", overrides: {} } };
 }
 

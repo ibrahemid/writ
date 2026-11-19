@@ -29,10 +29,10 @@ describe("emitFrontendReady", () => {
 });
 
 describe("onEvent", () => {
-  it("subscribes to the writ:// event channel matching the kind", async () => {
+  it("subscribes to the jotra:// event channel matching the kind", async () => {
     await onEvent("pending:opens", () => {});
     expect(mockListen).toHaveBeenCalledOnce();
-    expect(mockListen).toHaveBeenCalledWith("writ://pending-opens", expect.any(Function));
+    expect(mockListen).toHaveBeenCalledWith("jotra://pending-opens", expect.any(Function));
   });
 
   it("unwraps the adjacently-tagged envelope and forwards the inner payload", async () => {

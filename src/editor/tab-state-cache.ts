@@ -26,7 +26,7 @@ export interface TabState {
 /**
  * How much document text, in UTF-16 code units, the kept states may hold
  * together: about 128 MiB of strings at two bytes a unit. A webview has no
- * memory-pressure signal Writ can read (WKWebView exposes none), so the
+ * memory-pressure signal Jotra can read (WKWebView exposes none), so the
  * budget stands in for one.
  */
 export const TAB_STATE_BUDGET = 64 * 1024 * 1024;

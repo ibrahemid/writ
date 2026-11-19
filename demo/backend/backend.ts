@@ -71,7 +71,7 @@ export function createBackend(bridge: IpcBridge): DemoBackend {
     if (cmd.startsWith("plugin:")) return null;
     const handler = handlers[cmd];
     if (!handler) {
-      console.warn(`[writ-demo] unhandled command ${cmd}`);
+      console.warn(`[jotra-demo] unhandled command ${cmd}`);
       throw new DemoCommandError(cmd);
     }
     return refuseOnThrow(() => handler(args ?? {}), describeCommandFailure);

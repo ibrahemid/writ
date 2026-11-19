@@ -5,8 +5,8 @@
   flex: 1;
   height: 100%;
   min-height: 0;
-  background: var(--writ-bg-canvas);
-  font-family: var(--writ-font-ui);
+  background: var(--jotra-bg-canvas);
+  font-family: var(--jotra-font-ui);
 }
 
 /* The band the window is dragged by, the height of the toolbar it replaces. */
@@ -25,38 +25,38 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--writ-space-5);
-  padding: var(--writ-space-6);
+  gap: var(--jotra-space-5);
+  padding: var(--jotra-space-6);
   overflow: auto;
 }
 
 .failure-screen-title {
-  font-size: var(--writ-ui-lg);
-  line-height: var(--writ-ui-lg-lh);
+  font-size: var(--jotra-ui-lg);
+  line-height: var(--jotra-ui-lg-lh);
   font-weight: 600;
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
 }
 
 .failure-screen-text {
   margin: 0;
   max-width: 60ch;
   text-align: center;
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  color: var(--writ-fg-muted);
+  font-size: var(--jotra-ui-md);
+  line-height: var(--jotra-ui-md-lh);
+  color: var(--jotra-fg-muted);
   -webkit-user-select: text;
   user-select: text;
 }
 
 .failure-screen-details {
   margin: 0;
-  padding: var(--writ-space-4);
-  background: var(--writ-bg-sunken);
+  padding: var(--jotra-space-4);
+  background: var(--jotra-bg-sunken);
   border: 0;
-  border-radius: var(--writ-r-media);
-  color: var(--writ-fg-muted);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
+  border-radius: var(--jotra-r-media);
+  color: var(--jotra-fg-muted);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
   max-width: 72ch;
   max-height: 40vh;
   overflow: auto;
@@ -68,5 +68,5 @@
 
 .failure-screen-actions {
   display: flex;
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
 }

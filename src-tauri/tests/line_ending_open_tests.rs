@@ -9,62 +9,62 @@ use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
-use tempfile::TempDir;
-use writ_core::config::WritConfig;
-use writ_core::events::bus::EventBus;
-use writ_core::notes::line_ending::LineEnding;
-use writ_core::preview::ContentRendererRegistry;
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
-use writ_tauri_lib::commands::buffer::{
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::EventBus;
+use jotra_core::notes::line_ending::LineEnding;
+use jotra_core::preview::ContentRendererRegistry;
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::notes_index::NotesIndexStore;
+use jotra_tauri_lib::commands::buffer::{
     close_buffer_inner, read_buffer_content_inner, save_buffer_content_inner,
 };
-use writ_tauri_lib::commands::file::open_file_from_path;
-use writ_tauri_lib::preview::handler::RenderCache;
-use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
-use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::create_ignore_set;
+use jotra_tauri_lib::commands::file::open_file_from_path;
+use jotra_tauri_lib::preview::handler::RenderCache;
+use jotra_tauri_lib::quit::QuitState;
+use jotra_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
+use jotra_tauri_lib::state::AppState;
+use jotra_tauri_lib::watcher::handler::create_ignore_set;
+use tempfile::TempDir;
 
 fn make_state(dir: &TempDir) -> AppState {
-    let writ_dir = dir.path().to_path_buf();
-    let buffers_dir = writ_dir.join("buffers");
+    let jotra_dir = dir.path().to_path_buf();
+    let buffers_dir = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
 
-    let notes_root = writ_dir.join("Writ");
+    let notes_root = jotra_dir.join("Jotra");
     std::fs::create_dir_all(&notes_root).expect("notes folder");
-    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+    let notes_root = jotra_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
     let store = BufferStore::new(conn, buffers_dir.clone());
 
-    let config_path = writ_dir.join("config.toml");
+    let config_path = jotra_dir.join("config.toml");
     let config_store = ConfigStore::new(config_path);
 
     let note_history = Arc::new(
-        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+        jotra_storage::note_history::NoteHistoryStore::open(&jotra_dir).expect("version store"),
     );
 
     AppState {
         store: Mutex::new(store),
         config_store,
-        config: Mutex::new(WritConfig::default()),
-        writ_dir,
+        config: Mutex::new(JotraConfig::default()),
+        jotra_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: std::sync::atomic::AtomicBool::new(false),
         menu_apps: std::sync::Mutex::new(None),
-        retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+        retitle_watch: std::sync::Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -90,7 +90,7 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
-        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+        command_usage: jotra_storage::command_usage::CommandUsageStore::new(
             open_database(&db_path).expect("usage db"),
         ),
         config_diagnostics: std::sync::Mutex::new(Vec::new()),
@@ -100,9 +100,9 @@ fn make_state(dir: &TempDir) -> AppState {
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
-        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(
-            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+            jotra_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
@@ -201,7 +201,7 @@ fn a_reload_follows_a_file_that_gained_carriage_returns() {
     let id = open(&state, &file);
     assert_eq!(recorded_ending(&state, &id), LineEnding::Lf);
 
-    // Something outside Writ rewrote the file while the tab was open, and the
+    // Something outside Jotra rewrote the file while the tab was open, and the
     // user said yes to the reload.
     std::fs::write(&file, "alpha\r\nbeta\r\n").unwrap();
     read_buffer_content_inner(&state, &id).expect("reload");
@@ -227,7 +227,7 @@ fn a_reload_follows_a_file_that_gained_carriage_returns() {
 /// `AppState::disk_state` is what `NoteFiles::last_disk_state` answers with,
 /// and `modification_is_news` compares it to a fresh digest of the file. A
 /// digest of the editor's LF text would differ from every byte on disk, so
-/// Writ's own save would come back to the tab as somebody else's edit.
+/// Jotra's own save would come back to the tab as somebody else's edit.
 #[test]
 fn a_save_records_the_windows_files_own_digest_for_the_watcher() {
     let dir = TempDir::new().unwrap();
@@ -240,11 +240,11 @@ fn a_save_records_the_windows_files_own_digest_for_the_watcher() {
 
     save_buffer_content_inner(&state, &id, "alpha\nBETA\n").expect("save");
 
-    let on_disk = writ_core::hash::sha256_bytes(&std::fs::read(&file).unwrap());
+    let on_disk = jotra_core::hash::sha256_bytes(&std::fs::read(&file).unwrap());
     let recorded = state.disk_state(&id).expect("the save recorded nothing");
     assert_eq!(recorded.hash, on_disk);
     assert!(
-        !writ_core::watcher::change_event::modification_is_news(
+        !jotra_core::watcher::change_event::modification_is_news(
             Some(recorded.hash),
             Some(on_disk),
             false
@@ -273,7 +273,7 @@ fn a_save_of_the_text_the_file_holds_leaves_the_record_answering_for_it() {
         before,
         "nothing was typed, so nothing can have been written"
     );
-    let on_disk = writ_core::hash::sha256_bytes(&std::fs::read(&file).unwrap());
+    let on_disk = jotra_core::hash::sha256_bytes(&std::fs::read(&file).unwrap());
     assert_eq!(
         state.disk_state(&id).expect("no record").hash,
         on_disk,

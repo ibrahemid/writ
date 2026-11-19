@@ -207,7 +207,7 @@ export default function SettingsModal() {
                 ref={searchRef}
                 type="text"
                 class="settings-search-input"
-                data-writ-focus-silent
+                data-jotra-focus-silent
                 placeholder="Search settings"
                 value={query()}
                 onInput={(e) => setQuery(e.currentTarget.value)}

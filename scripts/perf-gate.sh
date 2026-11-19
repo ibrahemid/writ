@@ -15,64 +15,64 @@ for arg in "$@"; do
     esac
 done
 
-step "perf gate: transform budget (writ-plugin, release)"
-WRIT_PERF_GATE=1 cargo test \
+step "perf gate: transform budget (jotra-plugin, release)"
+JOTRA_PERF_GATE=1 cargo test \
     --release \
-    -p writ-plugin \
+    -p jotra-plugin \
     --test perf_budget \
     -- --nocapture
 
-step "perf gate: builtin transform probe (writ-plugin, release)"
+step "perf gate: builtin transform probe (jotra-plugin, release)"
 cargo test \
     --release \
-    -p writ-plugin \
+    -p jotra-plugin \
     --test builtin_perf_tests \
     -- --ignored --nocapture
 
 step "perf gate: language detection input cap (frontend)"
 PNPM="${PNPM:-pnpm}"
 command -v "${PNPM}" >/dev/null 2>&1 || fail "pnpm not found; set PNPM to its path"
-WRIT_PERF_GATE=1 "${PNPM}" exec vitest run \
+JOTRA_PERF_GATE=1 "${PNPM}" exec vitest run \
     src/__tests__/services/language-detect.test.ts
 
 step "perf gate: inline markdown decorations (frontend)"
-WRIT_PERF_GATE=1 "${PNPM}" exec vitest run \
+JOTRA_PERF_GATE=1 "${PNPM}" exec vitest run \
     src/__tests__/editor/markdown-inline-perf.test.ts \
     --disable-console-intercept
 
 step "perf gate: find on large documents (frontend)"
-WRIT_PERF_GATE=1 "${PNPM}" exec vitest run \
+JOTRA_PERF_GATE=1 "${PNPM}" exec vitest run \
     src/__tests__/editor/find-perf.test.ts \
     --disable-console-intercept
 
 step "perf gate: word and character counts on large documents (frontend)"
-WRIT_PERF_GATE=1 "${PNPM}" exec vitest run \
+JOTRA_PERF_GATE=1 "${PNPM}" exec vitest run \
     src/__tests__/lib/document-counts-perf.test.ts \
     --disable-console-intercept
 
 step "perf gate: editor in headless Chromium, the 300 MiB files and the section 6 targets (frontend)"
-WRIT_PERF_GATE=1 node scripts/perf-editor.mjs --large --strict
+JOTRA_PERF_GATE=1 node scripts/perf-editor.mjs --large --strict
 
-step "perf gate: shell budget (writ-tauri, release, one test at a time)"
-WRIT_PERF_GATE=1 cargo test \
+step "perf gate: shell budget (jotra-tauri, release, one test at a time)"
+JOTRA_PERF_GATE=1 cargo test \
     --release \
-    -p writ-tauri \
+    -p jotra-tauri \
     --test shell_budget \
     -- --nocapture --test-threads=1
 
-step "perf gate: storage budget (writ-storage, release, one test at a time)"
-WRIT_PERF_GATE=1 cargo test \
+step "perf gate: storage budget (jotra-storage, release, one test at a time)"
+JOTRA_PERF_GATE=1 cargo test \
     --release \
-    -p writ-storage \
+    -p jotra-storage \
     --test perf_budget \
     -- --nocapture --test-threads=1
 
 if [[ "${RUN_BENCHES}" -eq 1 ]]; then
-    step "criterion benchmarks: writ-plugin transforms"
-    cargo bench -p writ-plugin --bench transforms
+    step "criterion benchmarks: jotra-plugin transforms"
+    cargo bench -p jotra-plugin --bench transforms
 
-    step "criterion benchmarks: writ-storage"
-    cargo bench -p writ-storage --bench storage
+    step "criterion benchmarks: jotra-storage"
+    cargo bench -p jotra-storage --bench storage
 fi
 
 echo

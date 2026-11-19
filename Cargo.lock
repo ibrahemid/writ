@@ -2822,6 +2822,216 @@ dependencies = [
 ]
 
 [[package]]
+name = "jotra-ai"
+version = "1.0.1"
+dependencies = [
+ "futures-util",
+ "jotra-core",
+ "jotra-storage",
+ "keyring",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "jotra-audio"
+version = "1.0.1"
+dependencies = [
+ "cpal",
+ "jotra-core",
+ "rubato",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "jotra-cli"
+version = "1.0.1"
+dependencies = [
+ "chrono",
+ "clap",
+ "dirs 7.0.0",
+ "jotra-core",
+ "jotra-mcp",
+ "jotra-storage",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "toml 1.1.8+spec-1.1.0",
+]
+
+[[package]]
+name = "jotra-core"
+version = "1.0.1"
+dependencies = [
+ "base64 0.23.1",
+ "chardetng",
+ "chrono",
+ "dom_query 0.29.0",
+ "encoding_rs",
+ "html5ever 0.40.1",
+ "jotra-render",
+ "percent-encoding",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tempfile",
+ "thiserror 2.0.21",
+ "toml 1.1.8+spec-1.1.0",
+ "toml_edit 0.25.17+spec-1.1.0",
+ "tracing",
+ "unicode-normalization",
+ "unicode-segmentation",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "jotra-lint"
+version = "1.0.1"
+dependencies = [
+ "jotra-core",
+ "pulldown-cmark",
+ "serde",
+ "spellbook",
+]
+
+[[package]]
+name = "jotra-mcp"
+version = "1.0.1"
+dependencies = [
+ "chrono",
+ "jotra-core",
+ "jotra-storage",
+ "percent-encoding",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "toml 1.1.8+spec-1.1.0",
+]
+
+[[package]]
+name = "jotra-plugin"
+version = "1.0.1"
+dependencies = [
+ "criterion",
+ "jotra-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "jotra-render"
+version = "1.0.1"
+dependencies = [
+ "pulldown-cmark",
+ "serde",
+ "serde-wasm-bindgen",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "jotra-storage"
+version = "1.0.1"
+dependencies = [
+ "chrono",
+ "criterion",
+ "grep-matcher",
+ "grep-regex",
+ "grep-searcher",
+ "ignore",
+ "jotra-core",
+ "libc",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "toml 1.1.8+spec-1.1.0",
+ "tracing",
+ "trash",
+ "uuid",
+ "windows",
+ "zip",
+]
+
+[[package]]
+name = "jotra-tauri"
+version = "1.0.1"
+dependencies = [
+ "arboard",
+ "block2",
+ "chrono",
+ "core-foundation 0.10.1",
+ "dirs 7.0.0",
+ "dispatch2",
+ "fsevent-sys",
+ "getrandom 0.4.3",
+ "hashbrown 0.17.1",
+ "image",
+ "jotra-ai",
+ "jotra-audio",
+ "jotra-core",
+ "jotra-lint",
+ "jotra-mcp",
+ "jotra-plugin",
+ "jotra-render",
+ "jotra-storage",
+ "libc",
+ "notify",
+ "notify-debouncer-mini",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "plist",
+ "png 0.18.1",
+ "pulldown-cmark",
+ "reqwest",
+ "rfd",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tao",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "toml 1.1.8+spec-1.1.0",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "url",
+ "windows",
+ "windows-registry",
+ "wry",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7327,210 +7537,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "writ-ai"
-version = "1.0.1"
-dependencies = [
- "futures-util",
- "keyring",
- "reqwest",
- "rustls",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "url",
- "writ-core",
- "writ-storage",
-]
-
-[[package]]
-name = "writ-audio"
-version = "1.0.1"
-dependencies = [
- "cpal",
- "rubato",
- "serde_json",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
- "writ-core",
-]
-
-[[package]]
-name = "writ-cli"
-version = "1.0.1"
-dependencies = [
- "chrono",
- "clap",
- "dirs 7.0.0",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "toml 1.1.8+spec-1.1.0",
- "writ-core",
- "writ-mcp",
- "writ-storage",
-]
-
-[[package]]
-name = "writ-core"
-version = "1.0.1"
-dependencies = [
- "base64 0.23.1",
- "chardetng",
- "chrono",
- "dom_query 0.29.0",
- "encoding_rs",
- "html5ever 0.40.1",
- "percent-encoding",
- "serde",
- "serde_json",
- "sha2 0.11.1",
- "tempfile",
- "thiserror 2.0.21",
- "toml 1.1.8+spec-1.1.0",
- "toml_edit 0.25.17+spec-1.1.0",
- "tracing",
- "unicode-normalization",
- "unicode-segmentation",
- "url",
- "uuid",
- "writ-render",
-]
-
-[[package]]
-name = "writ-lint"
-version = "1.0.1"
-dependencies = [
- "pulldown-cmark",
- "serde",
- "spellbook",
- "writ-core",
-]
-
-[[package]]
-name = "writ-mcp"
-version = "1.0.1"
-dependencies = [
- "chrono",
- "percent-encoding",
- "rmcp",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "toml 1.1.8+spec-1.1.0",
- "writ-core",
- "writ-storage",
-]
-
-[[package]]
-name = "writ-plugin"
-version = "1.0.1"
-dependencies = [
- "criterion",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "writ-core",
-]
-
-[[package]]
-name = "writ-render"
-version = "1.0.1"
-dependencies = [
- "pulldown-cmark",
- "serde",
- "serde-wasm-bindgen",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "writ-storage"
-version = "1.0.1"
-dependencies = [
- "chrono",
- "criterion",
- "grep-matcher",
- "grep-regex",
- "grep-searcher",
- "ignore",
- "libc",
- "rusqlite",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "toml 1.1.8+spec-1.1.0",
- "tracing",
- "trash",
- "uuid",
- "windows",
- "writ-core",
- "zip",
-]
-
-[[package]]
 name = "writ-tauri"
 version = "1.0.1"
-dependencies = [
- "arboard",
- "block2",
- "chrono",
- "core-foundation 0.10.1",
- "dirs 7.0.0",
- "dispatch2",
- "fsevent-sys",
- "getrandom 0.4.3",
- "hashbrown 0.17.1",
- "image",
- "notify",
- "notify-debouncer-mini",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "png 0.18.1",
- "pulldown-cmark",
- "reqwest",
- "rfd",
- "rustix",
- "serde",
- "serde_json",
- "tao",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-dialog",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-opener",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tokio-util",
- "toml 1.1.8+spec-1.1.0",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "url",
- "windows",
- "writ-ai",
- "writ-audio",
- "writ-core",
- "writ-lint",
- "writ-mcp",
- "writ-plugin",
- "writ-render",
- "writ-storage",
- "wry",
-]
 
 [[package]]
 name = "writeable"

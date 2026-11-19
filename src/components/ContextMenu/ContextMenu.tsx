@@ -60,7 +60,7 @@ interface ContextMenuState {
   bounds?: DOMRect;
 }
 
-// Singleton state — Writ is single-window, single-instance per component
+// Singleton state — Jotra is single-window, single-instance per component
 const [menu, setMenuState] = createSignal<ContextMenuState | null>(null);
 
 function setMenu(next: ContextMenuState | null): void {
@@ -345,7 +345,7 @@ export default function ContextMenu() {
                   role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
                   aria-checked={item.checked === undefined ? undefined : item.checked}
                   tabindex={-1}
-                  data-writ-focus-silent
+                  data-jotra-focus-silent
                   disabled={item.disabled || item.note}
                   class={`context-menu-item ${item.danger ? "context-menu-danger" : ""}`}
                   classList={{ "context-menu-note": item.note === true }}

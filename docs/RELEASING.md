@@ -1,6 +1,6 @@
-# Releasing Writ
+# Releasing Jotra
 
-Step-by-step procedure for publishing a new version of Writ to GitHub Releases.
+Step-by-step procedure for publishing a new version of Jotra to GitHub Releases.
 The release pipeline lives in `.github/workflows/release.yml`. This document is
 the runbook for the human-driven steps around it.
 
@@ -276,25 +276,25 @@ job restores or saves an Actions cache: every release build starts cold.
    candidate lists the commits since the previous tag of either kind.
 2. `build` runs the matrix with no secret and no write token:
    - `macos-latest`  universal binary (`aarch64` + `x86_64` merged), producing
-     `Writ.app`, ad-hoc signed, inside `Writ_<version>_universal.dmg`.
-   - `windows-latest`  x64, producing `Writ_<version>_x64_en-US.msi`, plus the
+     `Jotra.app`, ad-hoc signed, inside `Jotra_<version>_universal.dmg`.
+   - `windows-latest`  x64, producing `Jotra_<version>_x64_en-US.msi`, plus the
      two executables `sign-windows` signs.
-   - `ubuntu-22.04`  x64, producing `Writ_<version>_amd64.deb` and
-     `Writ_<version>_amd64.AppImage`.
+   - `ubuntu-22.04`  x64, producing `Jotra_<version>_amd64.deb` and
+     `Jotra_<version>_amd64.AppImage`.
 
    Every leg builds with `--locked`, so the release compiles the lockfile CI
    tested, and with `createUpdaterArtifacts` off: no updater signature is made
    where dependency code runs.
-3. `sbom` writes CycloneDX SBOMs: `writ-tauri_<version>_<target>.cdx.json` and
-   `writ-cli_<version>_<target>.cdx.json` for each release target
-   (cargo-cyclonedx), and `writ-frontend_<version>.cdx.json` for the pnpm tree
+3. `sbom` writes CycloneDX SBOMs: `jotra-tauri_<version>_<target>.cdx.json` and
+   `jotra-cli_<version>_<target>.cdx.json` for each release target
+   (cargo-cyclonedx), and `jotra-frontend_<version>.cdx.json` for the pnpm tree
    (cdxgen). It refuses an SBOM that `actions/attest` would reject (no
    `bomFormat`, `specVersion` or `serialNumber`), one that describes another
    project or version, and one with no components.
 4. `signing-config` reports whether the Windows signing secrets exist (1.3).
 5. `sign-macos` signs, notarizes and staples the app, the `.pkg` and the
    `.dmg`, and archives the signed app as the updater payload
-   `Writ_<version>_universal.app.tar.gz` (below).
+   `Jotra_<version>_universal.app.tar.gz` (below).
 6. `sign-windows` rebuilds the MSI around the build's executables with
    `tauri bundle`, signing each through `bundle.windows.signCommand`. It runs
    only when a Windows signing account exists.
@@ -316,7 +316,7 @@ job restores or saves an Actions cache: every release build starts cold.
 The `.pkg` (with quit/relaunch scripts) and the `.dmg` (drag-to-Applications)
 ship on every release; the `.pkg` is the default recommendation and the source
 for the Homebrew cask. The in-app updater consumes neither: it downloads
-`Writ_<version>_universal.app.tar.gz`, verifies the `.sig` against the embedded
+`Jotra_<version>_universal.app.tar.gz`, verifies the `.sig` against the embedded
 minisign public key, and swaps the `.app` in place.
 
 There is no `.msi.zip` and no `.AppImage.tar.gz`: the Windows and Linux updater
@@ -340,17 +340,17 @@ artifacts. `scripts/macos-release.sh` holds the signing steps:
   signature, fail when the signed app lacks that entitlement.
 - The `.pkg` is built from that signed app by `scripts/build-mac-pkg.sh`.
   `pkgbuild` produces the component package carrying the pre-install (quit a
-  running Writ) and post-install (relaunch) scripts; `productbuild` wraps it
+  running Jotra) and post-install (relaunch) scripts; `productbuild` wraps it
   in a distribution declaring the macOS 12.0 floor, which a bare component
   package cannot express; `productsign` signs the result when
-  `WRIT_INSTALLER_SIGNING_IDENTITY` is set. The workflow sets that itself,
+  `JOTRA_INSTALLER_SIGNING_IDENTITY` is set. The workflow sets that itself,
   resolving the Developer ID **Installer** identity out of the build keychain
   rather than reading it from a secret; the certificate arrives as
   `APPLE_INSTALLER_CERTIFICATE`. That is a different certificate from the
   Application one: a `.pkg` signed with the Application identity is rejected.
   With the variable unset the script still writes an installer, unsigned, and
   prints that Gatekeeper will reject it.
-- The `.dmg` is the build's image with its `Writ.app` swapped for the signed
+- The `.dmg` is the build's image with its `Jotra.app` swapped for the signed
   one, keeping the window layout and volume icon. The wrapper is then signed,
   notarized and stapled on its own.
 
@@ -390,18 +390,18 @@ machine:
 - macOS: check the `.pkg` before installing it.
 
   ```bash
-  pkgutil --check-signature Writ_<version>_universal.pkg   # Developer ID Installer chain
-  xcrun stapler validate Writ_<version>_universal.pkg      # ticket is embedded
+  pkgutil --check-signature Jotra_<version>_universal.pkg   # Developer ID Installer chain
+  xcrun stapler validate Jotra_<version>_universal.pkg      # ticket is embedded
   ```
 
   Both must pass, and `release-meta.json` has to sit among the draft's assets
   with `pkg.signed`, `pkg.notarized`, `pkg.stapled`, and `dmg.stapled` all
-  true. Then install. The installer quits any running Writ, swaps the bundle,
+  true. Then install. The installer quits any running Jotra, swaps the bundle,
   and relaunches the new version. Confirm hotkey and autosave still work. A
   signed and stapled installer draws no Gatekeeper prompt on a machine that
   has never held the certificate; if one appears, stop and find out why
   instead of clicking through. As a secondary check, mount the `.dmg`, drag
-  `Writ.app` to `/Applications`, and confirm it launches the same version.
+  `Jotra.app` to `/Applications`, and confirm it launches the same version.
   Then take the WKWebView measurement in `docs/perf-budgets.md` (editor
   responsiveness per file tier) on the installed build and record it there.
 - Windows: run the `.msi`, launch from Start menu, confirm hotkey and
@@ -409,7 +409,8 @@ machine:
 - Linux: install the `.deb` with `sudo dpkg -i`, or run the `.AppImage`
   directly, and confirm hotkey and autosave work.
 - On the macOS install, check that Settings draws paths in their own order.
-  Settings, General: the folder reads `~/Writ`, with the tilde first. Move
+  Settings, General: the folder reads `~/Jotra` (`~/Writ` on a machine that ran
+  Writ), with the tilde first. Move
   the folder to one named in Arabic, such as `~/ملاحظات`: the row reads
   `~/ملاحظات` with the tilde and slash on the left. Settings, Apps, Connected
   programs, with the app on: the command starts with `/` on the left and ends
@@ -423,15 +424,15 @@ old key, 1.5):
 sha256sum --check SHA256SUMS.txt
 git fetch --tags
 git show "$(gh release view --json tagName --jq .tagName):src-tauri/tauri.conf.json" \
-  | jq -r .plugins.updater.pubkey | base64 --decode > writ-updater.pub
-minisign -Vm SHA256SUMS.txt -p writ-updater.pub
+  | jq -r .plugins.updater.pubkey | base64 --decode > jotra-updater.pub
+minisign -Vm SHA256SUMS.txt -p jotra-updater.pub
 ```
 
 Check the attestations on one installer per platform: build provenance, then
 the SBOM attestation for the same file.
 
 ```bash
-for asset in Writ_<version>_universal.pkg Writ_<version>_x64_en-US.msi Writ_<version>_amd64.AppImage; do
+for asset in Jotra_<version>_universal.pkg Jotra_<version>_x64_en-US.msi Jotra_<version>_amd64.AppImage; do
   gh attestation verify "$asset" --repo ibrahemid/writ
   gh attestation verify "$asset" --repo ibrahemid/writ --predicate-type https://cyclonedx.org/bom
 done
@@ -517,9 +518,9 @@ unstapled `.pkg` looks identical until Gatekeeper sees it. The order
 candidate. Download the `.pkg` from the pre-release and run:
 
 ```bash
-pkgutil --check-signature Writ_0.2.0-1_universal.pkg   # Developer ID Installer chain
-spctl -a -t install -vv Writ_0.2.0-1_universal.pkg     # what Gatekeeper decides
-xcrun stapler validate Writ_0.2.0-1_universal.pkg      # ticket is embedded, works offline
+pkgutil --check-signature Jotra_0.2.0-1_universal.pkg   # Developer ID Installer chain
+spctl -a -t install -vv Jotra_0.2.0-1_universal.pkg     # what Gatekeeper decides
+xcrun stapler validate Jotra_0.2.0-1_universal.pkg      # ticket is embedded, works offline
 ```
 
 Run them on a machine that has never had the signing certificate installed. All
@@ -530,7 +531,7 @@ for one installer per platform (2.5). Without a Windows signing account the
 candidate's MSI is unsigned (1.3); with one, check it on Windows:
 
 ```powershell
-Get-AuthenticodeSignature .\Writ_0.2.0-1_x64_en-US.msi | Format-List Status, SignerCertificate
+Get-AuthenticodeSignature .\Jotra_0.2.0-1_x64_en-US.msi | Format-List Status, SignerCertificate
 ```
 
 ## 4. Rolling back
@@ -584,13 +585,13 @@ relaunch) against a local server, without tagging or triggering CI. It does
 quarantined, so a notarized→notarized swap can only be verified with a real
 signed release. Treat "works locally" accordingly.
 
-The override path (`WRIT_UPDATER_ENDPOINT` / `WRIT_UPDATER_PUBKEY`) is compiled
+The override path (`JOTRA_UPDATER_ENDPOINT` / `JOTRA_UPDATER_PUBKEY`) is compiled
 in **debug builds only**; a release binary ignores both.
 
 1. Generate a throwaway signing keypair (do not reuse the production key):
 
    ```bash
-   cargo tauri signer generate -w /tmp/writ-test.key
+   cargo tauri signer generate -w /tmp/jotra-test.key
    ```
 
 2. Build a "newer" bundle. Bump the version in `Cargo.toml`,
@@ -598,31 +599,31 @@ in **debug builds only**; a release binary ignores both.
    (e.g. `0.9.0`), then:
 
    ```bash
-   TAURI_SIGNING_PRIVATE_KEY="$(cat /tmp/writ-test.key)" \
+   TAURI_SIGNING_PRIVATE_KEY="$(cat /tmp/jotra-test.key)" \
      cargo tauri build --bundles app
    ```
 
-   This produces `Writ_0.9.0_universal.app.tar.gz` and a `.sig` under
+   This produces `Jotra_0.9.0_universal.app.tar.gz` and a `.sig` under
    `target/universal-apple-darwin/release/bundle/macos/` (or the per-arch
    target dir for a non-universal local build).
 
 3. Serve a manifest + the bundle locally:
 
    ```bash
-   mkdir -p /tmp/writ-staging && cd /tmp/writ-staging
-   cp /path/to/Writ_0.9.0_universal.app.tar.gz .
+   mkdir -p /tmp/jotra-staging && cd /tmp/jotra-staging
+   cp /path/to/Jotra_0.9.0_universal.app.tar.gz .
    # latest.json: version 0.9.0; darwin-aarch64 and darwin-x86_64 both point at
-   # http://localhost:8000/Writ_0.9.0_universal.app.tar.gz; signature = the
+   # http://localhost:8000/Jotra_0.9.0_universal.app.tar.gz; signature = the
    # contents of the .sig file.
    python3 -m http.server 8000
    ```
 
 4. Run a lower-version debug build pointed at the local endpoint with the
-   matching test public key (contents of `/tmp/writ-test.key.pub`):
+   matching test public key (contents of `/tmp/jotra-test.key.pub`):
 
    ```bash
-   WRIT_UPDATER_ENDPOINT="http://localhost:8000/latest.json" \
-   WRIT_UPDATER_PUBKEY="$(cat /tmp/writ-test.key.pub)" \
+   JOTRA_UPDATER_ENDPOINT="http://localhost:8000/latest.json" \
+   JOTRA_UPDATER_PUBKEY="$(cat /tmp/jotra-test.key.pub)" \
      cargo tauri dev
    ```
 

@@ -7,7 +7,7 @@ import { rendererRegistry } from "../../stores/global/renderer-registry";
 import type { BufferDocument } from "../../types/buffer";
 
 // Regression for the preview-close webview freeze. Tearing down a loaded
-// writ-preview:// iframe element hard-freezes the macOS webview (PR #124 fixed
+// jotra-preview:// iframe element hard-freezes the macOS webview (PR #124 fixed
 // the non-last-tab case by reselecting; the last-tab `active->null` and the
 // switch-to-non-renderable cases still removed the element). The fix keeps the
 // preview pane mounted always and only NAVIGATES its iframe (to a blank doc

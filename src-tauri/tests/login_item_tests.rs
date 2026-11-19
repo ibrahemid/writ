@@ -4,22 +4,22 @@
 use std::cell::{Cell, RefCell};
 use std::sync::Mutex as StdMutex;
 
-use tempfile::TempDir;
-use writ_core::config::WritConfig;
-use writ_tauri_lib::commands::login_item::{
+use jotra_core::config::JotraConfig;
+use jotra_tauri_lib::commands::login_item::{
     apply_first_run_choice, set_launch_at_login_inner, LoginItem, LoginItemError, LoginItemStatus,
 };
-use writ_tauri_lib::state::AppState;
+use jotra_tauri_lib::state::AppState;
+use tempfile::TempDir;
 
 static ENV_LOCK: StdMutex<()> = StdMutex::new(());
 
 fn launch(data_dir: &std::path::Path, notes_dir: &std::path::Path) -> AppState {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("WRIT_DATA_DIR", data_dir);
-    std::env::set_var("WRIT_NOTES_DIR", notes_dir);
+    std::env::set_var("JOTRA_DATA_DIR", data_dir);
+    std::env::set_var("JOTRA_NOTES_DIR", notes_dir);
     let state = AppState::initialize().expect("app state");
-    std::env::remove_var("WRIT_DATA_DIR");
-    std::env::remove_var("WRIT_NOTES_DIR");
+    std::env::remove_var("JOTRA_DATA_DIR");
+    std::env::remove_var("JOTRA_NOTES_DIR");
     state
 }
 
@@ -46,9 +46,9 @@ impl LoginItem for FakeLoginItem {
     }
 }
 
-fn on_disk(data: &TempDir) -> WritConfig {
+fn on_disk(data: &TempDir) -> JotraConfig {
     let text = std::fs::read_to_string(data.path().join("config.toml")).expect("config written");
-    WritConfig::parse(&text).expect("config parses")
+    JotraConfig::parse(&text).expect("config parses")
 }
 
 fn with_config(data: &TempDir, text: &str) {

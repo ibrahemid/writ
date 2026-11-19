@@ -22,7 +22,7 @@ function fileWord(count: number): string {
   return count === 1 ? "file" : "files";
 }
 
-/** `1 file is now in ~/Writ.` / `4 files are now in ~/Writ.` */
+/** `1 file is now in ~/Jotra.` / `4 files are now in ~/Jotra.` */
 function placedLine(count: number, where: string): string {
   return count === 1 ? `1 file is now in ${where}.` : `${count} files are now in ${where}.`;
 }

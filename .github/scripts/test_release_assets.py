@@ -48,19 +48,19 @@ class AssetNameTests(unittest.TestCase):
         self.assertEqual(
             [i.name for i in release_assets.installers(VERSION)],
             [
-                "Writ_0.6.0_universal.pkg",
-                "Writ_0.6.0_universal.dmg",
-                "Writ_0.6.0_universal.app.tar.gz",
-                "Writ_0.6.0_x64_en-US.msi",
-                "Writ_0.6.0_amd64.deb",
-                "Writ_0.6.0_amd64.AppImage",
+                "Jotra_0.6.0_universal.pkg",
+                "Jotra_0.6.0_universal.dmg",
+                "Jotra_0.6.0_universal.app.tar.gz",
+                "Jotra_0.6.0_x64_en-US.msi",
+                "Jotra_0.6.0_amd64.deb",
+                "Jotra_0.6.0_amd64.AppImage",
             ],
         )
 
     def test_a_candidate_version_keeps_its_suffix(self) -> None:
         names = release_assets.asset_set("0.6.0-1", "installers")
-        self.assertIn("Writ_0.6.0-1_x64_en-US.msi", names)
-        self.assertIn("Writ_0.6.0-1_universal.pkg", names)
+        self.assertIn("Jotra_0.6.0-1_x64_en-US.msi", names)
+        self.assertIn("Jotra_0.6.0-1_universal.pkg", names)
 
     def test_every_updater_payload_is_one_the_manifest_builder_picks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -79,27 +79,27 @@ class AssetNameTests(unittest.TestCase):
 
     def test_the_pkg_and_dmg_carry_no_updater_signature(self) -> None:
         signatures = release_assets.updater_signatures(VERSION)
-        self.assertNotIn("Writ_0.6.0_universal.pkg.sig", signatures)
-        self.assertNotIn("Writ_0.6.0_universal.dmg.sig", signatures)
+        self.assertNotIn("Jotra_0.6.0_universal.pkg.sig", signatures)
+        self.assertNotIn("Jotra_0.6.0_universal.dmg.sig", signatures)
         self.assertEqual(len(signatures), 4)
 
     def test_sboms_cover_both_binaries_on_every_target_and_the_frontend(self) -> None:
         names = release_assets.asset_set(VERSION, "sboms")
         self.assertEqual(len(names), 9)
-        for crate in ("writ-tauri", "writ-cli"):
+        for crate in ("jotra-tauri", "jotra-cli"):
             for target in release_assets.SBOM_TARGETS:
                 self.assertIn(f"{crate}_0.6.0_{target}.cdx.json", names)
-        self.assertIn("writ-frontend_0.6.0.cdx.json", names)
+        self.assertIn("jotra-frontend_0.6.0.cdx.json", names)
 
     def test_a_target_sbom_describes_only_that_platforms_installers(self) -> None:
         by_name = {s.name: s for s in release_assets.sboms(VERSION)}
-        windows = release_assets.sbom_subjects(VERSION, by_name["writ-cli_0.6.0_x86_64-pc-windows-msvc.cdx.json"])
-        self.assertEqual(windows, ["Writ_0.6.0_x64_en-US.msi"])
-        mac = release_assets.sbom_subjects(VERSION, by_name["writ-tauri_0.6.0_aarch64-apple-darwin.cdx.json"])
+        windows = release_assets.sbom_subjects(VERSION, by_name["jotra-cli_0.6.0_x86_64-pc-windows-msvc.cdx.json"])
+        self.assertEqual(windows, ["Jotra_0.6.0_x64_en-US.msi"])
+        mac = release_assets.sbom_subjects(VERSION, by_name["jotra-tauri_0.6.0_aarch64-apple-darwin.cdx.json"])
         self.assertEqual(
-            mac, ["Writ_0.6.0_universal.pkg", "Writ_0.6.0_universal.dmg", "Writ_0.6.0_universal.app.tar.gz"]
+            mac, ["Jotra_0.6.0_universal.pkg", "Jotra_0.6.0_universal.dmg", "Jotra_0.6.0_universal.app.tar.gz"]
         )
-        frontend = release_assets.sbom_subjects(VERSION, by_name["writ-frontend_0.6.0.cdx.json"])
+        frontend = release_assets.sbom_subjects(VERSION, by_name["jotra-frontend_0.6.0.cdx.json"])
         self.assertEqual(frontend, [i.name for i in release_assets.installers(VERSION)])
 
     def test_the_checksums_cover_every_download_but_the_metadata(self) -> None:
@@ -160,7 +160,7 @@ class CompareDirTests(unittest.TestCase):
         self.fill(release_assets.asset_set(VERSION, "installers")[1:])
         code, _, stderr = run_main("check", "--dir", str(self.root), "--version", VERSION, "--set", "installers")
         self.assertEqual(code, 1)
-        self.assertIn("missing: Writ_0.6.0_amd64.AppImage", stderr)
+        self.assertIn("missing: Jotra_0.6.0_amd64.AppImage", stderr)
 
     def test_the_check_command_passes_the_exact_set(self) -> None:
         self.fill(release_assets.asset_set(VERSION, "installers"))
@@ -189,7 +189,7 @@ class SbomContentTests(unittest.TestCase):
         self.assertEqual(code, 0, stderr)
 
     def test_an_sbom_without_a_serial_number_is_refused(self) -> None:
-        name = "writ-tauri_0.6.0_x86_64-unknown-linux-gnu.cdx.json"
+        name = "jotra-tauri_0.6.0_x86_64-unknown-linux-gnu.cdx.json"
         document = sbom_document(self.by_name[name])
         del document["serialNumber"]
         self.write(name, document)
@@ -198,7 +198,7 @@ class SbomContentTests(unittest.TestCase):
         self.assertIn(f"{name} has no serialNumber, which actions/attest requires of a CycloneDX SBOM", stderr)
 
     def test_every_field_actions_attest_requires_is_checked(self) -> None:
-        name = "writ-cli_0.6.0_aarch64-apple-darwin.cdx.json"
+        name = "jotra-cli_0.6.0_aarch64-apple-darwin.cdx.json"
         for field in ("bomFormat", "specVersion", "serialNumber"):
             for value in (None, ""):
                 with self.subTest(field=field, value=value):
@@ -214,7 +214,7 @@ class SbomContentTests(unittest.TestCase):
                     self.assertIn(field, stderr)
 
     def test_an_sbom_with_no_components_is_refused(self) -> None:
-        name = "writ-frontend_0.6.0.cdx.json"
+        name = "jotra-frontend_0.6.0.cdx.json"
         for components in ([], None):
             with self.subTest(components=components):
                 document = sbom_document(self.by_name[name])
@@ -228,17 +228,17 @@ class SbomContentTests(unittest.TestCase):
                 self.assertIn(f"{name} lists no components", stderr)
 
     def test_an_sbom_of_another_project_or_version_is_refused(self) -> None:
-        name = "writ-frontend_0.6.0.cdx.json"
+        name = "jotra-frontend_0.6.0.cdx.json"
         document = sbom_document(self.by_name[name])
-        document["metadata"] = {"component": {"name": "writ-site", "version": "0.5.1"}}
+        document["metadata"] = {"component": {"name": "jotra-site", "version": "0.5.1"}}
         self.write(name, document)
         code, stderr = self.check()
         self.assertEqual(code, 1)
-        self.assertIn(f"{name} describes 'writ-site', expected 'writ'", stderr)
+        self.assertIn(f"{name} describes 'jotra-site', expected 'jotra'", stderr)
         self.assertIn(f"{name} describes version '0.5.1', expected '0.6.0'", stderr)
 
     def test_an_sbom_naming_no_component_is_refused(self) -> None:
-        name = "writ-cli_0.6.0_x86_64-pc-windows-msvc.cdx.json"
+        name = "jotra-cli_0.6.0_x86_64-pc-windows-msvc.cdx.json"
         document = sbom_document(self.by_name[name])
         del document["metadata"]
         self.write(name, document)
@@ -247,7 +247,7 @@ class SbomContentTests(unittest.TestCase):
         self.assertIn(f"{name} names no metadata.component", stderr)
 
     def test_a_file_that_is_not_a_json_object_is_refused(self) -> None:
-        name = "writ-tauri_0.6.0_aarch64-apple-darwin.cdx.json"
+        name = "jotra-tauri_0.6.0_aarch64-apple-darwin.cdx.json"
         cases = ((b"{", "is not UTF-8 JSON"), (b"\xff{}", "is not UTF-8 JSON"), (b"[]", "is not a JSON object"))
         for content, message in cases:
             with self.subTest(content=content):
@@ -257,7 +257,7 @@ class SbomContentTests(unittest.TestCase):
                 self.assertIn(f"{name} {message}", stderr)
 
     def test_an_sbom_over_the_attest_size_limit_is_refused(self) -> None:
-        name = "writ-tauri_0.6.0_x86_64-apple-darwin.cdx.json"
+        name = "jotra-tauri_0.6.0_x86_64-apple-darwin.cdx.json"
         with (self.root / name).open("r+b") as handle:
             handle.truncate(release_assets.ATTEST_SBOM_MAX_BYTES + 1)
         code, stderr = self.check()
@@ -265,7 +265,7 @@ class SbomContentTests(unittest.TestCase):
         self.assertIn(f"{name} is {release_assets.ATTEST_SBOM_MAX_BYTES + 1} bytes", stderr)
 
     def test_signing_and_publishing_read_the_sboms_too(self) -> None:
-        name = "writ-cli_0.6.0_x86_64-unknown-linux-gnu.cdx.json"
+        name = "jotra-cli_0.6.0_x86_64-unknown-linux-gnu.cdx.json"
         for set_name in ("signing-inputs", "published"):
             with self.subTest(set=set_name), tempfile.TemporaryDirectory() as tmp:
                 root = pathlib.Path(tmp)
@@ -287,8 +287,8 @@ class SbomContentTests(unittest.TestCase):
         package = json.loads((REPO_ROOT / "package.json").read_text())
         self.assertEqual(package["name"], release_assets.FRONTEND_PACKAGE_NAME)
         manifests = {
-            "writ-tauri": REPO_ROOT / "src-tauri/Cargo.toml",
-            "writ-cli": REPO_ROOT / "crates/writ-cli/Cargo.toml",
+            "jotra-tauri": REPO_ROOT / "src-tauri/Cargo.toml",
+            "jotra-cli": REPO_ROOT / "crates/jotra-cli/Cargo.toml",
         }
         self.assertEqual(set(manifests), set(release_assets.SBOM_CRATES))
         for crate, manifest in manifests.items():
@@ -302,8 +302,8 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(code, 0)
         matrix = json.loads(stdout)
         self.assertEqual(len(matrix), 9)
-        entry = next(e for e in matrix if e["sbom"] == "writ-cli_0.6.0_x86_64-unknown-linux-gnu.cdx.json")
-        self.assertEqual(entry["subjects"], "Writ_0.6.0_amd64.deb Writ_0.6.0_amd64.AppImage")
+        entry = next(e for e in matrix if e["sbom"] == "jotra-cli_0.6.0_x86_64-unknown-linux-gnu.cdx.json")
+        self.assertEqual(entry["subjects"], "Jotra_0.6.0_amd64.deb Jotra_0.6.0_amd64.AppImage")
 
     def test_sbom_targets_prints_one_target_per_line(self) -> None:
         code, stdout, _ = run_main("sbom-targets")

@@ -3,7 +3,7 @@ import re
 import unittest
 
 
-CASK_PATH = pathlib.Path(__file__).resolve().parent.parent / "packaging/homebrew/Casks/writ.rb"
+CASK_PATH = pathlib.Path(__file__).resolve().parent.parent / "packaging/homebrew/Casks/jotra.rb"
 
 DEPRECATED_URL_PARAMETERS = ("verified",)
 
@@ -27,7 +27,7 @@ class CaskUrlTests(unittest.TestCase):
         stanza = url_stanza(CASK_PATH.read_text())
 
         self.assertIn(
-            'url "https://github.com/ibrahemid/writ/releases/download/v#{version}/Writ_#{version}_universal.pkg"',
+            'url "https://github.com/ibrahemid/writ/releases/download/v#{version}/Jotra_#{version}_universal.pkg"',
             stanza,
         )
 

@@ -19,12 +19,12 @@
 //! renderer of record and surfaces its recovery warnings through the
 //! rendered-event channel.
 
-use writ_core::preview::{
+use jotra_core::preview::{
     ContentRenderer, ContentTypeId, RenderError, RenderOutput, RenderRequest, RendererCapabilities,
 };
 
 use super::theme;
-use writ_core::preview::ThemePolarity;
+use jotra_core::preview::ThemePolarity;
 
 /// Hard ceiling above which the HTML renderer refuses. Mirrors ADR-009's
 /// 50 MB surface refusal; the surface-level 1 MB / 5 MB thresholds are
@@ -260,7 +260,7 @@ mod tests {
         let out = HtmlRenderer.render(req_dark("<p>hello</p>")).unwrap();
         assert!(out.used_fallback_stylesheet);
         assert!(out.document_html.contains(":root{"));
-        assert!(out.document_html.contains("--writ-preview-bg: #1b1a18"));
+        assert!(out.document_html.contains("--jotra-preview-bg: #1b1a18"));
     }
 
     #[test]
@@ -269,7 +269,7 @@ mod tests {
         let out = HtmlRenderer.render(req_light("<p>hello</p>")).unwrap();
         assert!(out.used_fallback_stylesheet);
         assert!(!out.document_html.contains(":root{"));
-        assert!(out.document_html.contains("--writ-preview-bg: #ffffff"));
+        assert!(out.document_html.contains("--jotra-preview-bg: #ffffff"));
     }
 
     #[test]
@@ -278,7 +278,7 @@ mod tests {
             .render(req_light("<style>p{color:red}</style><p>x</p>"))
             .unwrap();
         assert!(!out.used_fallback_stylesheet);
-        assert!(!out.document_html.contains("--writ-preview-bg"));
+        assert!(!out.document_html.contains("--jotra-preview-bg"));
     }
 
     fn req_zoomed(text: &str, zoom: f64) -> RenderRequest {
@@ -331,7 +331,7 @@ mod tests {
     }
 
     /// The injected fallback theme is identifiable by its tokens.
-    const THEME_MARKER: &str = "--writ-preview-bg";
+    const THEME_MARKER: &str = "--jotra-preview-bg";
 
     #[test]
     fn document_without_styles_gets_fallback() {

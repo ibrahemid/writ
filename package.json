@@ -1,5 +1,5 @@
 {
-    "name": "writ",
+    "name": "jotra",
     "private": true,
     "version": "1.0.1",
     "description": "Light text editor for any text file, with full-text search and inline Markdown",
@@ -24,6 +24,8 @@
         "tokens:build": "node scripts/tokens-build.mjs",
         "build:demo": "vite build --config vite.demo.config.ts",
         "icons:build": "node scripts/build-icon-sprite.mjs",
+        "app-icon:build": "node scripts/build-app-icon.mjs",
+        "og-image:build": "node scripts/build-og-image.mjs",
         "test:watch": "vitest",
         "typecheck": "tsc --noEmit"
     },

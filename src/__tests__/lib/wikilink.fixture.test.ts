@@ -7,8 +7,8 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { findLinkTargets } from "../../editor/link-layer";
 import { wikilinkName } from "../../lib/wikilink";
 
-// The other half is crates/writ-core/tests/wikilink_targets.rs, reading this
-// same file. writ-core decides what the index stores and what a link resolves
+// The other half is crates/jotra-core/tests/wikilink_targets.rs, reading this
+// same file. jotra-core decides what the index stores and what a link resolves
 // to; the editor decides what is painted and what a click follows. A link the
 // editor offers to follow and the index does not hold is a link that goes
 // nowhere, so the two agreeing is the whole contract.
@@ -26,7 +26,7 @@ interface FixtureCase {
 
 const cases: FixtureCase[] = JSON.parse(
   readFileSync(
-    resolve(__dirname, "../../../crates/writ-core/tests/fixtures/wikilink-targets.json"),
+    resolve(__dirname, "../../../crates/jotra-core/tests/fixtures/wikilink-targets.json"),
     "utf8",
   ),
 ).cases;
@@ -42,7 +42,7 @@ function targets(text: string): string[] {
     .map((range) => state.doc.sliceString(range.from, range.to));
 }
 
-describe("the wikilink fixture shared with writ-core", () => {
+describe("the wikilink fixture shared with jotra-core", () => {
   it("carries the cases the contract needs", () => {
     expect(cases.length).toBeGreaterThan(20);
     const named = cases.map((one) => one.name);
@@ -59,9 +59,9 @@ describe("the wikilink fixture shared with writ-core", () => {
   });
 
   it.each(cases.map((one) => [one.name, one] as const))(
-    "finds the same links as writ-core in %s",
+    "finds the same links as jotra-core in %s",
     (_name, one) => {
-      // A target that names nothing names no note, which is what writ-core's
+      // A target that names nothing names no note, which is what jotra-core's
       // scanner drops rather than storing.
       const found = targets(one.text).filter((target) => wikilinkName(target) !== "");
       expect(found).toEqual(one.editorTargets ?? one.targets);

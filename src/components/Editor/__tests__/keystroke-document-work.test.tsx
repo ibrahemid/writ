@@ -4,7 +4,7 @@ import { createSignal } from "solid-js";
 import { Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { BufferDocument } from "../../../types/buffer";
-import type { WritConfig } from "../../../types/config";
+import type { JotraConfig } from "../../../types/config";
 import WindowProvider, { useWindow } from "../../WindowProvider/WindowProvider";
 import WordCount from "../WordCount";
 import TokenEstimate from "../TokenEstimate";
@@ -70,7 +70,7 @@ async function settle(ms: number): Promise<void> {
 
 async function configure(): Promise<void> {
   const current = configStore.config();
-  const next: WritConfig = {
+  const next: JotraConfig = {
     ...current,
     editor: { ...current.editor, status_bar_counts: true, autosave_debounce_ms: 300 },
     spelling: { ...current.spelling, enabled: true },

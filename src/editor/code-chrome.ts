@@ -6,7 +6,7 @@ import { lineNumbers, highlightActiveLine, highlightActiveLineGutter } from "@co
  * A buffer is code when a language other than markdown was detected. A
  * markdown note and a buffer with no language are prose.
  *
- * The mono face (`writCodeFace`) and the chrome below both hang off this one
+ * The mono face (`jotraCodeFace`) and the chrome below both hang off this one
  * predicate, so the two can never disagree about what a note is.
  */
 export function isCodeBuffer(lang: string | null): boolean {

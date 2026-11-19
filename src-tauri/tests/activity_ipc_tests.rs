@@ -6,19 +6,19 @@
 //! The last test asserts every one of them is in the invoke handler, since a
 //! command that is not registered cannot be called however well it behaves.
 
-use writ_core::activity::{ActivityRecord, Actor, ClientId, Decision, PendingClient};
-use writ_core::config::mcp::{ClientApproval, McpConfig};
-use writ_core::config::WritConfig;
-use writ_mcp::consent::{ConfigGate, ConsentGate, Verdict};
-use writ_storage::config_store::ConfigStore;
-use writ_tauri_lib::commands::activity::{
+use jotra_core::activity::{ActivityRecord, Actor, ClientId, Decision, PendingClient};
+use jotra_core::config::mcp::{ClientApproval, McpConfig};
+use jotra_core::config::JotraConfig;
+use jotra_mcp::consent::{ConfigGate, ConsentGate, Verdict};
+use jotra_storage::config_store::ConfigStore;
+use jotra_tauri_lib::commands::activity::{
     activity_clear_inner, activity_recent_inner, announce_waiting_inner, deny_client_inner,
     deny_unnamed_inner, dialog_name, forget_client_inner, is_new_write_grant, mcp_clients_inner,
     mcp_tools, restore_client_inner, return_to_waiting_inner, server_command_for,
     set_client_permission_inner, waiting_in, ApprovalError, MAX_ACTIVITY_LIMIT,
 };
-use writ_tauri_lib::events::emitter::WritFrontendEvent;
-use writ_tauri_lib::state::AppState;
+use jotra_tauri_lib::events::emitter::JotraFrontendEvent;
+use jotra_tauri_lib::state::AppState;
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
 const ACTIVITY_RS: &str = include_str!("../src/commands/activity.rs");
@@ -51,8 +51,11 @@ fn record(action: &str, decision: Decision) -> ActivityRecord {
 
 fn seeded(dir: &std::path::Path, count: usize) {
     for index in 0..count {
-        writ_storage::activity_log::append(dir, &record(&format!("call_{index}"), Decision::Allow))
-            .expect("append");
+        jotra_storage::activity_log::append(
+            dir,
+            &record(&format!("call_{index}"), Decision::Allow),
+        )
+        .expect("append");
     }
 }
 
@@ -102,7 +105,7 @@ fn activity_recent_over_a_folder_with_no_log_is_empty() {
 #[test]
 fn activity_recent_carries_the_decision_and_the_path() {
     let dir = tempfile::TempDir::new().expect("temp dir");
-    writ_storage::activity_log::append(dir.path(), &record("write_note", Decision::Pending))
+    jotra_storage::activity_log::append(dir.path(), &record("write_note", Decision::Pending))
         .expect("append");
 
     let recent = activity_recent_inner(dir.path(), 10);
@@ -200,12 +203,12 @@ fn mcp_forget_client_returns_the_client_to_pending() {
 #[test]
 fn mcp_server_command_names_an_absolute_binary_and_the_verb() {
     let command = server_command_for(std::path::Path::new(
-        "/Applications/Writ.app/Contents/MacOS/writ",
+        "/Applications/Jotra.app/Contents/MacOS/jotra",
     ));
 
     assert!(command.command.ends_with(" mcp"));
-    assert!(command.command.contains("/Applications/Writ.app"));
-    assert_eq!(command.path, "/Applications/Writ.app/Contents/MacOS/writ");
+    assert!(command.command.contains("/Applications/Jotra.app"));
+    assert_eq!(command.path, "/Applications/Jotra.app/Contents/MacOS/jotra");
 }
 
 #[test]
@@ -232,7 +235,7 @@ fn saving_an_approval_tells_the_frontend_the_settings_moved() {
         body_of("mcp_return_to_waiting").contains("tell_settings_moved(&app)"),
         "undoing a denial writes the settings too"
     );
-    assert!(body_of("tell_settings_moved").contains("WritFrontendEvent::ConfigChanged"));
+    assert!(body_of("tell_settings_moved").contains("JotraFrontendEvent::ConfigChanged"));
 }
 
 fn body_of(name: &str) -> &'static str {
@@ -250,7 +253,7 @@ fn body_of(name: &str) -> &'static str {
 #[test]
 fn a_waiting_program_is_listed_beside_the_approved_ones() {
     let dir = tempfile::TempDir::new().expect("temp dir");
-    writ_storage::pending_clients::note_calls(dir.path(), &ClientId::named("Zed"), 3)
+    jotra_storage::pending_clients::note_calls(dir.path(), &ClientId::named("Zed"), 3)
         .expect("note");
 
     let approved = vec![ClientApproval {
@@ -273,7 +276,7 @@ fn a_waiting_program_is_listed_beside_the_approved_ones() {
 #[test]
 fn a_program_already_decided_on_is_not_also_waiting() {
     let dir = tempfile::TempDir::new().expect("temp dir");
-    writ_storage::pending_clients::note_calls(dir.path(), &ClientId::named("Claude Code"), 1)
+    jotra_storage::pending_clients::note_calls(dir.path(), &ClientId::named("Claude Code"), 1)
         .expect("note");
 
     let approved = vec![ClientApproval {
@@ -312,19 +315,19 @@ fn deciding_on_a_program_is_wired_to_clear_its_waiting_entry() {
 /// The settings row tells the user what an approved program can do. A
 /// hand-written list there would go stale the first time a tool was added, and
 /// the user would be reading a promise the server no longer keeps. Both sides
-/// read `writ_core::tools`; this is the assertion that they agree.
+/// read `jotra_core::tools`; this is the assertion that they agree.
 #[test]
 fn the_settings_row_lists_the_tools_the_served_process_registers() {
     let dir = tempfile::TempDir::new().expect("temp dir");
-    let host = writ_mcp::tools::ToolHost::open(
+    let host = jotra_mcp::tools::ToolHost::open(
         dir.path(),
-        &dir.path().join("writ.db"),
+        &dir.path().join("jotra.db"),
         dir.path(),
-        Box::new(writ_mcp::tools::FixedAppFolder(dir.path().to_path_buf())),
-        Box::new(writ_mcp::consent::DenyAll),
+        Box::new(jotra_mcp::tools::FixedAppFolder(dir.path().to_path_buf())),
+        Box::new(jotra_mcp::consent::DenyAll),
     )
     .expect("host");
-    let mut registered = writ_mcp::server::WritServer::new(host).tool_names();
+    let mut registered = jotra_mcp::server::JotraServer::new(host).tool_names();
     registered.sort();
 
     let tools = mcp_tools();
@@ -362,9 +365,9 @@ fn the_write_half_of_the_settings_row_is_the_six_write_tools() {
 
 fn write_settings(dir: &std::path::Path, mcp: McpConfig) {
     let store = ConfigStore::new(dir.join("config.toml"));
-    let config = WritConfig {
+    let config = JotraConfig {
         mcp,
-        ..WritConfig::default()
+        ..JotraConfig::default()
     };
     let text = store.serialize(&config).expect("serialise");
     store.write_serialized(&text).expect("write");
@@ -377,7 +380,7 @@ fn read_settings(dir: &std::path::Path) -> McpConfig {
         .mcp
 }
 
-// `AppState::initialize` reads `WRIT_DATA_DIR` and `WRIT_NOTES_DIR`; the tests
+// `AppState::initialize` reads `JOTRA_DATA_DIR` and `JOTRA_NOTES_DIR`; the tests
 // in this file that set them take turns.
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -391,11 +394,11 @@ fn launch() -> Launched {
     let data = tempfile::TempDir::new().expect("data dir");
     let notes = tempfile::TempDir::new().expect("notes dir");
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("WRIT_DATA_DIR", data.path());
-    std::env::set_var("WRIT_NOTES_DIR", notes.path());
+    std::env::set_var("JOTRA_DATA_DIR", data.path());
+    std::env::set_var("JOTRA_NOTES_DIR", notes.path());
     let state = AppState::initialize().expect("app state");
-    std::env::remove_var("WRIT_DATA_DIR");
-    std::env::remove_var("WRIT_NOTES_DIR");
+    std::env::remove_var("JOTRA_DATA_DIR");
+    std::env::remove_var("JOTRA_NOTES_DIR");
     Launched {
         state,
         _data: data,
@@ -407,7 +410,7 @@ fn decide_in(state: &AppState, change: impl FnOnce(&mut McpConfig)) {
     let mut config = state.config.lock().expect("config");
     change(&mut config.mcp);
     config.mcp.enabled = true;
-    write_settings(&state.writ_dir, config.mcp.clone());
+    write_settings(&state.jotra_dir, config.mcp.clone());
 }
 
 fn names(waiting: &[PendingClient]) -> Vec<&str> {
@@ -417,7 +420,7 @@ fn names(waiting: &[PendingClient]) -> Vec<&str> {
 #[test]
 fn a_denial_persists_and_can_be_undone() {
     let app = launch();
-    let dir = app.state.writ_dir.clone();
+    let dir = app.state.jotra_dir.clone();
     let program = ClientId::named("Claude Code");
     decide_in(&app.state, |mcp| {
         deny_client_inner(mcp, "Claude Code").expect("deny");
@@ -453,7 +456,7 @@ fn a_denial_persists_and_can_be_undone() {
 #[test]
 fn undoing_a_denial_writes_the_settings_then_says_so_then_lists_the_program() {
     let app = launch();
-    let dir = app.state.writ_dir.clone();
+    let dir = app.state.jotra_dir.clone();
     decide_in(&app.state, |mcp| {
         deny_client_inner(mcp, "Claude Code").expect("deny");
     });
@@ -466,7 +469,7 @@ fn undoing_a_denial_writes_the_settings_then_says_so_then_lists_the_program() {
             "the frontend was told before the settings were written"
         );
         assert!(
-            writ_storage::pending_clients::read(&dir).is_empty(),
+            jotra_storage::pending_clients::read(&dir).is_empty(),
             "the program was listed before the frontend was told"
         );
     })
@@ -474,7 +477,7 @@ fn undoing_a_denial_writes_the_settings_then_says_so_then_lists_the_program() {
 
     assert!(told);
     assert_eq!(
-        names(&writ_storage::pending_clients::read(&dir)),
+        names(&jotra_storage::pending_clients::read(&dir)),
         ["Claude Code"]
     );
 }
@@ -482,7 +485,7 @@ fn undoing_a_denial_writes_the_settings_then_says_so_then_lists_the_program() {
 #[test]
 fn an_undo_whose_settings_cannot_be_written_keeps_the_denial() {
     let app = launch();
-    let dir = app.state.writ_dir.clone();
+    let dir = app.state.jotra_dir.clone();
     decide_in(&app.state, |mcp| {
         deny_client_inner(mcp, "Claude Code").expect("deny");
     });
@@ -500,13 +503,13 @@ fn an_undo_whose_settings_cannot_be_written_keeps_the_denial() {
         .mcp
         .approval_for("Claude Code")
         .is_some_and(|approval| approval.grants_nothing()));
-    assert!(writ_storage::pending_clients::read(&dir).is_empty());
+    assert!(jotra_storage::pending_clients::read(&dir).is_empty());
 }
 
 #[test]
 fn undoing_leaves_a_program_that_was_since_allowed_alone() {
     let app = launch();
-    let dir = app.state.writ_dir.clone();
+    let dir = app.state.jotra_dir.clone();
     decide_in(&app.state, |mcp| {
         set_client_permission_inner(mcp, "Claude Code", true, false).expect("allow");
     });
@@ -521,14 +524,14 @@ fn undoing_leaves_a_program_that_was_since_allowed_alone() {
     assert!(read_settings(&dir)
         .approval_for("Claude Code")
         .is_some_and(|approval| approval.read));
-    assert!(!writ_storage::pending_clients::path(&dir).exists());
+    assert!(!jotra_storage::pending_clients::path(&dir).exists());
 }
 
 #[test]
 fn not_allowing_a_program_that_sent_no_name_takes_its_row_off_the_list() {
     let app = launch();
     for name in ["", "Zed"] {
-        writ_storage::pending_clients::note_calls(&app.state.writ_dir, &ClientId::named(name), 1)
+        jotra_storage::pending_clients::note_calls(&app.state.jotra_dir, &ClientId::named(name), 1)
             .expect("note");
     }
 
@@ -585,11 +588,12 @@ fn the_list_the_watcher_sends_is_the_one_on_disk_minus_the_decided() {
         deny_client_inner(mcp, "Zed").expect("deny");
     });
     for name in ["Claude Code", "Zed"] {
-        writ_storage::pending_clients::note_calls(&app.state.writ_dir, &ClientId::named(name), 1)
+        jotra_storage::pending_clients::note_calls(&app.state.jotra_dir, &ClientId::named(name), 1)
             .expect("note");
     }
 
-    let Some(WritFrontendEvent::McpPending { waiting }) = announce_waiting_inner(&app.state) else {
+    let Some(JotraFrontendEvent::McpPending { waiting }) = announce_waiting_inner(&app.state)
+    else {
         panic!("a settled file is announced");
     };
     assert_eq!(names(&waiting), ["Claude Code"]);
@@ -598,9 +602,9 @@ fn the_list_the_watcher_sends_is_the_one_on_disk_minus_the_decided() {
 #[test]
 fn a_waiting_file_caught_mid_write_is_not_announced() {
     let app = launch();
-    writ_storage::pending_clients::note_calls(&app.state.writ_dir, &ClientId::named("Zed"), 1)
+    jotra_storage::pending_clients::note_calls(&app.state.jotra_dir, &ClientId::named("Zed"), 1)
         .expect("note");
-    let file = writ_storage::pending_clients::path(&app.state.writ_dir);
+    let file = jotra_storage::pending_clients::path(&app.state.jotra_dir);
     let whole = std::fs::read(&file).expect("the file");
     std::fs::write(&file, &whole[..whole.len() - 3]).expect("cut it short");
 

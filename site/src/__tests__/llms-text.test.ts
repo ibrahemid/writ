@@ -16,8 +16,8 @@ import {
 const ORIGIN = 'https://writ.ibrahemid.com';
 const PAGE = `${ORIGIN}/docs/`;
 
-const page = (body: string, head = '<title>How Writ works | Writ</title><meta name="description" content="Files &amp; folders.">'): string =>
-  `<!DOCTYPE html><html lang="en"><head>${head}</head><body><a href="#content" class="skip">Skip to content</a><main id="content" class="wrap"><article class="prose"><h1>How Writ works</h1>${body}</article></main></body></html>`;
+const page = (body: string, head = '<title>How Jotra works | Jotra</title><meta name="description" content="Files &amp; folders.">'): string =>
+  `<!DOCTYPE html><html lang="en"><head>${head}</head><body><a href="#content" class="skip">Skip to content</a><main id="content" class="wrap"><article class="prose"><h1>How Jotra works</h1>${body}</article></main></body></html>`;
 
 const md = (body: string): string => htmlToMarkdown(page(body), PAGE);
 
@@ -31,8 +31,8 @@ describe('htmlToMarkdown', () => {
   });
 
   it('marks strong text and inline code', () => {
-    expect(md('<p>Run <code>writ --title tests</code> and read <strong>Program activity</strong>.</p>')).toBe(
-      'Run `writ --title tests` and read **Program activity**.',
+    expect(md('<p>Run <code>jotra --title tests</code> and read <strong>Program activity</strong>.</p>')).toBe(
+      'Run `jotra --title tests` and read **Program activity**.',
     );
   });
 
@@ -58,11 +58,11 @@ describe('htmlToMarkdown', () => {
   });
 
   it('keeps a code block verbatim inside a fence', () => {
-    const json = '{\n  &quot;mcpServers&quot;: {\n    &quot;writ&quot;: {\n      &quot;args&quot;: [&quot;mcp&quot;]\n    }\n  }\n}';
+    const json = '{\n  &quot;mcpServers&quot;: {\n    &quot;jotra&quot;: {\n      &quot;args&quot;: [&quot;mcp&quot;]\n    }\n  }\n}';
     expect(md(`<pre><code>${json}</code></pre>`)).toBe(
-      '```\n{\n  "mcpServers": {\n    "writ": {\n      "args": ["mcp"]\n    }\n  }\n}\n```',
+      '```\n{\n  "mcpServers": {\n    "jotra": {\n      "args": ["mcp"]\n    }\n  }\n}\n```',
     );
-    expect(md('<pre><code>make test 2>&1 | writ --title tests</code></pre>')).toBe('```\nmake test 2>&1 | writ --title tests\n```');
+    expect(md('<pre><code>make test 2>&1 | jotra --title tests</code></pre>')).toBe('```\nmake test 2>&1 | jotra --title tests\n```');
   });
 
   it('lengthens the fence when the code holds one', () => {
@@ -85,8 +85,8 @@ describe('htmlToMarkdown', () => {
   });
 
   it('decodes named and numeric character references', () => {
-    expect(md('<p>Files &amp; folders &rarr; disk,&nbsp;Writ&#39;s &#8220;folder&#8221; &#x2192; done.</p>')).toBe(
-      'Files & folders → disk, Writ\'s “folder” → done.',
+    expect(md('<p>Files &amp; folders &rarr; disk,&nbsp;Jotra&#39;s &#8220;folder&#8221; &#x2192; done.</p>')).toBe(
+      'Files & folders → disk, Jotra\'s “folder” → done.',
     );
   });
 
@@ -131,18 +131,18 @@ describe('decodeEntities', () => {
 
 describe('pageMeta', () => {
   it('reads the title without the site suffix and the decoded description', () => {
-    expect(pageMeta(page(''), PAGE)).toEqual({ title: 'How Writ works', description: 'Files & folders.' });
+    expect(pageMeta(page(''), PAGE)).toEqual({ title: 'How Jotra works', description: 'Files & folders.' });
   });
 
   it('fails when a page has no description', () => {
-    expect(() => pageMeta(page('', '<title>Docs | Writ</title>'), PAGE)).toThrow(LlmsTxtError);
+    expect(() => pageMeta(page('', '<title>Docs | Jotra</title>'), PAGE)).toThrow(LlmsTxtError);
   });
 });
 
 describe('isStub', () => {
   it('knows the /vs/obsidian/ refresh from a page', () => {
     const stub =
-      '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Writ and Obsidian on one folder | Writ</title><meta name="robots" content="noindex"><link rel="canonical" href="https://writ.ibrahemid.com/guides/obsidian/"><meta http-equiv="refresh" content="0; url=/guides/obsidian/"></head><body><a href="/guides/obsidian/">Writ and Obsidian on one folder</a></body></html>';
+      '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Jotra and Obsidian on one folder | Jotra</title><meta name="robots" content="noindex"><link rel="canonical" href="https://writ.ibrahemid.com/guides/obsidian/"><meta http-equiv="refresh" content="0; url=/guides/obsidian/"></head><body><a href="/guides/obsidian/">Jotra and Obsidian on one folder</a></body></html>';
     expect(isStub(stub)).toBe(true);
     expect(isStub(page('<p>x</p>'))).toBe(false);
   });
@@ -175,10 +175,10 @@ describe('linkedPaths and orderSection', () => {
 describe('renderLlmsTxt and renderLlmsFull', () => {
   const link = (path: string, title: string) => ({ url: `${ORIGIN}${path}`, title, description: `About ${title}.`, markdown: `Body of ${title}.` });
   const site: LlmsSite = {
-    name: 'Writ',
+    name: 'Jotra',
     summary: 'A text app.',
     repository: 'https://github.com/ibrahemid/writ',
-    docs: [link('/docs/', 'How Writ works')],
+    docs: [link('/docs/', 'How Jotra works')],
     guides: [link('/guides/', 'Guides')],
     reference: [link('/privacy/', 'Privacy'), link('/download/', 'Download')],
     optional: [link('/changelog/', 'Changelog')],
@@ -187,7 +187,7 @@ describe('renderLlmsTxt and renderLlmsFull', () => {
   it('lists every page under its section, the optional ones last', () => {
     expect(renderLlmsTxt(site)).toBe(
       [
-        '# Writ',
+        '# Jotra',
         '',
         '> A text app.',
         '',
@@ -195,7 +195,7 @@ describe('renderLlmsTxt and renderLlmsFull', () => {
         '',
         '## Docs',
         '',
-        `- [How Writ works](${ORIGIN}/docs/): About How Writ works.`,
+        `- [How Jotra works](${ORIGIN}/docs/): About How Jotra works.`,
         '',
         '## Guides',
         '',
@@ -216,7 +216,7 @@ describe('renderLlmsTxt and renderLlmsFull', () => {
 
   it('carries the body of every required page and none of the optional ones', () => {
     const full = renderLlmsFull(site);
-    expect(full.startsWith('# Writ\n\n> A text app.\n\n## How Writ works\n\nSource: https://writ.ibrahemid.com/docs/\n\nBody of How Writ works.\n')).toBe(true);
+    expect(full.startsWith('# Jotra\n\n> A text app.\n\n## How Jotra works\n\nSource: https://writ.ibrahemid.com/docs/\n\nBody of How Jotra works.\n')).toBe(true);
     for (const title of ['Guides', 'Privacy', 'Download']) expect(full).toContain(`## ${title}\n\nSource: `);
     expect(full).not.toContain('Changelog');
   });

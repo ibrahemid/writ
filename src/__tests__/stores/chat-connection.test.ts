@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createSignal } from "solid-js";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 
 // One connection serves the pane and the settings panel, so the pane holds no
 // inventory of its own. What this pins down is that the pane reads the same
@@ -70,7 +70,7 @@ import { aiConnectionStore } from "../../stores/global/ai-connection";
 import { chatStore } from "../../stores/global/chat";
 
 /** Only the part of the config these surfaces read. */
-function ai(provider: string, model: string, chatEnabled = true): WritConfig {
+function ai(provider: string, model: string, chatEnabled = true): JotraConfig {
   return {
     ai: {
       provider,
@@ -80,7 +80,7 @@ function ai(provider: string, model: string, chatEnabled = true): WritConfig {
       rewrite: {},
       chat: { enabled: chatEnabled, model: "", model_provider: "" },
     },
-  } as unknown as WritConfig;
+  } as unknown as JotraConfig;
 }
 
 function catalog(provider: string, models: string[], source = "live") {

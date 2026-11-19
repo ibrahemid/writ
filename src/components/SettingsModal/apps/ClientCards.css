@@ -1,7 +1,7 @@
 .client-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
-  gap: var(--writ-space-3);
+  gap: var(--jotra-space-3);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -11,42 +11,42 @@
 .client-card {
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
   min-width: 0;
-  padding: var(--writ-space-3);
-  border: 1px solid var(--writ-border-soft);
-  border-radius: var(--writ-r-card);
-  background: var(--writ-bg-raised);
+  padding: var(--jotra-space-3);
+  border: 1px solid var(--jotra-border-soft);
+  border-radius: var(--jotra-r-card);
+  background: var(--jotra-bg-raised);
 }
 
 .client-card-name {
-  color: var(--writ-fg);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
+  color: var(--jotra-fg);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
   font-weight: 600;
 }
 
 .client-card-access,
 .client-card-how {
-  color: var(--writ-fg-muted);
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
+  color: var(--jotra-fg-muted);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
 }
 
 .client-card-access[data-standing="waiting"] {
-  color: var(--writ-status-warning);
+  color: var(--jotra-status-warning);
 }
 
 .client-card-text {
   display: block;
   max-height: 120px;
   overflow: auto;
-  padding: var(--writ-space-2);
-  border-radius: var(--writ-r-card);
-  background: var(--writ-bg-sunken);
-  color: var(--writ-fg);
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
+  padding: var(--jotra-space-2);
+  border-radius: var(--jotra-r-card);
+  background: var(--jotra-bg-sunken);
+  color: var(--jotra-fg);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
   overflow-wrap: anywhere;
   font-variant-ligatures: none;
   -webkit-user-select: text;
@@ -62,7 +62,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
   margin-top: auto;
 }
 
@@ -71,13 +71,13 @@
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--writ-space-2);
+  gap: var(--jotra-space-2);
 }
 
 .client-card-result {
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-1);
+  gap: var(--jotra-space-1);
 }
 
 .client-card-result:empty {
@@ -85,14 +85,14 @@
 }
 
 .client-card-line {
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
 }
 
 .client-card-line[data-tone="success"] {
-  color: var(--writ-status-success);
+  color: var(--jotra-status-success);
 }
 
 .client-card-line[data-tone="error"] {
-  color: var(--writ-danger);
+  color: var(--jotra-danger);
 }

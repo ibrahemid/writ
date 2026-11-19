@@ -6,18 +6,18 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-2);
-  padding: var(--writ-space-1) var(--writ-space-3) var(--writ-space-2);
+  gap: var(--jotra-space-2);
+  padding: var(--jotra-space-1) var(--jotra-space-3) var(--jotra-space-2);
 }
 
 .graph-canvas {
   display: block;
   width: 100%;
   height: 160px;
-  border-radius: var(--writ-r-card);
-  background: var(--writ-bg-canvas);
-  font-family: var(--writ-font-ui);
-  font-size: var(--writ-ui-xs);
+  border-radius: var(--jotra-r-card);
+  background: var(--jotra-bg-canvas);
+  font-family: var(--jotra-font-ui);
+  font-size: var(--jotra-ui-xs);
   cursor: default;
   touch-action: none;
 }
@@ -36,15 +36,15 @@
   position: absolute;
   margin: 0;
   max-width: 40%;
-  padding: var(--writ-space-1) var(--writ-space-2-5);
-  border: 1px solid var(--writ-border-soft);
-  border-radius: var(--writ-r-tooltip);
-  background: var(--writ-bg-raised);
-  box-shadow: var(--writ-shadow-chip);
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
+  padding: var(--jotra-space-1) var(--jotra-space-2-5);
+  border: 1px solid var(--jotra-border-soft);
+  border-radius: var(--jotra-r-tooltip);
+  background: var(--jotra-bg-raised);
+  box-shadow: var(--jotra-shadow-chip);
+  font-size: var(--jotra-ui-sm);
+  line-height: var(--jotra-ui-sm-lh);
   font-weight: 600;
-  color: var(--writ-fg);
+  color: var(--jotra-fg);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -69,9 +69,9 @@
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--writ-fg-muted);
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
+  color: var(--jotra-fg-muted);
+  font-size: var(--jotra-ui-xs);
+  line-height: var(--jotra-ui-xs-lh);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }

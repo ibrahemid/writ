@@ -28,8 +28,8 @@ drwxr-xr-x root/root        0 2026-10-01 12:00 squashfs-root
 lrwxrwxrwx root/root       24 2026-10-01 12:00 squashfs-root/usr/lib/libwebkit2gtk-4.1.so -> libwebkit2gtk-4.1.so.0
 -rw-r--r-- root/root    20000 2026-10-01 12:00 squashfs-root/usr/lib/libz.so.1
 -rw-r--r-- root/root    20000 2026-10-01 12:00 squashfs-root/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader-png.so
--rw-r--r-- root/root     3000 2026-10-01 12:00 squashfs-root/usr/lib/Writ/THIRD-PARTY-NOTICES.md
--rwxr-xr-x root/root  9000000 2026-10-01 12:00 squashfs-root/usr/bin/writ-tauri
+-rw-r--r-- root/root     3000 2026-10-01 12:00 squashfs-root/usr/lib/Jotra/THIRD-PARTY-NOTICES.md
+-rwxr-xr-x root/root  9000000 2026-10-01 12:00 squashfs-root/usr/bin/jotra-tauri
 """
 
 DEP5 = """\

@@ -242,7 +242,7 @@ describe("handleExternalEdit", () => {
 
 describe("readExternalEditPayload", () => {
   it("reads a payload the way Rust serialises one", () => {
-    // The field names are the contract with `WritFrontendEvent::BufferExternal`.
+    // The field names are the contract with `JotraFrontendEvent::BufferExternal`.
     // Rust named these `buffer_id` and `disk_hash` for a while; every field
     // arrived undefined, the guard dropped the event, and nothing external
     // ever reached a tab. A rename on either side has to fail here.
@@ -250,14 +250,14 @@ describe("readExternalEditPayload", () => {
       readExternalEditPayload({
         bufferId: "buf-1",
         change: "modified",
-        path: "/Users/x/Writ/today.md",
+        path: "/Users/x/Jotra/today.md",
         newPath: null,
         diskHash: "abc123",
       }),
     ).toEqual({
       bufferId: "buf-1",
       change: "modified",
-      path: "/Users/x/Writ/today.md",
+      path: "/Users/x/Jotra/today.md",
       newPath: null,
       diskHash: "abc123",
       writer: null,
@@ -270,7 +270,7 @@ describe("readExternalEditPayload", () => {
     const inside = readExternalEditPayload({
       bufferId: "buf-1",
       change: "modified",
-      path: "/Users/x/Writ/today.md",
+      path: "/Users/x/Jotra/today.md",
       diskHash: "abc123",
     });
     const outside = readExternalEditPayload({
@@ -280,7 +280,7 @@ describe("readExternalEditPayload", () => {
       diskHash: "abc123",
     });
 
-    expect(inside).toEqual({ ...outside, path: "/Users/x/Writ/today.md" });
+    expect(inside).toEqual({ ...outside, path: "/Users/x/Jotra/today.md" });
   });
 
   it("reads the writer Rust names, and nothing it cannot read as one", () => {
@@ -312,15 +312,15 @@ describe("readExternalEditPayload", () => {
       readExternalEditPayload({
         bufferId: "buf-1",
         change: "moved",
-        path: "/Users/x/Writ/today.md",
-        newPath: "/Users/x/Writ/archive/today.md",
+        path: "/Users/x/Jotra/today.md",
+        newPath: "/Users/x/Jotra/archive/today.md",
         diskHash: null,
       }),
     ).toEqual({
       bufferId: "buf-1",
       change: "moved",
-      path: "/Users/x/Writ/today.md",
-      newPath: "/Users/x/Writ/archive/today.md",
+      path: "/Users/x/Jotra/today.md",
+      newPath: "/Users/x/Jotra/archive/today.md",
       diskHash: null,
       writer: null,
     });
@@ -331,14 +331,14 @@ describe("readExternalEditPayload", () => {
       readExternalEditPayload({
         bufferId: "buf-1",
         change: "removed",
-        path: "/Users/x/Writ/today.md",
+        path: "/Users/x/Jotra/today.md",
         newPath: null,
         diskHash: null,
       }),
     ).toEqual({
       bufferId: "buf-1",
       change: "removed",
-      path: "/Users/x/Writ/today.md",
+      path: "/Users/x/Jotra/today.md",
       newPath: null,
       diskHash: null,
       writer: null,

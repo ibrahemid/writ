@@ -72,7 +72,7 @@ export interface ExternalEditDeps {
   refreshScripts: (id: string) => void;
 }
 
-// What the backend says about a file that changed outside Writ. `path` names
+// What the backend says about a file that changed outside Jotra. `path` names
 // the file, `diskHash` is what it holds now, `newPath` is where it went for a
 // change that is a move, and `writer` is what wrote it, when that is known.
 // Only `bufferId` and `change` decide the action; the rest are what the
@@ -124,7 +124,7 @@ export function readExternalEditPayload(payload: {
 // Deliberately never reloads the global buffer registry: a blanket registry
 // reload re-creates the always-mounted preview pane's iframe and hard-freezes
 // the macOS webview (PR#127). Only the editor's own content is reset, via
-// `reload`, which reads the file through Rust rather than from any copy Writ
+// `reload`, which reads the file through Rust rather than from any copy Jotra
 // is holding.
 export async function handleExternalEdit(
   payload: ExternalEditPayload,

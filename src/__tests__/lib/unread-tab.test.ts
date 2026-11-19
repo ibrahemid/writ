@@ -41,7 +41,7 @@ describe("unreadTabFor", () => {
     for (const read_only of [false, true]) {
       expect(unreadTabFor(restored({ size_bytes: 600_000_000, read_only }))).toEqual({
         kind: "refused",
-        reason: "it is 600 MB, and Writ opens files up to 524 MB.",
+        reason: "it is 600 MB, and Jotra opens files up to 524 MB.",
       });
     }
   });

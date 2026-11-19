@@ -36,7 +36,7 @@ export function groupProviders(rows: readonly AiProviderInfo[]): ProviderGrouped
   })).filter((entry) => entry.providers.length > 0);
 }
 
-// Singleton state — Writ is single-window. The table is data Rust owns and it
+// Singleton state — Jotra is single-window. The table is data Rust owns and it
 // does not change while the app runs, so it is fetched once and read
 // synchronously afterwards by the picker, the probe and `connectionDisplay`.
 function createAiProvidersStore() {

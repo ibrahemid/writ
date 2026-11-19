@@ -13,7 +13,7 @@
 //! [`OVERLAP`] after the new one is running, which covers anything the daemon
 //! had not yet handed it, and is stopped on a thread of its own. A change both
 //! streams saw arrives twice and costs the watcher one `stat`
-//! ([`writ_core::watcher::sighting`]).
+//! ([`jotra_core::watcher::sighting`]).
 //!
 //! `watch` waits for the stream that includes the new folder to be running,
 //! and nothing else: the caller never stops or joins a stream. That wait is
@@ -105,7 +105,7 @@ impl Watcher for FsEventsWatcher {
         let handler: SharedHandler = Arc::new(Mutex::new(event_handler));
         let (requests, received) = mpsc::channel::<Request>();
         std::thread::Builder::new()
-            .name("writ fsevents".to_string())
+            .name("jotra fsevents".to_string())
             .spawn(move || rebuild_streams(received, handler))
             .map_err(notify::Error::io)?;
         Ok(Self {
@@ -173,7 +173,7 @@ fn rebuild_streams(requests: mpsc::Receiver<Request>, handler: SharedHandler) {
         }
         if let Some(old) = std::mem::replace(&mut running, next) {
             let _ = std::thread::Builder::new()
-                .name("writ fsevents retire".to_string())
+                .name("jotra fsevents retire".to_string())
                 .spawn(move || {
                     std::thread::sleep(OVERLAP);
                     old.stop();
@@ -221,7 +221,7 @@ impl RunningStream {
         let context = Box::new(StreamContext { folders, handler });
         let (ready, started) = mpsc::channel::<Result<RunLoop, String>>();
         let thread = std::thread::Builder::new()
-            .name("writ fsevents stream".to_string())
+            .name("jotra fsevents stream".to_string())
             .spawn(move || run_stream(roots, context, ready))
             .map_err(|e| e.to_string())?;
         match started.recv() {

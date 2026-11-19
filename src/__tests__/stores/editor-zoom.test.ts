@@ -7,9 +7,9 @@ vi.mock("../../services/tauri", () => ({
 
 import { configStore } from "../../stores/global/config";
 import { editorZoom } from "../../stores/global/editor-zoom";
-import type { WritConfig } from "../../types/config";
+import type { JotraConfig } from "../../types/config";
 
-const MOCK_CONFIG: WritConfig = {
+const MOCK_CONFIG: JotraConfig = {
   hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
   sidebar: { toggle: "CmdOrCtrl+\\", default_visible: false, position: "left", open: false, width: 240, collapsed: [], hidden: [] },
   panel: { open: false, width: 240 },
@@ -40,7 +40,7 @@ const MOCK_CONFIG: WritConfig = {
   },
 };
 
-function withFontSize(size: number): WritConfig {
+function withFontSize(size: number): JotraConfig {
   return { ...MOCK_CONFIG, editor: { ...MOCK_CONFIG.editor, font_size: size } };
 }
 
@@ -112,7 +112,7 @@ describe("editorZoom", () => {
     await configStore.save(withFontSize(24));
     await flush();
     expect(
-      document.documentElement.style.getPropertyValue("--writ-editor-font-size"),
+      document.documentElement.style.getPropertyValue("--jotra-editor-font-size"),
     ).toBe("24px");
   });
 });

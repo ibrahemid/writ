@@ -567,7 +567,7 @@ export default function FileTree(props: FileTreeProps) {
                       >
                         <input
                           class="file-tree-rename-input"
-                          data-writ-focus-silent
+                          data-jotra-focus-silent
                           aria-label="Rename file"
                           value={renameSeed(e().entry.name).value}
                           ref={(el) => {

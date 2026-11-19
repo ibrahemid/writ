@@ -100,8 +100,8 @@ describe("isSameOrInside", () => {
   });
 
   it("reads a windows base in its own separator", () => {
-    expect(isSameOrInside("C:\\Users\\me\\Writ\\a.md", "C:\\Users\\me\\Writ")).toBe(true);
-    expect(isSameOrInside("C:\\Users\\me\\Writer", "C:\\Users\\me\\Writ")).toBe(false);
+    expect(isSameOrInside("C:\\Users\\me\\Jotra\\a.md", "C:\\Users\\me\\Jotra")).toBe(true);
+    expect(isSameOrInside("C:\\Users\\me\\Writer", "C:\\Users\\me\\Jotra")).toBe(false);
   });
 });
 

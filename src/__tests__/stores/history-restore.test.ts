@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { BufferDocument, FileOpenResult } from "../../types/buffer";
 
 // Reopening a closed file from History is an open: a file that grew past the
-// size Writ opens without asking while it was closed is asked about before it
-// is read, and one past the size Writ opens stays closed with the reason.
+// size Jotra opens without asking while it was closed is asked about before it
+// is read, and one past the size Jotra opens stays closed with the reason.
 
 const SIXTY_MB = 60_000_000;
 const PATH = "/logs/big.log";
@@ -126,7 +126,7 @@ describe("reopening a closed file from History", () => {
     expect(bufferRegistry.historyList().map((b) => b.id)).toEqual(["h1"]);
   });
 
-  it("says once why a file past the size Writ opens stays closed", async () => {
+  it("says once why a file past the size Jotra opens stays closed", async () => {
     answer({
       doc: null,
       mode: { kind: "Refused", reason: "ERR_OPEN_TOO_LARGE: over the limit" },
@@ -138,7 +138,7 @@ describe("reopening a closed file from History", () => {
 
     expect(showToast).toHaveBeenCalledTimes(1);
     expect(showToast).toHaveBeenCalledWith(
-      "Could not open big.log: it is 600 MB, and Writ opens files up to 524 MB.",
+      "Could not open big.log: it is 600 MB, and Jotra opens files up to 524 MB.",
       "error",
     );
     expect(tabs.activeTabId()).toBeNull();

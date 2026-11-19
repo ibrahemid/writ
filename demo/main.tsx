@@ -23,9 +23,9 @@ function installBackend(): DemoControls {
 
 const demoControls = installBackend();
 
-// The preview pane keeps an iframe on the host's writ-preview:// scheme. A
+// The preview pane keeps an iframe on the host's jotra-preview:// scheme. A
 // browser has no handler for it; the blank page is what the host serves.
-const hostOnly = (value: string) => (value.startsWith("writ-preview://") ? "about:blank" : value);
+const hostOnly = (value: string) => (value.startsWith("jotra-preview://") ? "about:blank" : value);
 const frameSrc = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, "src")!;
 Object.defineProperty(HTMLIFrameElement.prototype, "src", {
   ...frameSrc,

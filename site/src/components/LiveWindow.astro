@@ -22,7 +22,7 @@ const FRAME_HEIGHT = 900;
   import { isFrameMessage, readFrameMessage, startTour, type Tour } from '../scripts/tour';
 
   const host = document.querySelector<HTMLElement>('[data-live-window]');
-  const bp = getComputedStyle(document.documentElement).getPropertyValue('--writ-site-bp-lg').trim();
+  const bp = getComputedStyle(document.documentElement).getPropertyValue('--jotra-site-bp-lg').trim();
   const wideQuery = bp ? window.matchMedia(`(min-width: ${bp})`) : null;
   const tour: Tour | null =
     host && bp
@@ -43,7 +43,7 @@ const FRAME_HEIGHT = 900;
     const height = Number(root.dataset.frameHeight);
     const frame = document.createElement('iframe');
     frame.src = '/demo/';
-    frame.title = 'Writ, running in this page';
+    frame.title = 'Jotra, running in this page';
     frame.width = String(width);
     frame.height = String(height);
     frame.className = 'live-frame';
@@ -57,11 +57,11 @@ const FRAME_HEIGHT = 900;
       if (!isFrameMessage(event, frame.contentWindow, location.origin)) return;
       const message = readFrameMessage(event.data);
       if (!message) return;
-      if (message.type === 'writ-demo-ready') {
+      if (message.type === 'jotra-demo-ready') {
         root.classList.add('is-live');
         root.querySelector('.window')?.setAttribute('aria-hidden', 'true');
-        tour?.connectFrame((name) => frame.contentWindow?.postMessage({ type: 'writ-demo-scene', name }, location.origin));
-      } else if (message.type === 'writ-demo-engaged') {
+        tour?.connectFrame((name) => frame.contentWindow?.postMessage({ type: 'jotra-demo-scene', name }, location.origin));
+      } else if (message.type === 'jotra-demo-engaged') {
         tour?.markEngaged();
       } else {
         root.dataset.scene = `${message.name}:${message.state}`;

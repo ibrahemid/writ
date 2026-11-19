@@ -47,7 +47,7 @@ function isLowSurrogate(code: number): boolean {
   return code >= 0xdc00 && code <= 0xdfff;
 }
 
-// The ranges writ_core::prompt::estimate_tokens classifies, read from UTF-16
+// The ranges jotra_core::prompt::estimate_tokens classifies, read from UTF-16
 // units: 0xd840-0xd87f lead the astral Han planes, U+20000-U+2FFFF.
 function isCjk(code: number, next: number): boolean {
   return (

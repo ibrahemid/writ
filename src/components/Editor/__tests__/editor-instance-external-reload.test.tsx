@@ -105,7 +105,7 @@ async function mount(buffer: BufferDocument) {
   return { ...result, win };
 }
 
-describe("EditorInstance: reloading after a change outside Writ", () => {
+describe("EditorInstance: reloading after a change outside Jotra", () => {
   beforeEach(() => {
     fileOnDisk.clear();
     readBufferContent.mockClear();
@@ -115,14 +115,14 @@ describe("EditorInstance: reloading after a change outside Writ", () => {
     cleanup();
   });
 
-  it("shows what the file holds now, not what Writ was holding", async () => {
+  it("shows what the file holds now, not what Jotra was holding", async () => {
     // The whole point of the watcher: another program rewrote the file, and
     // the editor has to end up showing those bytes. Asserting the text in the
-    // view rather than a call count, because a reload that read a copy Writ
+    // view rather than a call count, because a reload that read a copy Jotra
     // was keeping would make the same calls and show the wrong thing.
-    fileOnDisk.set("note", "as Writ opened it\n");
+    fileOnDisk.set("note", "as Jotra opened it\n");
     const { container, win } = await mount(mockBuffer("note"));
-    expect(container.textContent).toContain("as Writ opened it");
+    expect(container.textContent).toContain("as Jotra opened it");
 
     fileOnDisk.set("note", "rewritten by another program\n");
     win.editor.requestExternalReload("note");
@@ -130,7 +130,7 @@ describe("EditorInstance: reloading after a change outside Writ", () => {
     await waitFor(() =>
       expect(container.textContent).toContain("rewritten by another program"),
     );
-    expect(container.textContent).not.toContain("as Writ opened it");
+    expect(container.textContent).not.toContain("as Jotra opened it");
   });
 
   it("goes back to the file for every change, not once", async () => {
@@ -192,7 +192,7 @@ describe("EditorInstance: reloading after a change outside Writ", () => {
   it("gives the whole reload back for one undo", async () => {
     // One transaction, so one Cmd+Z. A person who did not want the file's
     // version gets their text back with the keystroke they already know.
-    fileOnDisk.set("note", "as Writ opened it\n");
+    fileOnDisk.set("note", "as Jotra opened it\n");
     const { win } = await mount(mockBuffer("note"));
     const view = win.editor.getView()!;
 
@@ -204,7 +204,7 @@ describe("EditorInstance: reloading after a change outside Writ", () => {
 
     undo(view);
 
-    expect(view.state.doc.toString()).toBe("as Writ opened it\n");
+    expect(view.state.doc.toString()).toBe("as Jotra opened it\n");
   });
 
   it("keeps a tab in the background up to date with its file", async () => {
@@ -213,7 +213,7 @@ describe("EditorInstance: reloading after a change outside Writ", () => {
     // read dirty against a file it matched and the next change to it asked a
     // question with no reason to be asked.
     fileOnDisk.set("front", "the tab in front\n");
-    fileOnDisk.set("behind", "as Writ opened it\n");
+    fileOnDisk.set("behind", "as Jotra opened it\n");
     const { win, switchTo } = await mountSwitchable(mockBuffer("front"));
     win.editor.noteOpened("behind", null, true);
     await waitFor(() => expect(win.editor.isDirty("behind")).toBe(false));
@@ -240,7 +240,7 @@ describe("EditorInstance: reloading after a change outside Writ", () => {
     // The dirty predicate is asynchronous and the watcher is not. The race
     // this closes is a change arriving in the window between a keystroke and
     // the comparison after it, which is exactly when a person is typing.
-    fileOnDisk.set("note", "as Writ opened it\n");
+    fileOnDisk.set("note", "as Jotra opened it\n");
     const { win } = await mount(mockBuffer("note"));
     const view = win.editor.getView()!;
     await waitFor(() => expect(win.editor.isDirty("note")).toBe(false));
@@ -375,14 +375,14 @@ describe("EditorInstance: a program's write to the open file", () => {
 
   it("shows a background tab's marks when it is switched to, and drops them when it is left", async () => {
     fileOnDisk.set("front", "the tab in front\n");
-    fileOnDisk.set("behind", "as Writ opened it\n");
+    fileOnDisk.set("behind", "as Jotra opened it\n");
     const { win, switchTo } = await mountSwitchable(mockBuffer("behind"));
     switchTo(mockBuffer("front"));
     await waitFor(() =>
       expect(win.editor.getView()!.state.doc.toString()).toBe("the tab in front\n"),
     );
 
-    fileOnDisk.set("behind", "as Writ opened it\nand a line from the program\n");
+    fileOnDisk.set("behind", "as Jotra opened it\nand a line from the program\n");
     win.editor.requestExternalReload("behind", CLAUDE);
     await waitFor(() => expect(win.editor.isUpdatedFromDisk("behind")).toBe(true));
 

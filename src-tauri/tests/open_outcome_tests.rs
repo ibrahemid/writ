@@ -11,68 +11,68 @@ use std::io::Write;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
-use tempfile::TempDir;
-use writ_core::buffer::document::BufferStatus;
-use writ_core::config::WritConfig;
-use writ_core::events::bus::EventBus;
-use writ_core::file_ops::{
+use jotra_core::buffer::document::BufferStatus;
+use jotra_core::config::JotraConfig;
+use jotra_core::events::bus::EventBus;
+use jotra_core::file_ops::{
     FileOpenMode, ERR_OPEN_TOO_LARGE, THRESHOLD_LARGE_BYTES, THRESHOLD_MAX_BYTES,
 };
-use writ_core::preview::ContentRendererRegistry;
-use writ_core::update::UpdatePhase;
-use writ_core::watcher::reconcile::ReconcileGate;
-use writ_plugin::transform::TransformRegistry;
-use writ_storage::buffer_store::BufferStore;
-use writ_storage::config_store::ConfigStore;
-use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
-use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
-use writ_tauri_lib::commands::buffer::{
+use jotra_core::preview::ContentRendererRegistry;
+use jotra_core::update::UpdatePhase;
+use jotra_core::watcher::reconcile::ReconcileGate;
+use jotra_plugin::transform::TransformRegistry;
+use jotra_storage::buffer_store::BufferStore;
+use jotra_storage::config_store::ConfigStore;
+use jotra_storage::database::connection::open_database;
+use jotra_storage::database::migrations::run_migrations;
+use jotra_storage::layout_state::LayoutStateStore;
+use jotra_storage::notes_index::NotesIndexStore;
+use jotra_tauri_lib::commands::buffer::{
     close_buffer_inner, list_active_buffers_inner, read_buffer_content_inner,
 };
-use writ_tauri_lib::commands::file::{
+use jotra_tauri_lib::commands::file::{
     open_file_confirmed_from_path, open_file_from_path, ERR_OPEN_NOT_AUTHORIZED,
 };
-use writ_tauri_lib::commands::history::{restore_buffer_confirmed_inner, restore_buffer_inner};
-use writ_tauri_lib::preview::handler::RenderCache;
-use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
-use writ_tauri_lib::state::AppState;
-use writ_tauri_lib::watcher::handler::create_ignore_set;
+use jotra_tauri_lib::commands::history::{restore_buffer_confirmed_inner, restore_buffer_inner};
+use jotra_tauri_lib::preview::handler::RenderCache;
+use jotra_tauri_lib::quit::QuitState;
+use jotra_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
+use jotra_tauri_lib::state::AppState;
+use jotra_tauri_lib::watcher::handler::create_ignore_set;
+use tempfile::TempDir;
 
 fn make_state(dir: &TempDir) -> AppState {
-    let writ_dir = dir.path().to_path_buf();
-    let buffers_dir = writ_dir.join("buffers");
+    let jotra_dir = dir.path().to_path_buf();
+    let buffers_dir = jotra_dir.join("buffers");
     std::fs::create_dir_all(&buffers_dir).expect("buffers dir");
 
-    let notes_root = writ_dir.join("Writ");
+    let notes_root = jotra_dir.join("Jotra");
     std::fs::create_dir_all(&notes_root).expect("notes folder");
-    let notes_root = writ_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
+    let notes_root = jotra_tauri_lib::security::canonicalize_root(&notes_root).expect("canonical");
 
-    let db_path = writ_dir.join("writ.db");
+    let db_path = jotra_dir.join("jotra.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
     let store = BufferStore::new(conn, buffers_dir.clone());
 
-    let config_path = writ_dir.join("config.toml");
+    let config_path = jotra_dir.join("config.toml");
     let config_store = ConfigStore::new(config_path);
 
     let note_history = Arc::new(
-        writ_storage::note_history::NoteHistoryStore::open(&writ_dir).expect("version store"),
+        jotra_storage::note_history::NoteHistoryStore::open(&jotra_dir).expect("version store"),
     );
 
     AppState {
         store: Mutex::new(store),
         config_store,
-        config: Mutex::new(WritConfig::default()),
-        writ_dir,
+        config: Mutex::new(JotraConfig::default()),
+        jotra_dir,
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: std::sync::atomic::AtomicBool::new(false),
         menu_apps: std::sync::Mutex::new(None),
-        retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
+        retitle_watch: std::sync::Arc::new(jotra_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
         watcher: Mutex::new(None),
@@ -98,7 +98,7 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
-        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+        command_usage: jotra_storage::command_usage::CommandUsageStore::new(
             open_database(&db_path).expect("usage db"),
         ),
         config_diagnostics: std::sync::Mutex::new(Vec::new()),
@@ -108,9 +108,9 @@ fn make_state(dir: &TempDir) -> AppState {
         workspace_watcher: Mutex::new(None),
         inbox_root: Mutex::new(None),
         inbox_watcher: Mutex::new(None),
-        fts_scheduler: writ_tauri_lib::fts_scheduler::FtsScheduler::new(),
+        fts_scheduler: jotra_tauri_lib::fts_scheduler::FtsScheduler::new(),
         workspace_index: Arc::new(RwLock::new(
-            writ_tauri_lib::workspace_index::WorkspaceIndex::new(None),
+            jotra_tauri_lib::workspace_index::WorkspaceIndex::new(None),
         )),
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
@@ -285,8 +285,8 @@ fn a_large_file_that_is_already_open_answers_as_a_large_file() {
 #[cfg(unix)]
 #[test]
 fn a_file_without_read_permission_answers_with_the_read_code() {
+    use jotra_tauri_lib::commands::buffer::ERR_READ_PERMISSION_DENIED;
     use std::os::unix::fs::PermissionsExt;
-    use writ_tauri_lib::commands::buffer::ERR_READ_PERMISSION_DENIED;
 
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
@@ -533,7 +533,7 @@ fn open_tab(state: &AppState, name: &str) -> (std::path::PathBuf, String) {
     (file, id)
 }
 
-// A file can change size while Writ is closed. The launch measures each tab it
+// A file can change size while Jotra is closed. The launch measures each tab it
 // restores before anything reads it, and the row it hands the editor carries
 // the size the file has now: the editor's tier and the index both read it off
 // the row. A stat is not a read, so the stamp a read leaves is not moved.
@@ -602,7 +602,7 @@ fn a_restored_tab_over_fifty_mib_is_asked_about_and_opens_in_place() {
     assert_eq!(updated_at_of(&state, &id), stamped);
 }
 
-// Past the size Writ opens, the tab stays, refused: it is a tab the last
+// Past the size Jotra opens, the tab stays, refused: it is a tab the last
 // session left, and closing it is the person's call.
 #[test]
 fn a_restored_tab_past_the_limit_is_refused_and_keeps_its_tab() {
@@ -628,7 +628,7 @@ fn a_restored_tab_past_the_limit_is_refused_and_keeps_its_tab() {
     assert_eq!(status_of(&state, &id), BufferStatus::Active);
 }
 
-// A path in a folder Writ opens from on its own, with nothing at it, says so:
+// A path in a folder Jotra opens from on its own, with nothing at it, says so:
 // a link written before its note is an everyday thing, and telling the person
 // to use File > Open File for a file that is not there cannot work. Both entry
 // points answer the same.
@@ -701,11 +701,11 @@ fn is_followed(state: &AppState, id: &str) -> bool {
     state.source_records.lock().unwrap().contains_key(id)
 }
 
-// A file the launch measured under the size Writ opens can grow past it before
+// A file the launch measured under the size Jotra opens can grow past it before
 // its tab is shown, or while it is open. The read measures it first and reads
 // none of it: the answer is the refusal's code, and the row records the size
 // found, so the editor states it and the reads that go by the row's size
-// leave the file alone. The reload after a change outside Writ is this same
+// leave the file alone. The reload after a change outside Jotra is this same
 // read. A stat is not a read, so the stamp a read leaves is not moved.
 #[test]
 fn a_tab_whose_file_grew_past_the_limit_is_measured_by_its_read_and_not_read() {
@@ -736,7 +736,7 @@ fn a_tab_whose_file_grew_past_the_limit_is_measured_by_its_read_and_not_read() {
 #[cfg(unix)]
 #[test]
 fn a_link_to_a_file_a_restored_tab_shows_answers_the_tab_and_reads_nothing() {
-    use writ_core::notes::line_ending::LineEnding;
+    use jotra_core::notes::line_ending::LineEnding;
     let line_ending_of =
         |state: &AppState, id: &str| state.store.lock().unwrap().get(id).unwrap().line_ending;
     let dir = TempDir::new().unwrap();
@@ -816,13 +816,13 @@ fn a_file_reopened_from_history_is_followed_again() {
     assert!(is_followed(&state, &id));
 }
 
-/// A `writ` request for `paths`, with a line for some of them and a wait.
+/// A `jotra` request for `paths`, with a line for some of them and a wait.
 fn cli_request(
     paths: &[&str],
     lines: &[(&str, u32)],
     wait: Option<&str>,
-) -> writ_core::instance::OpenRequest {
-    writ_core::instance::OpenRequest {
+) -> jotra_core::instance::OpenRequest {
+    jotra_core::instance::OpenRequest {
         paths: paths.iter().map(|path| path.to_string()).collect(),
         sent_at_ms: 0,
         lines: lines
@@ -847,7 +847,7 @@ fn a_request_parked_before_the_frontend_is_ready_keeps_each_line_beside_its_file
     let request = cli_request(&[&missing, &file], &[(&missing, 3), (&file, 7)], None);
 
     assert_eq!(
-        writ_tauri_lib::instance::route_forwarded(&state, &request),
+        jotra_tauri_lib::instance::route_forwarded(&state, &request),
         None
     );
     let canonical = canonicalize_for_authorization(std::path::Path::new(&*file)).unwrap();
@@ -876,10 +876,10 @@ fn a_waiting_command_is_answered_when_the_tab_it_opened_closes() {
         .store(true, std::sync::atomic::Ordering::SeqCst);
     let file = state.notes_root().join("COMMIT_EDITMSG");
     std::fs::write(&file, "message\n").unwrap();
-    let marker = writ_storage::instance::create_wait_marker(&state.writ_dir, "t1").unwrap();
+    let marker = jotra_storage::instance::create_wait_marker(&state.jotra_dir, "t1").unwrap();
     let request = cli_request(&[&file.to_string_lossy()], &[], Some("t1"));
 
-    let opens = writ_tauri_lib::instance::route_forwarded(&state, &request).expect("opens");
+    let opens = jotra_tauri_lib::instance::route_forwarded(&state, &request).expect("opens");
     let opened = open_file_from_path(&state, &opens.paths[0]).expect("open");
     let id = opened.doc.expect("a tab").id;
     assert!(marker.exists(), "the tab is still open");
@@ -892,12 +892,12 @@ fn a_waiting_command_is_answered_when_the_tab_it_opened_closes() {
 fn a_waiting_command_whose_files_cannot_open_is_answered_at_once() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
-    let marker = writ_storage::instance::create_wait_marker(&state.writ_dir, "t2").unwrap();
+    let marker = jotra_storage::instance::create_wait_marker(&state.jotra_dir, "t2").unwrap();
     let missing = state.notes_root().join("Gone.md");
     let request = cli_request(&[&missing.to_string_lossy()], &[], Some("t2"));
 
     assert_eq!(
-        writ_tauri_lib::instance::route_forwarded(&state, &request),
+        jotra_tauri_lib::instance::route_forwarded(&state, &request),
         None
     );
     assert!(!marker.exists());

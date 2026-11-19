@@ -54,7 +54,7 @@ interface Clock {
   pauses: number;
 }
 
-// Singleton state — Writ is single-window
+// Singleton state — Jotra is single-window
 const [toasts, setToasts] = createSignal<ToastMessage[]>([]);
 const clocks = new Map<number, Clock>();
 const closers = new Map<number, (actionTaken: boolean) => void>();

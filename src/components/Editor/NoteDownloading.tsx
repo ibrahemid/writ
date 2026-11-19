@@ -4,13 +4,13 @@ import "./NoteDownloading.css";
 import Button from "../Button/Button";
 
 // A failure the provider reported is about the file; the other two are about
-// Writ.
+// Jotra.
 function failureLine(reason: DownloadFailure): string {
   switch (reason) {
     case "open":
       return "The file downloaded but it did not open.";
     case "listener":
-      return "Writ lost track of this download.";
+      return "Jotra lost track of this download.";
     case "download":
       return "This file could not be downloaded.";
   }

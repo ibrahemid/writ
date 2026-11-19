@@ -9,7 +9,7 @@ import { CHANGELOG_PLATFORM_LABELS, stripPlatformLead } from '../lib/changelog-t
 const images = import.meta.glob<ImageMetadata>('/src/assets/changelog/*.png', { eager: true, import: 'default' });
 const widthsFor = (src: ImageMetadata): number[] => [640, 960, 1320, 1920].filter((w) => w < src.width).concat(src.width);
 ---
-<Prose title="Changelog" description="What ships in each release of Writ." path="/changelog/">
+<Prose title="Changelog" description="What ships in each release of Jotra." path="/changelog/">
   {releases.map((rel) => (
     <article class="rel" id={`v${rel.version}`}>
       <h2>v{rel.version}{rel.label && `: ${rel.label}`}</h2>

@@ -55,9 +55,9 @@ describe("link service", () => {
   });
 
   it("lets a refusal reject so the caller can surface it", async () => {
-    hostInvoke.mockRejectedValue("Writ opens only http, https, and mailto links.");
+    hostInvoke.mockRejectedValue("Jotra opens only http, https, and mailto links.");
     await expect(openExternalUrl("file:///etc/passwd")).rejects.toBe(
-      "Writ opens only http, https, and mailto links.",
+      "Jotra opens only http, https, and mailto links.",
     );
   });
 });

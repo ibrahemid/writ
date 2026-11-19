@@ -50,7 +50,7 @@ export default function UpdateBanner() {
           </Match>
 
           <Match when={phase().status === "up_to_date"}>
-            <span class="update-banner-text">Writ is up to date.</span>
+            <span class="update-banner-text">Jotra is up to date.</span>
           </Match>
 
           <Match when={available()}>

@@ -112,11 +112,11 @@ describe("pasteImagesOrText", () => {
     const deps = makeDeps({
       kind: "inserted",
       markdown: "![](assets/a.png)",
-      notices: ["b.heic is not an image Writ can show"],
+      notices: ["b.heic is not an image Jotra can show"],
     });
     await pasteImagesOrText(view, deps, null);
     expect(view.state.doc.toString()).toBe("![](assets/a.png)");
-    expect(deps.notices).toEqual(["b.heic is not an image Writ can show"]);
+    expect(deps.notices).toEqual(["b.heic is not an image Jotra can show"]);
   });
 
   it("shows the notices and inserts nothing when every image is refused", async () => {

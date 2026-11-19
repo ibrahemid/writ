@@ -251,7 +251,7 @@ describe("the format the first launch asks about", () => {
     await continueToApps(container);
     await waitFor(() =>
       expect(described()?.replace(/\s+/g, " ")).toBe(
-        "Writ opens and edits text files. These apps add more, and each stays off until you switch it on. Settings, Apps changes them later.",
+        "Jotra opens and edits text files. These apps add more, and each stays off until you switch it on. Settings, Apps changes them later.",
       ),
     );
   });
@@ -282,7 +282,7 @@ describe("the format the first launch asks about", () => {
   });
 
   // A held Enter repeats inside one round trip. Two answers would leave the
-  // folder with a writ-<yymmdd>-<hhmm>-2 nobody asked for.
+  // folder with a jotra-<yymmdd>-<hhmm>-2 nobody asked for.
   it("takes one answer however many times Continue is pressed", async () => {
     await firstRunStore.load();
     let refuse: (reason: Error) => void = () => {};

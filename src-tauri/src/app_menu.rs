@@ -20,14 +20,14 @@ use tauri::AppHandle;
 #[cfg(target_os = "macos")]
 pub(crate) use imp::QUIT_MENU_ID;
 
-/// Registers the click handler and draws the bar for the config Writ started
+/// Registers the click handler and draws the bar for the config Jotra started
 /// with. The handler is registered here once: a rebuild replaces the menu, not
 /// the handler, so a click never raises its action twice.
 #[cfg(target_os = "macos")]
 pub fn install(app: &AppHandle) {
     use crate::state::AppState;
+    use jotra_core::events::bus::JotraEvent;
     use tauri::Manager;
-    use writ_core::events::bus::WritEvent;
 
     app.on_menu_event(move |app_handle, event| {
         let id = event.id().0.as_str();
@@ -42,7 +42,7 @@ pub fn install(app: &AppHandle) {
         }
         if let Some(action) = crate::menu::menu_action_for_id(id) {
             let state = app_handle.state::<AppState>();
-            state.event_bus.emit(WritEvent::MenuAction {
+            state.event_bus.emit(JotraEvent::MenuAction {
                 action: action.command_id().to_string(),
             });
         }
@@ -157,20 +157,20 @@ mod imp {
         // chance to write. A plain item that calls `AppHandle::exit` goes the
         // long way round, through `RunEvent::ExitRequested` and the flush
         // handshake.
-        let quit_item = MenuItemBuilder::with_id(QUIT_MENU_ID, "Quit Writ")
+        let quit_item = MenuItemBuilder::with_id(QUIT_MENU_ID, "Quit Jotra")
             .accelerator("CmdOrCtrl+Q")
             .build(app)?;
 
         // About sits above the list's app section, so the licences the list
         // opens read as part of what About says about this build.
-        let app_menu = SubmenuBuilder::new(app, "Writ").item(&PredefinedMenuItem::about(
+        let app_menu = SubmenuBuilder::new(app, "Jotra").item(&PredefinedMenuItem::about(
             app,
-            Some("About Writ"),
+            Some("About Jotra"),
             None,
         )?);
         let app_menu = fill_section(app, app_menu, MenuSection::App, plan)?
             .separator()
-            .hide_with_text("Hide Writ")
+            .hide_with_text("Hide Jotra")
             .hide_others()
             .show_all()
             .separator()
@@ -206,7 +206,7 @@ mod imp {
 
         // Chrome macOS expects of every app, built from the predefined items
         // rather than from the shared list: these are window operations the
-        // OS performs, not Writ commands, and there is nothing for the
+        // OS performs, not Jotra commands, and there is nothing for the
         // Windows and Linux menu to carry in their place — those titlebars
         // have their own window buttons.
         let window_menu = SubmenuBuilder::new(app, "Window")

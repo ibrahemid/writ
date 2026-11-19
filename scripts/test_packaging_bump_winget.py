@@ -15,10 +15,11 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
-STALE_LOCALE = """ShortDescription: Lightweight text editor.
+STALE_LOCALE = """PackageName: Scratchpad
+ShortDescription: Lightweight text editor.
 Description: |-
   Old scratchpad copy.
-Moniker: writ
+Moniker: scratchpad
 Tags:
   - scratchpad
   - editor
@@ -33,32 +34,39 @@ class RewriteLocaleTests(unittest.TestCase):
 
         result = MODULE.rewrite_locale(STALE_LOCALE, release_notes_url)
 
+        self.assertIn("PackageName: Jotra\n", result)
+        self.assertIn("Moniker: jotra\n", result)
         self.assertIn(f"ShortDescription: {MODULE.SHORT_DESCRIPTION}", result)
         self.assertIn(f"  {MODULE.DESCRIPTION}\n", result)
         for tag in MODULE.TAGS:
             self.assertIn(f"  - {tag}\n", result)
         self.assertIn(f"ReleaseNotesUrl: {release_notes_url}", result)
-        self.assertNotIn("scratchpad", result)
+        self.assertNotIn("scratchpad", result.lower())
         self.assertNotIn("Lightweight text editor", result)
 
     def test_refuses_a_locale_without_all_required_fields(self) -> None:
         with self.assertRaises(MODULE.ManifestFormatError):
             MODULE.rewrite_locale("ShortDescription: incomplete\n", "https://example.com")
 
+    def test_names_the_fields_a_locale_is_missing(self) -> None:
+        with self.assertRaisesRegex(MODULE.ManifestFormatError, r"missing PackageName$"):
+            MODULE.rewrite_locale(STALE_LOCALE.replace("PackageName: Scratchpad\n", ""), "https://example.com")
+
 
 
 OLD_PRODUCT_CODE = "{FD0146EA-B2E8-4F19-A5D5-C3F2E4788501}"
 NEW_PRODUCT_CODE = "{3C1B8A52-6E0D-4F7A-9B21-0D4E5F6A7B8C}"
+UPGRADE_CODE = "{AB97CC4D-EEA3-53EE-90D8-3C2767967676}"
 
 PROPERTY_TABLE = (
     "Property\tValue\r\n"
     "s72\tl0\r\n"
     "Property\tProperty\r\n"
-    "UpgradeCode\t{AB97CC4D-EEA3-53EE-90D8-3C2767967676}\r\n"
+    f"UpgradeCode\t{UPGRADE_CODE}\r\n"
     "Manufacturer\tIbrahem ID\r\n"
     f"ProductCode\t{NEW_PRODUCT_CODE}\r\n"
     "ProductLanguage\t1033\r\n"
-    "ProductName\tWrit\r\n"
+    "ProductName\tJotra\r\n"
     "ProductVersion\t0.5.1\r\n"
 )
 
@@ -69,7 +77,7 @@ ReleaseDate: 2026-09-26
 Installers:
   - Architecture: x64
     InstallerType: wix
-    InstallerUrl: https://github.com/ibrahemid/writ/releases/download/v0.5.0/Writ_0.5.0_x64_en-US.msi
+    InstallerUrl: https://github.com/ibrahemid/writ/releases/download/v0.5.0/Jotra_0.5.0_x64_en-US.msi
     InstallerSha256: 56006b86adda661cc6fccf806fb7d31087c4cc1b48c730621279a6edb8e41079
     InstallerSwitches:
       Silent: /quiet
@@ -82,10 +90,11 @@ ManifestVersion: 1.6.0
 LOCALE_MANIFEST = """PackageIdentifier: ibrahemid.Writ
 PackageVersion: 0.5.0
 PackageLocale: en-US
+PackageName: Old
 ShortDescription: Old short description
 Description: |-
   Old description.
-Moniker: writ
+Moniker: old
 Tags:
   - editor
 ReleaseNotesUrl: https://github.com/ibrahemid/writ/releases/tag/v0.5.0
@@ -132,18 +141,50 @@ class ParseProductCodeTests(unittest.TestCase):
         with self.assertRaises(MODULE.MsiReadError):
             MODULE.parse_product_code(table)
 
+    def test_reads_the_upgrade_code_row(self) -> None:
+        self.assertEqual(MODULE.parse_upgrade_code(PROPERTY_TABLE), UPGRADE_CODE)
+
+    def test_refuses_a_table_without_an_upgrade_code(self) -> None:
+        table = PROPERTY_TABLE.replace(f"UpgradeCode\t{UPGRADE_CODE}\r\n", "")
+        with self.assertRaisesRegex(MODULE.MsiReadError, "UpgradeCode"):
+            MODULE.parse_upgrade_code(table)
+
+
+def rewrite_installer(manifest: str) -> str:
+    return MODULE.rewrite_installer(
+        manifest,
+        installer_url="https://example.com/Jotra.msi",
+        sha_msi="0" * 64,
+        release_date="2026-10-05",
+        product_code=NEW_PRODUCT_CODE,
+        upgrade_code=UPGRADE_CODE,
+    )
+
+
+APPS_AND_FEATURES_ENTRIES = (
+    f'    ProductCode: "{NEW_PRODUCT_CODE}"\n'
+    "    AppsAndFeaturesEntries:\n"
+    "      - DisplayName: Jotra\n"
+    f'        UpgradeCode: "{UPGRADE_CODE}"\n'
+    "ManifestType: installer\n"
+)
+
 
 class RewriteInstallerTests(unittest.TestCase):
     def test_refuses_a_manifest_without_a_product_code_line(self) -> None:
         manifest = INSTALLER_MANIFEST.replace(f'    ProductCode: "{OLD_PRODUCT_CODE}"\n', "")
         with self.assertRaises(MODULE.ManifestFormatError):
-            MODULE.rewrite_installer(
-                manifest,
-                installer_url="https://example.com/Writ.msi",
-                sha_msi="0" * 64,
-                release_date="2026-10-05",
-                product_code=NEW_PRODUCT_CODE,
-            )
+            rewrite_installer(manifest)
+
+    def test_adds_the_apps_and_features_entry_after_the_product_code(self) -> None:
+        self.assertIn(APPS_AND_FEATURES_ENTRIES, rewrite_installer(INSTALLER_MANIFEST))
+
+    def test_replaces_an_apps_and_features_entry_the_source_already_has(self) -> None:
+        result = rewrite_installer(rewrite_installer(INSTALLER_MANIFEST).replace("Jotra\n", "Stale\n"))
+
+        self.assertIn(APPS_AND_FEATURES_ENTRIES, result)
+        self.assertEqual(result.count("AppsAndFeaturesEntries:"), 1)
+        self.assertNotIn("Stale", result)
 
 
 class BumpFromReleasedMsiTests(unittest.TestCase):
@@ -161,7 +202,7 @@ class BumpFromReleasedMsiTests(unittest.TestCase):
         (source / "ibrahemid.Writ.locale.en-US.yaml").write_text(LOCALE_MANIFEST)
         (source / "ibrahemid.Writ.yaml").write_text(VERSION_MANIFEST)
 
-        self.msi = self.root / "artifacts" / "Writ_0.5.1_x64_en-US.msi"
+        self.msi = self.root / "artifacts" / "Jotra_0.5.1_x64_en-US.msi"
         self.msi.parent.mkdir()
         self.msi.write_bytes(b"msi")
 
@@ -201,11 +242,27 @@ class BumpFromReleasedMsiTests(unittest.TestCase):
         self.assertNotIn(OLD_PRODUCT_CODE, installer)
         self.assertIn("PackageVersion: 0.5.1\n", installer)
         self.assertIn(
-            "InstallerUrl: https://github.com/ibrahemid/writ/releases/download/v0.5.1/Writ_0.5.1_x64_en-US.msi\n",
+            "InstallerUrl: https://github.com/ibrahemid/writ/releases/download/v0.5.1/Jotra_0.5.1_x64_en-US.msi\n",
             installer,
         )
         self.assertIn(f"InstallerSha256: {'a' * 64}\n", installer)
         self.assertIn("ReleaseDate: 2026-10-05\n", installer)
+        self.assertIn(APPS_AND_FEATURES_ENTRIES, installer)
+
+    def test_locale_manifest_takes_the_package_name_and_moniker(self) -> None:
+        self.run_bump()
+
+        locale = (self.target() / "ibrahemid.Writ.locale.en-US.yaml").read_text()
+        self.assertIn("PackageName: Jotra\n", locale)
+        self.assertIn("Moniker: jotra\n", locale)
+        self.assertIn("ReleaseNotesUrl: https://github.com/ibrahemid/writ/releases/tag/v0.5.1\n", locale)
+
+    def test_refuses_an_msi_without_an_upgrade_code(self) -> None:
+        self.table.write_text(PROPERTY_TABLE.replace(f"UpgradeCode\t{UPGRADE_CODE}\r\n", ""), newline="")
+
+        with self.assertRaisesRegex(MODULE.MsiReadError, "UpgradeCode"):
+            self.run_bump()
+        self.assertFalse(self.target().exists())
 
     def test_refuses_to_inherit_the_previous_product_code(self) -> None:
         self.table.write_text(

@@ -462,18 +462,18 @@ describe("ContextMenu platform chrome", () => {
 
   it("gives the Windows flyout its 1px stroke", () => {
     expect(declarations(':root[data-platform="win"] .context-menu').get("border")).toBe(
-      "1px solid var(--writ-win-stroke)",
+      "1px solid var(--jotra-win-stroke)",
     );
   });
 
   it("takes the sheet and row radii from the platform tokens", () => {
-    expect(declarations(".context-menu").get("border-radius")).toBe("var(--writ-r-popover)");
-    expect(declarations(".context-menu-item").get("border-radius")).toBe("var(--writ-r-row)");
+    expect(declarations(".context-menu").get("border-radius")).toBe("var(--jotra-r-popover)");
+    expect(declarations(".context-menu-item").get("border-radius")).toBe("var(--jotra-r-row)");
   });
 
   it("keeps GNOME rows at the 32px minimum", () => {
     const row = declarations(':root[data-platform="linux"] .context-menu-item');
     expect(row.get("min-height")).toBe("32px");
-    expect(row.get("padding")).toBe("0 var(--writ-space-4)");
+    expect(row.get("padding")).toBe("0 var(--jotra-space-4)");
   });
 });

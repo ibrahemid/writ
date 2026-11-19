@@ -42,7 +42,7 @@ pub fn dev_server(config: &tauri::Config) -> Option<&Url> {
 
 /// Whether the main webview may navigate to `url` on one platform.
 ///
-/// Allowed everywhere: the preview scheme (`writ-preview://`), the app origin
+/// Allowed everywhere: the preview scheme (`jotra-preview://`), the app origin
 /// (`tauri://localhost`) and inert `about:` pages, plus the origin of
 /// `dev_server` when the app is served from one. On Windows, where WebView2
 /// serves every custom scheme as `http(s)://<scheme>.localhost` or
@@ -58,7 +58,7 @@ pub fn is_allowed_navigation_for(url: &str, windows: bool, dev_server: Option<&U
     }
     let host = parsed.host_str();
     match parsed.scheme() {
-        "writ-preview" => true,
+        "jotra-preview" => true,
         // The iframe parks on about:blank before the preview base is known.
         "about" => true,
         "tauri" => host == Some("localhost"),
@@ -70,8 +70,8 @@ pub fn is_allowed_navigation_for(url: &str, windows: bool, dev_server: Option<&U
                         "tauri.localhost"
                             | "ipc.localhost"
                             | "asset.localhost"
-                            | "writ-preview.document"
-                            | "writ-preview.chrome"
+                            | "jotra-preview.document"
+                            | "jotra-preview.chrome"
                     )
                 )
         }
@@ -92,8 +92,8 @@ mod tests {
         "https://tauri.localhost/index.html",
         "http://ipc.localhost/plugin%3Aevent%7Clisten",
         "http://asset.localhost/x.png",
-        "http://writ-preview.document/buf-1",
-        "http://writ-preview.chrome/blank",
+        "http://jotra-preview.document/buf-1",
+        "http://jotra-preview.chrome/blank",
     ];
 
     #[test]
@@ -101,8 +101,8 @@ mod tests {
         for windows in [false, true] {
             assert!(allowed("tauri://localhost", windows));
             assert!(allowed("tauri://localhost/index.html", windows));
-            assert!(allowed("writ-preview://document/buf-1", windows));
-            assert!(allowed("writ-preview://chrome/blank", windows));
+            assert!(allowed("jotra-preview://document/buf-1", windows));
+            assert!(allowed("jotra-preview://chrome/blank", windows));
         }
     }
 
@@ -146,11 +146,11 @@ mod tests {
 
     #[test]
     fn a_lookalike_preview_host_is_refused() {
-        // `writ-preview.document` is an exact host; a registrable domain that
+        // `jotra-preview.document` is an exact host; a registrable domain that
         // merely starts with it must not pass.
         for windows in [false, true] {
-            assert!(!allowed("http://writ-preview.evil.example/", windows));
-            assert!(!allowed("http://writ-preview.document.evil/", windows));
+            assert!(!allowed("http://jotra-preview.evil.example/", windows));
+            assert!(!allowed("http://jotra-preview.document.evil/", windows));
             assert!(!allowed("http://tauri.localhost.evil/", windows));
         }
     }

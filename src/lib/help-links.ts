@@ -1,6 +1,6 @@
 import type { Platform } from "./platform";
 
-/** The site's documentation, which Help, Writ Help opens. */
+/** The site's documentation, which Help, Jotra Help opens. */
 export const DOCS_URL = "https://writ.ibrahemid.com/docs/";
 
 const NEW_ISSUE_URL = "https://github.com/ibrahemid/writ/issues/new";

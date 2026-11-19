@@ -1,8 +1,8 @@
-.writ-icon {
-  width: var(--writ-icon-size);
-  height: var(--writ-icon-size);
+.jotra-icon {
+  width: var(--jotra-icon-size);
+  height: var(--jotra-icon-size);
   flex: none;
   fill: currentColor;
-  color: var(--writ-icon-color);
-  opacity: var(--writ-icon-opacity);
+  color: var(--jotra-icon-color);
+  opacity: var(--jotra-icon-opacity);
 }
