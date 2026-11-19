@@ -7,7 +7,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" KeyPath="yes" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" KeyPath="yes" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -15,7 +15,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -23,7 +23,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -31,7 +31,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -39,7 +39,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -47,7 +47,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -55,7 +55,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -63,7 +63,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -71,7 +71,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -79,7 +79,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -87,7 +87,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -95,7 +95,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -103,7 +103,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -111,7 +111,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -119,7 +119,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -127,7 +127,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -135,7 +135,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -143,7 +143,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -151,7 +151,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -159,7 +159,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -167,7 +167,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -175,7 +175,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -183,7 +183,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -191,7 +191,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -199,7 +199,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -207,7 +207,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -215,7 +215,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -223,7 +223,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -231,7 +231,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -239,7 +239,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -247,7 +247,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -255,7 +255,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -263,7 +263,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -271,7 +271,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -279,7 +279,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -287,7 +287,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -295,7 +295,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -303,7 +303,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -311,7 +311,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -319,7 +319,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -327,7 +327,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -335,7 +335,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -343,7 +343,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -351,7 +351,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -359,7 +359,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -367,7 +367,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>
@@ -375,7 +375,7 @@
                     <RegistryKey Key="shell\open">
                         <RegistryValue Type="string" Value="Open with Jotra" />
                         <RegistryKey Key="command">
-                            <RegistryValue Type="string" Value="&quot;[#Path]&quot; &quot;%1&quot;" />
+                            <RegistryValue Type="string" Value="&quot;[INSTALLDIR]jotra-tauri.exe&quot; &quot;%1&quot;" />
                         </RegistryKey>
                     </RegistryKey>
                 </RegistryKey>

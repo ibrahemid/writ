@@ -846,6 +846,30 @@ class UpgradeChecksWorkflowTests(unittest.TestCase):
         self.assertIn("install_dir: [default, custom]", self.jobs["msi-upgrade"])
         self.assertIn("- owner: admin\n            previous: '*_universal.pkg'", self.jobs["macos-upgrade"])
 
+    def test_each_check_runs_when_its_own_build_leg_left_bundles(self) -> None:
+        self.assertIn("    strategy:\n      fail-fast: false\n", self.jobs["build"])
+        legs = {
+            "upgrade-linux": "Linux (x64)",
+            "upgrade-windows": "Windows (x64)",
+            "upgrade-macos": "macOS (universal)",
+        }
+        for name in UPGRADE_SCRIPTS:
+            job = self.jobs[name]
+            with self.subTest(job=name):
+                self.assertEqual(job_condition(job), "${{ !cancelled() && needs.plan.result == 'success' }}")
+                steps = job_steps(job)
+                downloads = [
+                    step for step in steps if (step_uses(step) or "").startswith("actions/download-artifact@")
+                ]
+                self.assertEqual(downloads, steps[:1])
+                download, stop = steps[0], steps[1]
+                artifact = artifact_name(download)
+                self.assertIn(artifact, legs)
+                self.assertIn("        id: bundles\n        continue-on-error: true\n", download)
+                self.assertIn("        if: steps.bundles.outcome != 'success'\n", stop)
+                self.assertIn(f"The Build ({legs[artifact]}) job of this run uploaded no {artifact} artifact", stop)
+                self.assertTrue(step_script(stop).rstrip().endswith("exit 1"))
+
     def test_it_reads_the_same_previous_release_as_the_release_workflow(self) -> None:
         for name in UPGRADE_SCRIPTS:
             mine = [step for step in job_steps(self.jobs[name]) if "gh release download" in step]

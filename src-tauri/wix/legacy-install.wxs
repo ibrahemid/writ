@@ -30,6 +30,21 @@
                      Before="CostFinalize"
                      Sequence="both">NOT Installed AND NOT INSTALLDIR AND LEGACYLAUNCHER</SetProperty>
 
+        <Property Id="LEGACYDESKTOPSHORTCUT" Secure="yes">
+            <DirectorySearch Id="LegacyDesktopShortcutSearch"
+                             Path="[DesktopFolder]"
+                             Depth="0">
+                <FileSearch Id="LegacyDesktopShortcutFile"
+                            Name="Writ.lnk" />
+            </DirectorySearch>
+        </Property>
+
+        <SetProperty Id="DESKTOPSHORTCUTEXISTS"
+                     Action="SetDesktopShortcutFromLegacy"
+                     Value="[LEGACYDESKTOPSHORTCUT]"
+                     Before="CostFinalize"
+                     Sequence="both">NOT Installed AND NOT DESKTOPSHORTCUTEXISTS AND LEGACYDESKTOPSHORTCUT</SetProperty>
+
         <DirectoryRef Id="ProgramMenuFolder">
             <Directory Id="LegacyProgramsFolder" Name="Writ" />
         </DirectoryRef>

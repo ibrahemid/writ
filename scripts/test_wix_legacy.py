@@ -54,7 +54,7 @@ TEMPLATE_DIRECTORIES = {
 }
 TEMPLATE_FILE_IDS = {"Path"}
 GUID_PATTERN = re.compile(r"[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}")
-OPEN_COMMAND = '"[#Path]" "%1"'
+OPEN_COMMAND = '"[INSTALLDIR]jotra-tauri.exe" "%1"'
 
 
 def tag(name: str) -> str:
@@ -192,14 +192,17 @@ class WixFragmentTests(unittest.TestCase):
                     with self.subTest(element=element.get("Id")):
                         self.assertIn(element.get("Directory"), known)
 
-    def test_formatted_strings_reference_template_files_by_long_path(self) -> None:
-        for path, root in load_fragments().items():
+    def test_formatted_strings_reference_only_files_the_fragments_install(self) -> None:
+        roots = load_fragments()
+        fragment_files = {element.get("Id") for root in roots.values() for element in root.iter(tag("File"))}
+        for path, root in roots.items():
             for element in root.iter():
                 for value in element.attrib.values():
                     with self.subTest(path=path, value=value):
                         self.assertNotRegex(value, r"\[[!$]")
                         for file_id in re.findall(r"\[#([^\]]+)\]", value):
-                            self.assertIn(file_id, TEMPLATE_FILE_IDS)
+                            self.assertNotIn(file_id, TEMPLATE_FILE_IDS, "ICE69: the template's files sit in other features")
+                            self.assertIn(file_id, fragment_files)
 
 
 class LegacyInstallFolderTests(unittest.TestCase):
@@ -227,7 +230,11 @@ class LegacyInstallFolderTests(unittest.TestCase):
         self.assertIsNone(file_search.get("ShortName"))
 
     def test_install_dir_is_set_from_the_registry_then_the_file_before_costing(self) -> None:
-        actions = {element.get("Action"): element for element in self.root.iter(tag("SetProperty"))}
+        actions = {
+            element.get("Action"): element
+            for element in self.root.iter(tag("SetProperty"))
+            if element.get("Id") == "INSTALLDIR"
+        }
         self.assertEqual(set(actions), {"SetInstallDirFromLegacyKey", "SetInstallDirFromLegacyLauncher"})
         for action in actions.values():
             with self.subTest(action=action.get("Action")):
@@ -249,6 +256,21 @@ class LegacyInstallFolderTests(unittest.TestCase):
         launcher = actions["SetInstallDirFromLegacyLauncher"]
         self.assertEqual(launcher.get("Value"), f"[ProgramFiles64Folder]{LEGACY_NAME}\\")
         self.assertEqual(launcher.text, "NOT Installed AND NOT INSTALLDIR AND LEGACYLAUNCHER")
+
+    def test_a_legacy_desktop_shortcut_keeps_the_desktop_shortcut(self) -> None:
+        prop = find_one(self.root, "Property", Id="LEGACYDESKTOPSHORTCUT")
+        self.assertEqual(prop.get("Secure"), "yes")
+        directory = find_one(prop, "DirectorySearch")
+        self.assertEqual(directory.get("Path"), "[DesktopFolder]")
+        self.assertEqual(directory.get("Depth"), "0")
+        self.assertEqual(find_one(directory, "FileSearch").get("Name"), f"{LEGACY_NAME}.lnk")
+        action = find_one(self.root, "SetProperty", Id="DESKTOPSHORTCUTEXISTS")
+        self.assertEqual(action.get("Action"), "SetDesktopShortcutFromLegacy")
+        self.assertEqual(action.get("Value"), "[LEGACYDESKTOPSHORTCUT]")
+        self.assertEqual(action.get("Before"), "CostFinalize")
+        self.assertEqual(action.get("Sequence"), "both")
+        self.assertIsNone(action.get("After"))
+        self.assertEqual(action.text, "NOT Installed AND NOT DESKTOPSHORTCUTEXISTS AND LEGACYDESKTOPSHORTCUT")
 
     def test_conditions_name_only_defined_search_properties(self) -> None:
         defined = {prop.get("Id") for prop in self.root.iter(tag("Property"))}
@@ -381,24 +403,50 @@ class GeneratorTests(unittest.TestCase):
         with self.assertRaises(GENERATOR.GenerationError):
             GENERATOR.get_associations(self.conf([]))
         with self.assertRaises(GENERATOR.GenerationError):
-            GENERATOR.render_fragment("Jotra", [])
+            GENERATOR.render_fragment("Jotra", "jotra-tauri", [])
 
     def test_a_description_is_escaped_for_xml_and_formatted_strings(self) -> None:
         associations = GENERATOR.get_associations(self.conf([{"ext": ["md"], "description": 'Notes [draft] "x" & {y}'}]))
-        document = GENERATOR.render_fragment("Jotra", associations)
+        document = GENERATOR.render_fragment("Jotra", "jotra-tauri", associations)
         key = find_one(ET.fromstring(document), "RegistryKey", Key=f"Software\\Classes\\{LEGACY_NAME}.md")
         self.assertEqual(default_value_of(key), 'Notes [\\[]draft[\\]] "x" & [\\{]y[\\}]')
-        self.assertNotIn("{{", GENERATOR.render_fragment("{{x}}", associations))
+        self.assertNotIn("{{", GENERATOR.render_fragment("{{x}}", "jotra-tauri", associations))
 
-    def test_the_open_command_names_the_main_binary_by_long_path(self) -> None:
+    def test_the_open_command_names_the_main_binary_in_the_install_folder(self) -> None:
         associations = GENERATOR.get_associations(self.conf([{"ext": ["md"]}]))
-        root = ET.fromstring(GENERATOR.render_fragment("Jotra", associations))
+        root = ET.fromstring(GENERATOR.render_fragment("Jotra", "jotra-tauri", associations))
         command = find_one(root, "RegistryKey", Key="command")
-        self.assertEqual(default_value_of(command), '"[#Path]" "%1"')
+        self.assertEqual(default_value_of(command), '"[INSTALLDIR]jotra-tauri.exe" "%1"')
+
+    def test_the_main_binary_is_the_cargo_package_unless_the_config_names_one(self) -> None:
+        manifest = {"package": {"name": "jotra-tauri"}}
+        self.assertEqual(GENERATOR.get_main_binary_name({}, manifest), "jotra-tauri")
+        self.assertEqual(GENERATOR.get_main_binary_name({"mainBinaryName": "Jotra"}, manifest), "Jotra")
+
+    def test_a_main_binary_name_that_cannot_sit_in_the_command_is_rejected(self) -> None:
+        for conf, manifest in (
+            ({}, {}),
+            ({}, {"package": {}}),
+            ({}, {"package": {"name": 'a"b'}}),
+            ({"mainBinaryName": "[x]"}, {"package": {"name": "jotra-tauri"}}),
+            ({"mainBinaryName": "a\\b"}, {"package": {"name": "jotra-tauri"}}),
+            ({"mainBinaryName": ""}, {"package": {"name": "jotra-tauri"}}),
+        ):
+            with self.subTest(conf=conf, manifest=manifest):
+                with self.assertRaisesRegex(GENERATOR.GenerationError, "cannot name the main binary"):
+                    GENERATOR.get_main_binary_name(conf, manifest)
+
+    def test_an_unreadable_manifest_is_reported(self) -> None:
+        broken = pathlib.Path(self.tmp.name) / "Cargo.toml"
+        broken.write_text("[package\n", encoding="utf-8")
+        for manifest in (broken, pathlib.Path(self.tmp.name) / "missing.toml"):
+            with self.subTest(manifest=manifest.name):
+                with self.assertRaisesRegex(GENERATOR.GenerationError, "cannot read"):
+                    GENERATOR.generate(TAURI_CONF, manifest)
 
     def test_the_first_progid_carries_the_key_path(self) -> None:
         associations = GENERATOR.get_associations(self.conf([{"ext": ["md", "txt"]}]))
-        root = ET.fromstring(GENERATOR.render_fragment("Jotra", associations))
+        root = ET.fromstring(GENERATOR.render_fragment("Jotra", "jotra-tauri", associations))
         key_paths = [value for value in root.iter(tag("RegistryValue")) if value.get("KeyPath") == "yes"]
         self.assertEqual(len(key_paths), 1)
         first = find_one(root, "RegistryKey", Key=f"Software\\Classes\\{LEGACY_NAME}.md")

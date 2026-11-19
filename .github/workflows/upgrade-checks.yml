@@ -305,20 +305,30 @@ jobs:
   deb-upgrade:
     name: Upgrade the deb over the previous release
     needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-22.04
     steps:
+      - name: Download the Linux build
+        id: bundles
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: upgrade-linux
+          path: upgrade-linux
+
+      - name: Stop when the Linux build left no bundles
+        if: steps.bundles.outcome != 'success'
+        shell: bash
+        run: |
+          echo "::error title=No Linux bundles::The Build (Linux (x64)) job of this run uploaded no upgrade-linux artifact, so there is nothing to install. Its log holds the cause."
+          exit 1
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             .github/scripts
-
-      - name: Download the Linux build
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
-        with:
-          name: upgrade-linux
-          path: upgrade-linux
 
       - name: Download the deb of the previous release
         env:
@@ -350,20 +360,30 @@ jobs:
   deb-desktop-upgrade:
     name: Keep the desktop integration through a deb update
     needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-22.04
     steps:
+      - name: Download the Linux build
+        id: bundles
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: upgrade-linux
+          path: upgrade-linux
+
+      - name: Stop when the Linux build left no bundles
+        if: steps.bundles.outcome != 'success'
+        shell: bash
+        run: |
+          echo "::error title=No Linux bundles::The Build (Linux (x64)) job of this run uploaded no upgrade-linux artifact, so there is nothing to install. Its log holds the cause."
+          exit 1
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             .github/scripts
-
-      - name: Download the Linux build
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
-        with:
-          name: upgrade-linux
-          path: upgrade-linux
 
       - name: Download the deb of the previous release
         env:
@@ -395,8 +415,24 @@ jobs:
   install-sh-upgrade:
     name: Run install.sh over the previous release's install
     needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-22.04
     steps:
+      - name: Download the Linux build
+        id: bundles
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: upgrade-linux
+          path: upgrade-linux
+
+      - name: Stop when the Linux build left no bundles
+        if: steps.bundles.outcome != 'success'
+        shell: bash
+        run: |
+          echo "::error title=No Linux bundles::The Build (Linux (x64)) job of this run uploaded no upgrade-linux artifact, so there is nothing to install. Its log holds the cause."
+          exit 1
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
@@ -407,12 +443,6 @@ jobs:
             scripts/install-minisign.sh
             scripts/test_install_sh.py
             scripts/test_install_sh_legacy.py
-
-      - name: Download the Linux build
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
-        with:
-          name: upgrade-linux
-          path: upgrade-linux
 
       - name: Download the previous release's AppImage and install.sh
         env:
@@ -462,8 +492,24 @@ jobs:
   aur-upgrade:
     name: Build and install writ-bin over the previous release
     needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Download the Linux build
+        id: bundles
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: upgrade-linux
+          path: upgrade-linux
+
+      - name: Stop when the Linux build left no bundles
+        if: steps.bundles.outcome != 'success'
+        shell: bash
+        run: |
+          echo "::error title=No Linux bundles::The Build (Linux (x64)) job of this run uploaded no upgrade-linux artifact, so there is nothing to install. Its log holds the cause."
+          exit 1
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
@@ -473,12 +519,6 @@ jobs:
             /LICENSE
             packaging/aur/writ-bin/PKGBUILD
             scripts/packaging_bump_aur.py
-
-      - name: Download the Linux build
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
-        with:
-          name: upgrade-linux
-          path: upgrade-linux
 
       - name: Download the previous release's AppImage and PKGBUILD
         env:
@@ -521,12 +561,28 @@ jobs:
   msi-upgrade:
     name: Upgrade the MSI over the previous release (${{ matrix.install_dir }} folder)
     needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
         install_dir: [default, custom]
     steps:
+      - name: Download the Windows build
+        id: bundles
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: upgrade-windows
+          path: windows-msi
+
+      - name: Stop when the Windows build left no bundles
+        if: steps.bundles.outcome != 'success'
+        shell: bash
+        run: |
+          echo "::error title=No Windows bundles::The Build (Windows (x64)) job of this run uploaded no upgrade-windows artifact, so there is nothing to install. Its log holds the cause."
+          exit 1
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
@@ -534,12 +590,6 @@ jobs:
           sparse-checkout: |
             .github/scripts
             src-tauri/wix/legacy-progids.wxs
-
-      - name: Download the Windows build
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
-        with:
-          name: upgrade-windows
-          path: windows-msi
 
       - name: Download the MSI of the previous release
         env:
@@ -573,6 +623,7 @@ jobs:
   macos-upgrade:
     name: Update the macOS app over the previous release (${{ matrix.owner }}-owned)
     needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -583,18 +634,27 @@ jobs:
           - owner: admin
             previous: '*_universal.pkg'
     steps:
+      - name: Download the macOS build
+        id: bundles
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: upgrade-macos
+          path: upgrade-macos
+
+      - name: Stop when the macOS build left no bundles
+        if: steps.bundles.outcome != 'success'
+        shell: bash
+        run: |
+          echo "::error title=No macOS bundles::The Build (macOS (universal)) job of this run uploaded no upgrade-macos artifact, so there is nothing to install. Its log holds the cause."
+          exit 1
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             .github/scripts
-
-      - name: Download the macOS build
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
-        with:
-          name: upgrade-macos
-          path: upgrade-macos
 
       - name: Download the previous release
         env:

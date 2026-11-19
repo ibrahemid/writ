@@ -279,9 +279,9 @@ The index inside `~/.writ` is always `writ.db`, and the index inside `~/.jotra` 
 
 **AUMID.** The app calls `SetCurrentProcessExplicitAppUserModelID` with `com.writ.editor`, matching the Start Menu shortcut, so windows group with pins made from either shortcut.
 
-**Shortcuts.** The fragment removes `Writ.lnk` from `ProgramMenuFolder` and `DesktopFolder` with `RemoveFile` at install, and the template creates `Jotra.lnk`. Taskbar pins belong to the user and stay.
+**Shortcuts.** The fragment removes `Writ.lnk` from `ProgramMenuFolder` and `DesktopFolder` with `RemoveFile` at install, and the template creates `Jotra.lnk`. The template recreates the desktop shortcut during an upgrade only when `DESKTOPSHORTCUTEXISTS` is set, and its search looks for `Jotra.lnk`, so the fragment also searches the desktop for `Writ.lnk` and sets that property before `CostFinalize`. Taskbar pins belong to the user and stay.
 
-**ProgIds.** The fragment `src-tauri/wix/legacy-progids.wxs` registers `Writ.<ext>` with the same open command as `Jotra.<ext>`. That keeps valid any `UserChoice` hash that names `Writ.<ext>`. `scripts/gen-legacy-progids.py` generates the fragment from the file associations in `tauri.conf.json`, and CI runs it with `--check`.
+**ProgIds.** The fragment `src-tauri/wix/legacy-progids.wxs` registers `Writ.<ext>` with the same open command as `Jotra.<ext>`, naming `[INSTALLDIR]jotra-tauri.exe` by folder, since ICE69 rejects a `[#Path]` reference from a component outside the features that hold that file. That keeps valid any `UserChoice` hash that names `Writ.<ext>`. `scripts/gen-legacy-progids.py` generates the fragment from the file associations in `tauri.conf.json`, and CI runs it with `--check`.
 
 **URL protocols.** Both `jotra` and `writ` are registered.
 
@@ -292,7 +292,7 @@ The index inside `~/.writ` is always `writ.db`, and the index inside `~/.jotra` 
 **Login item.** A per-user step moves `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Writ` to `Run\Jotra` and copies its `StartupApproved\Run` state.
 
 **Test**
-- `scripts/test_wix_legacy.py` asserts the searches, the sequencing, the `RemoveFile` entries, ProgIds that match the config, and the new PATH GUID.
+- `scripts/test_wix_legacy.py` asserts the searches, the sequencing, the `RemoveFile` entries, the desktop shortcut search, ProgIds that match the config, file references ICE69 accepts, and the new PATH GUID.
 - A Rust test runs the Run-value migration over a registry trait.
 - Windows VM tests are listed in decision 16.
 

@@ -148,7 +148,7 @@ class InstallMinisignTests(unittest.TestCase):
             self.assertNotIn("jedisct1/minisign/releases", text, workflow.name)
             if "bash scripts/install-minisign.sh" in text:
                 callers.append(workflow.name)
-        self.assertEqual(callers, ["ci.yml", "release.yml"])
+        self.assertEqual(callers, ["ci.yml", "release.yml", "upgrade-checks.yml"])
 
 
 if __name__ == "__main__":
